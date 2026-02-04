@@ -1,0 +1,81 @@
+# Bot Trading - Gitignore
+
+# ============================================================================
+# SEGURIDAD CRÍTICA - WALLETS Y CLAVES PRIVADAS
+# ============================================================================
+operational/wallets/*.key
+operational/wallets/*.json
+operational/wallets/*.txt
+operational/wallets/private_keys/
+operational/.rpc_config
+
+# KeePassXC database (si se crea en el proyecto)
+*.kdbx
+
+# ============================================================================
+# LOGS Y ARCHIVOS TEMPORALES
+# ============================================================================
+operational/logs/*.log
+operational/logs/*.txt
+*.log
+
+# ============================================================================
+# DATASETS Y MODELOS (muy grandes)
+# ============================================================================
+intelligence/datasets/*.csv
+intelligence/datasets/*.json
+intelligence/datasets/*.parquet
+intelligence/models/*.pkl
+intelligence/models/*.h5
+intelligence/models/*.pth
+
+# ============================================================================
+# BUILD ARTIFACTS (C++/Rust)
+# ============================================================================
+core/build/
+core/bin/
+core/lib/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+
+# Rust
+core/target/
+Cargo.lock
+
+# ============================================================================
+# IDE Y EDITORES
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ============================================================================
+# PYTHON
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+env/
+.env
+
+# ============================================================================
+# NODE (si se usa)
+# ============================================================================
+node_modules/
+package-lock.json
+
+# ============================================================================
+# SISTEMA
+# ============================================================================
+.cache/
+*.bak
+*.tmp
