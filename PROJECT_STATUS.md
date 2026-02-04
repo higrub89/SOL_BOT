@@ -17,6 +17,8 @@
 ### Scripts Operacionales
 - [x] `trading_session.sh` - Inicializador de sesión con checks de seguridad
 - [x] `wallet_monitor.py` - Monitor de balance en tiempo real
+- [x] `helius_engine.py` - Motor de Helius con check de latencia quirúrgico (<150ms)
+- [x] `audit_sniper.py` - Auditoría automática (RugCheck + DexScreener en 3 segundos)
 - [x] Templates de auditoría automáticos
 
 ### Documentación

@@ -54,14 +54,15 @@ FASE 1 (HOY)          FASE 2 (1-2 MESES)       FASE 3 (3-6 MESES)
 
 ### Módulo 2.1: Listener de Blockchain (C++/Rust)
 
-**Objetivo:** Escuchar eventos de Solana en tiempo real sin depender de interfaces web.
+**Objetivo:** Escuchar eventos de Solana en tiempo real sin depender de interfaces web ni polling HTTP.
 
-#### Tecnologías
+#### Tecnologías Prioritarias
 - **Lenguaje:** Rust (rendimiento + seguridad de memoria)
-- **Librería:** `solana-client` crate
-- **Conectividad:** WebSocket + gRPC (Yellowstone Geyser)
+- **Conectividad:** **Yellowstone Geyser gRPC** (Latencia de microsegundos vs 400ms de HTTP)
+- **Infraestructura:** Evaluar migración a **Nodo Dedicado Helius** si la latencia promedio > 200ms
 
 #### Funcionalidad
+- Streaming directo de slots y transacciones
 - Detectar nuevos pools de liquidez en Raydium/Pump.fun
 - Filtrar automáticamente por criterios (LP burned, mint disabled)
 - Alertas en terminal cuando un token cumple todos los filtros

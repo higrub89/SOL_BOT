@@ -89,10 +89,14 @@ python3 operational/scripts/wallet_monitor.py TU_DIRECCION_DE_WALLET
 ### A. Preparar el entorno
 1. Abre **RugCheck.xyz** en tu navegador: https://rugcheck.xyz
 2. Abre **Dexscreener**: https://dexscreener.com/solana
-3. Ten el template de auditoría listo:
+    ```bash
+    nano operational/audits/audit_template_YYYYMMDD.md
+    ```
+4. **Verificar Salud de Red (Quirúrgico):**
    ```bash
-   nano operational/audits/audit_template_YYYYMMDD.md
+   python3 operational/scripts/helius_engine.py
    ```
+   *   Si la latencia es **> 150ms**, aborta el sniping. El terreno no es óptimo para competir.
 
 ### B. Buscar un token candidato
 En Dexscreener, filtra por:
@@ -195,6 +199,7 @@ Antes de comenzar, asegúrate:
 - [ ] Burner wallet fondeada (1-2 SOL)
 - [ ] RugCheck y Dexscreener abiertos
 - [ ] Template de auditoría listo
+- [ ] Salud de red verificada (< 150ms)
 - [ ] KeePassXC instalado y configurado
 
 ---
