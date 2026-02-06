@@ -1,8 +1,8 @@
 # 📊 ESTADO DEL PROYECTO - Bot Trading
 
-**Última Actualización:** 2026-02-04 16:18  
+**Última Actualización:** 2026-02-06 14:21  
 **Fase Actual:** FASE 1 - Operativa Táctica  
-**Estado:** 🟢 LISTO PARA OPERAR
+**Estado:** 🟢 OPERATIVO - Post-Mortem Día 7
 
 ---
 
@@ -25,6 +25,8 @@
 - [x] `QUICKSTART.md` - Guía paso a paso desde cero
 - [x] `TECHNICAL_ROADMAP.md` - Plan de evolución a 6 meses
 - [x] `README_SECURITY.md` - Protocolos de seguridad para wallets
+- [x] `PROTOCOLO_OPERACIONAL.md` - Guía detallada para trading en vivo ⭐ NUEVO
+- [x] `QUICK_CHECKLIST.txt` - Checklist rápida de referencia ⭐ NUEVO
 
 ### Testing
 - [x] Script de sesión probado y funcionando
@@ -35,25 +37,34 @@
 
 ## 🎯 Siguiente Paso Inmediato
 
-### ACCIÓN REQUERIDA (15 minutos)
-1. **Configurar RPC Privado en Helius:**
-   - Ir a: https://www.helius.dev/
-   - Crear cuenta (Plan Free)
-   - Copiar URL del RPC
-   - Ejecutar:
+### ACCIÓN REQUERIDA (10 minutos)
+
+**¡Ya tienes todo configurado! Solo falta:**
+
+1. **Fondear tu Burner Wallet:**
+   - En Trojan Bot, envía `/wallet` para ver tu dirección
+   - Desde Phantom/Solflare, envía **0.5-1 SOL** a esa dirección
+   - Verifica el balance:
      ```bash
-     echo 'TU_RPC_URL' > /home/ruben/Automatitation/bot_trading/operational/.rpc_config
+     python3 /home/ruben/Automatitation/bot_trading/operational/scripts/wallet_monitor.py TU_WALLET_ADDRESS
      ```
 
-2. **Configurar Trojan Bot:**
-   - Abrir Telegram Desktop
-   - Acceder SOLO desde: https://t.me/solana_trojanbot
-   - Seguir pasos de `docs/QUICKSTART.md` sección "Paso 3"
+2. **Instalar KeePassXC (Opcional pero recomendado):**
+   ```bash
+   sudo apt install keepassxc
+   ```
+   - Crea una base de datos nueva
+   - Guarda tus claves privadas ahí
 
 3. **Primera Operación:**
-   - Completar checklist de `QUICKSTART.md` Paso 5
-   - Fondear burner wallet con 0.5-1 SOL
-   - Hacer tu primer trade documentado
+   - Ejecutar sesión de trading:
+     ```bash
+     cd /home/ruben/Automatitation/bot_trading
+     ./operational/scripts/trading_session.sh
+     ```
+   - Seguir protocolo de auditoría (ver `docs/QUICKSTART.md`)
+   - Buscar tu primer token en Dexscreener
+   - ¡Hacer tu primer trade!
 
 ---
 
@@ -121,12 +132,12 @@ nano operational/audits/audit_template_YYYYMMDD.md
 
 | Métrica | Target | Estado |
 |---------|--------|--------|
-| Win Rate | >40% | Pendiente |
-| Operaciones Documentadas | 10+ | 0/10 |
-| Primer 2X | 1 | Pendiente |
+| Win Rate | >40% | 50% (1win/1loss) |
+| Operaciones Documentadas | 10+ | 2/10 ✅ |
+| Primer 2X | 1 | Pendiente (Máx: 1.46X) |
 | Primer 5X | 1 | Pendiente |
 | Primer 10X | 1 | Pendiente |
-| Rugs Evitados por Auditoría | N/A | 0 |
+| Rugs Evitados por Auditoría | N/A | 2 ($BCPR, fake $DOOM) ✅ |
 
 ---
 
@@ -144,25 +155,28 @@ nano operational/audits/audit_template_YYYYMMDD.md
 ## 🚀 Fase 1 - Checklist de Progreso
 
 ### Configuración Inicial
-- [ ] RPC privado configurado en Helius
-- [ ] Trojan Bot configurado con parámetros correctos
-- [ ] Burner wallet generada y clave exportada
+- [x] RPC privado configurado en Helius ✅
+- [x] Trojan Bot configurado con parámetros correctos ✅
+- [x] Burner wallet generada y clave exportada ✅
 - [ ] KeePassXC instalado y configurado
-- [ ] Primera wallet fondeada (0.5-1 SOL)
+- [x] Primera wallet fondeada (0.5-1 SOL) ✅
 
 ### Primeras Operaciones
-- [ ] Primera operación ejecutada
-- [ ] Primera auditoría completada
-- [ ] Primer Take Profit alcanzado (2X)
-- [ ] Primera sesión documentada en logs
-- [ ] Primera transferencia de ganancias a wallet principal
+- [x] Primera operación ejecutada ✅ ($SURVIVE | Resultado: -88%)
+- [x] Segunda operación EXITOSA ✅ ($DOOM | Resultado: +14.26% SOL | 14 ciclos)
+- [x] Primera auditoría completada ✅
+- [x] Primera lección aprendida: "No dejar que un +46% se convierta en pérdida" ✅
+- [x] Segunda lección: "Jito Tips + 14 ciclos = Fricción significativa" ✅
+- [x] Dos sesiones documentadas en logs ✅
+- [x] Recuperar capital inicial con estrategia defensiva ✅
 
 ### Preparación para Fase 2
-- [ ] 10 operaciones documentadas
-- [ ] Dataset de 20+ tokens analizados
-- [ ] Win Rate calculado
-- [ ] Primer token 5X+ capturado
+- [ ] 10 operaciones documentadas (2/10) ✅
+- [ ] Dataset de 20+ tokens analizados (5/20) ✅ ($SURVIVE, $DOOM fake, $DOOM, $BCPR, GOAT)
+- [x] Win Rate calculado (50%) ✅
+- [ ] Ajustar Stop Loss dinámico según volatilidad
 - [ ] Identificadas 10+ wallets de Smart Money
+- [ ] Implementar "The Chassis" (C++/Rust + Geyser) para reducir fricción
 
 ---
 
@@ -185,9 +199,10 @@ nano operational/audits/audit_template_YYYYMMDD.md
 ## 🎓 Próximos Hitos
 
 ### Corto Plazo (Esta Semana)
-1. Configurar RPC privado
-2. Completar primera operación
-3. Documentar 3 operaciones con auditorías
+1. ~~Configurar RPC privado~~ ✅ COMPLETADO
+2. Fondear burner wallet con 0.5-1 SOL
+3. Completar primera operación
+4. Documentar 3 operaciones con auditorías
 
 ### Medio Plazo (2-4 Semanas)
 1. Alcanzar 10 operaciones documentadas
