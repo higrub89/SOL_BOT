@@ -5,9 +5,9 @@
 use anyhow::Result;
 use chrono::Utc;
 use solana_client::rpc_client::RpcClient;
+use solana_sdk::signature::{Keypair, Signer};
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
-use std::fs;
 
 mod config;
 mod latency;
@@ -18,17 +18,17 @@ mod websocket;
 mod scanner;
 mod jupiter;
 mod executor_simple;
+mod executor_v2;
 mod telegram;
 mod telegram_commands;
 mod trailing_sl;
 mod liquidity_monitor;
 
-use config::{AppConfig, TargetConfig};
-use geyser::{GeyserClient, GeyserConfig};
+use config::AppConfig;
 use wallet::WalletMonitor;
 use emergency::{EmergencyMonitor, EmergencyConfig, Position};
 use scanner::PriceScanner;
-use executor_simple::SimpleExecutor;
+use executor_v2::{TradeExecutor, ExecutorConfig};
 use telegram::TelegramNotifier;
 use telegram_commands::CommandHandler;
 use trailing_sl::TrailingStopLoss;
@@ -41,7 +41,7 @@ const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
 async fn main() -> Result<()> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║         🏎️  THE CHASSIS - Solana Trading Engine          ║");
-    println!("║       v0.8.0 - Dynamic Config (Zero Recompile)            ║");
+    println!("║           v0.9.0 - Auto-Sell Ready (Sim Mode)             ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     // Cargar config y .env
@@ -60,13 +60,13 @@ async fn main() -> Result<()> {
     
     println!("✅ Configuración cargada:");
     println!("   • Targets activos: {}", app_config.targets.len());
-    println!("   • Auto-Execute:    {}", if app_config.global_settings.auto_execute { "ACTIVADO 🔴" } else { "DESACTIVADO 🟡" });
+    println!("   • Auto-Execute:    {}", if app_config.global_settings.auto_execute { "ACTIVADO 🔴" } else { "DESACTIVADO 🟡 (Dry-Run)" });
     println!("   • Intervalo:       {}s", app_config.global_settings.monitor_interval_sec);
 
     let api_key = std::env::var("HELIUS_API_KEY")
-        .unwrap_or_else(|_| "1d8b1813-084e-41ed-8e93-87a503c496c6".to_string());
+        .expect("HELIUS_API_KEY must be set");
     let wallet_addr = std::env::var("WALLET_ADDRESS")
-        .unwrap_or_else(|_| "6EJeiMFoBgQrUfbpt8jjXZdc5nASe2Kc8qzfVSyGrPQv".to_string());
+        .expect("WALLET_ADDRESS must be set");
     
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     
@@ -81,39 +81,58 @@ async fn main() -> Result<()> {
     // 2. Emergency System Multi-Target Setup
     println!("🛡️  EMERGENCY SYSTEM (Multi-Target):");
     
-    // Configuración base de emergencia
-    let base_emergency_config = EmergencyConfig {
-        max_loss_percent: -99.9,
-        min_sol_balance: app_config.global_settings.min_sol_balance,
-        min_asset_price: 0.0,
-        enabled: true,
-    };
-    
     let emergency_monitor = Arc::new(Mutex::new(
-        EmergencyMonitor::new(base_emergency_config)
+        EmergencyMonitor::new(EmergencyConfig {
+            max_loss_percent: -99.9,
+            min_sol_balance: app_config.global_settings.min_sol_balance,
+            min_asset_price: 0.0,
+            enabled: true,
+        })
     ));
     
     // Cargar targets activos
     for target in &app_config.targets {
         if !target.active { continue; }
         
-        let position = Position {
+        emergency_monitor.lock().unwrap().add_position(Position {
             token_mint: target.symbol.clone(),
             entry_price: target.entry_price,
             amount_invested: target.amount_sol,
             current_price: target.entry_price,
             current_value: target.amount_sol,
-        };
-        
-        emergency_monitor.lock().unwrap().add_position(position);
+        });
         println!("   • Cargado: {} (SL: {}%)", target.symbol, target.stop_loss_percent);
     }
 
     println!("\n───────────────────────────────────────────────────────────\n");
 
     // 3. Executor & Telegram Setup
-    println!("⚡ EXECUTOR STATUS: SIMPLE (Browser-based)");
-    let executor = Arc::new(SimpleExecutor::new());
+    println!("⚡ EXECUTOR STATUS: V2 (Auto-Sell Ready)");
+    let executor_config = ExecutorConfig::new(
+        rpc_url.clone(),
+        !app_config.global_settings.auto_execute, // dry_run es el inverso de auto_execute
+    );
+    let executor = Arc::new(TradeExecutor::new(executor_config));
+
+    // 3.1 Carga segura del Keypair si auto_execute está activado
+    let mut wallet_keypair: Option<Keypair> = None;
+    
+    if app_config.global_settings.auto_execute {
+        println!("🔑 Modo Auto-Execute: Cargando Keypair...");
+        if let Ok(pk_bs58) = std::env::var("WALLET_PRIVATE_KEY") {
+            // En esta versión del SDK, from_base58_string devuelve Keypair directamente
+            let kp = Keypair::from_base58_string(&pk_bs58);
+            println!("   • Keypair cargado correctamente para {}", kp.pubkey());
+            wallet_keypair = Some(kp);
+        } else {
+            eprintln!("   • ❌ Error: WALLET_PRIVATE_KEY no encontrado en .env.");
+        }
+    }
+    
+    if app_config.global_settings.auto_execute && wallet_keypair.is_none() {
+        println!("\n⚠️  ATENCIÓN: Auto-Execute está activado pero el Keypair no pudo ser cargado. El sistema operará en modo DRY-RUN o ALERTA como medida de seguridad.\n");
+    }
+
 
     // 3.5 Telegram Notifier & Command Handler Setup
     let telegram = Arc::new(TelegramNotifier::new());
@@ -139,7 +158,7 @@ async fn main() -> Result<()> {
     // 4. Network Benchmark
     println!("📡 NETWORK STATUS:");
     let start = Instant::now();
-    let rpc_client = RpcClient::new(rpc_url);
+    let rpc_client = RpcClient::new(rpc_url.clone());
     if let Ok(slot) = rpc_client.get_slot() {
         let latency = start.elapsed().as_millis();
         println!("   • Slot:     {}", slot);
@@ -147,10 +166,10 @@ async fn main() -> Result<()> {
     }
 
     println!("\n═══════════════════════════════════════════════════════════");
-    println!("  🚀 INICIANDO MONITOR DINÁMICO v0.8.0");
+    println!("  🚀 INICIANDO MONITOR DINÁMICO v0.9.0");
     println!("═══════════════════════════════════════════════════════════\n");
     println!("⏰ Start Time: {}", Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
-    println!("💡 Tip: Edita targets.json para cambiar SL en caliente (requiere reinicio rápido)\n");
+    println!("💡 Tip: Edita targets.json y reinicia para cambiar SL, Auto-Execute, etc.\n");
     
     println!("───────────────────────────────────────────────────────────\n");
 
@@ -160,7 +179,6 @@ async fn main() -> Result<()> {
     let telegram_clone = Arc::clone(&telegram);
     let executor_clone = Arc::clone(&executor);
     let active_targets = app_config.targets.clone();
-    let wallet_addr_clone = wallet_addr.clone();
 
     // Setup de Trailing SL y Liquidez para cada target
     let mut trailing_monitors: std::collections::HashMap<String, TrailingStopLoss> = std::collections::HashMap::new();
@@ -179,7 +197,6 @@ async fn main() -> Result<()> {
                     )
                 );
             }
-            // Monitor de liquidez por defecto para todos los activos
             liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
         }
     }
@@ -192,20 +209,15 @@ async fn main() -> Result<()> {
             // 1. Obtener precio
             match scanner.get_token_price(&target.mint).await {
                 Ok(price) => {
-                    // 2. Calcular valores
                     let tokens_held = target.amount_sol / target.entry_price;
                     let current_value = tokens_held * price.price_usd;
                     
-                    // 3. Actualizar monitor
                     let mut monitor = monitor_clone.lock().unwrap();
                     monitor.update_position(&target.symbol, price.price_usd, current_value);
                     
-                    // 4. Check específico para este target
                     if let Some(pos) = monitor.get_position(&target.symbol) {
                         let dd = pos.drawdown_percent();
                         let dist_to_sl = dd - target.stop_loss_percent;
-                        
-                        // Emoji status
                         let status_emoji = if dist_to_sl > 10.0 { "🟢" } else if dist_to_sl > 5.0 { "🟡" } else { "🔴" };
                         
                         println!("┌────────────────────────────────────────────────────────┐");
@@ -216,7 +228,7 @@ async fn main() -> Result<()> {
                         println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", target.stop_loss_percent, dist_to_sl);
                         println!("└────────────────────────────────────────────────────────┘");
 
-                        // 5. Lógica de Emergencia Dinámica
+                        // 5. Lógica de Emergencia Dinámica (con Auto-Sell)
                         if dd <= target.stop_loss_percent {
                             println!("\n╔════════════════════════════════════════════════════════════╗");
                             println!("║                  🚨 EMERGENCY ALERT! 🚨                   ║");
@@ -224,36 +236,33 @@ async fn main() -> Result<()> {
                             println!("╚════════════════════════════════════════════════════════════╝\n");
                             
                             if app_config.global_settings.auto_execute {
-                                println!("⚡ ABRIENDO JUPITER EN NAVEGADOR...");
-                                // Prepara la transacción visual
-                                match executor_clone.execute_emergency_sell_url(
+                                println!("⚡ AUTO-EXECUTING EMERGENCY SELL...");
+                                
+                                let sell_result = executor_clone.execute_emergency_sell(
                                     &target.mint,
-                                    &wallet_addr_clone,
-                                    // Estimamos balance total basado en inversión inicial (muy aproximado)
-                                    (tokens_held * 1_000_000.0) as u64, // Asumimos 6 decimales para quote informativo
-                                    &target.symbol
-                                ).await {
-                                    Ok(url) => {
-                                        // 📱 Enviar alerta de Telegram
-                                        let _ = telegram_clone.send_stop_loss_alert(
-                                            &target.symbol,
-                                            pos.current_price,
-                                            pos.entry_price,
-                                            dd,
-                                            target.stop_loss_percent,
-                                            &url
+                                    wallet_keypair.as_ref(), // Pasa la keypair opcional
+                                    100, // Vender 100% del balance del token
+                                ).await;
+
+                                match sell_result {
+                                    Ok(swap_result) => {
+                                        println!("✅ Venta automática completada: {}", swap_result.signature);
+                                        let _ = telegram_clone.send_message(
+                                            &format!("✅ Venta automática de {} completada.\nSignature: {}", target.symbol, swap_result.signature),
+                                            true
                                         ).await;
                                     }
                                     Err(e) => {
-                                        eprintln!("❌ Error ejecutando sell: {}", e);
+                                        eprintln!("❌ Error en auto-sell: {}", e);
+                                        println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
                                         let _ = telegram_clone.send_error_alert(
-                                            &format!("Error ejecutando venta de {}: {}", target.symbol, e)
+                                            &format!("❌ Error en auto-sell para {}: {}. SE REQUIERE ACCIÓN MANUAL.", target.symbol, e)
                                         ).await;
                                     }
                                 }
+
                             } else {
-                                println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
-                                // Enviar alerta de Telegram incluso en modo manual
+                                println!("⚠️  ACCIÓN MANUAL REQUERIDA (Auto-Execute desactivado)");
                                 let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
                                 let _ = telegram_clone.send_stop_loss_alert(
                                     &target.symbol,
@@ -266,14 +275,9 @@ async fn main() -> Result<()> {
                             }
                         }
                     }
-                    // 1. Logica de Trailing Stop-Loss (Feature B)
                     if let Some(tsl) = trailing_monitors.get_mut(&target.symbol) {
-                        if tsl.update(price.price_usd) {
-                            // Si el SL cambió, podemos avisar o simplemente dejar que actúe en el próximo check
-                        }
+                        if tsl.update(price.price_usd) {}
                     }
-
-                    // 2. Logica de Liquidez (Feature C)
                     if let Some(lm) = liquidity_monitors.get_mut(&target.symbol) {
                         let snapshot = LiquiditySnapshot {
                             timestamp: Utc::now().timestamp(),
@@ -288,8 +292,6 @@ async fn main() -> Result<()> {
                             let _ = telegram_clone.send_message(&msg, true).await;
                         }
                     }
-
-                    // 3. Logica de Emergencia (Standard / Trailing)
                     let current_sl = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
                         tsl.current_sl_percent
                     } else {
@@ -299,7 +301,6 @@ async fn main() -> Result<()> {
                     let drawdown = ((price.price_usd - target.entry_price) / target.entry_price) * 100.0;
                     
                     if drawdown <= current_sl {
-                        // DISPARAR ALERTA
                         let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
                         let _ = telegram_clone.send_stop_loss_alert(
                             &target.symbol,
@@ -315,13 +316,9 @@ async fn main() -> Result<()> {
                     eprintln!("⚠️  Error obteniendo precio de {}: {}", target.symbol, e);
                 }
             }
-            
-            // Breve pausa entre targets para no saturar
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        
-        // Pausa global del ciclo
         tokio::time::sleep(std::time::Duration::from_secs(app_config.global_settings.monitor_interval_sec)).await;
-        println!(""); // Salto de línea entre ciclos
+        println!("");
     }
 }
