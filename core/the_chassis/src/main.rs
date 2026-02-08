@@ -1,0 +1,198 @@
+//! # The Chassis - Solana Trading Engine
+//! 
+//! v0.8.0 - Dynamic Configuration (Zero Recompile)
+
+use anyhow::Result;
+use chrono::Utc;
+use solana_client::rpc_client::RpcClient;
+use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::fs;
+
+mod config;
+mod latency;
+mod geyser;
+mod wallet;
+mod emergency;
+mod websocket;
+mod scanner;
+mod executor;
+
+use config::{AppConfig, TargetConfig};
+use geyser::{GeyserClient, GeyserConfig};
+use wallet::WalletMonitor;
+use emergency::{EmergencyMonitor, EmergencyConfig, Position};
+use scanner::PriceScanner;
+use executor::{TradeExecutor, ExecutorConfig};
+
+/// Configuración del motor (API Keys siguen siendo estáticas por seguridad)
+const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║         🏎️  THE CHASSIS - Solana Trading Engine          ║");
+    println!("║       v0.8.0 - Dynamic Config (Zero Recompile)            ║");
+    println!("╚════════════════════════════════════════════════════════════╝\n");
+
+    // Cargar config y .env
+    dotenv::dotenv().ok();
+    
+    // Cargar configuración dinámica
+    println!("📂 Cargando configuración dinámica desde targets.json...");
+    let app_config = match AppConfig::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("❌ Error cargando targets.json: {}", e);
+            eprintln!("   Asegúrate de que el archivo existe en el directorio actual.");
+            return Ok(());
+        }
+    };
+    
+    println!("✅ Configuración cargada:");
+    println!("   • Targets activos: {}", app_config.targets.len());
+    println!("   • Auto-Execute:    {}", if app_config.global_settings.auto_execute { "ACTIVADO 🔴" } else { "DESACTIVADO 🟡" });
+    println!("   • Intervalo:       {}s", app_config.global_settings.monitor_interval_sec);
+
+    let api_key = std::env::var("HELIUS_API_KEY")
+        .unwrap_or_else(|_| "1d8b1813-084e-41ed-8e93-87a503c496c6".to_string());
+    let wallet_addr = std::env::var("WALLET_ADDRESS")
+        .unwrap_or_else(|_| "HF2UG1JNMuh7vhT4Bt1WehVhvnPzVLLTBUJD4bKY7dQv".to_string());
+    
+    let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
+    
+    // 1. Wallet Monitor
+    println!("\n🏦 WALLET STATUS:");
+    let monitor = WalletMonitor::new(rpc_url.clone(), &wallet_addr)?;
+    let sol_balance = monitor.get_sol_balance()?;
+    println!("   • Balance:   {:.4} SOL", sol_balance);
+    
+    println!("\n───────────────────────────────────────────────────────────\n");
+
+    // 2. Executor Setup
+    println!("⚡ EXECUTOR STATUS:");
+    let executor_config = ExecutorConfig::new(
+        rpc_url.clone(), 
+        !app_config.global_settings.auto_execute
+    );
+    let executor = Arc::new(TradeExecutor::new(executor_config));
+
+    // 3. Emergency System Multi-Target Setup
+    println!("🛡️  EMERGENCY SYSTEM (Multi-Target):");
+    
+    // Configuración base de emergencia (los valores específicos vienen de cada target)
+    let base_emergency_config = EmergencyConfig {
+        max_loss_percent: -99.9, // Placeholder, se sobrescribe por target
+        min_sol_balance: app_config.global_settings.min_sol_balance,
+        min_asset_price: 0.0,    // Placeholder
+        enabled: true,
+    };
+    
+    let emergency_monitor = Arc::new(Mutex::new(
+        EmergencyMonitor::new(base_emergency_config)
+    ));
+    
+    // Cargar todos los targets activos
+    for target in &app_config.targets {
+        if !target.active { continue; }
+        
+        let position = Position {
+            token_mint: target.symbol.clone(), // Usamos el símbolo como ID para visualización
+            entry_price: target.entry_price,
+            amount_invested: target.amount_sol,
+            current_price: target.entry_price,
+            current_value: target.amount_sol,
+        };
+        
+        emergency_monitor.lock().unwrap().add_position(position);
+        println!("   • Cargado: {} (SL: {}%)", target.symbol, target.stop_loss_percent);
+    }
+    
+    println!("\n───────────────────────────────────────────────────────────\n");
+
+    // 4. Network Benchmark
+    println!("📡 NETWORK STATUS:");
+    let start = Instant::now();
+    let rpc_client = RpcClient::new(rpc_url);
+    if let Ok(slot) = rpc_client.get_slot() {
+        let latency = start.elapsed().as_millis();
+        println!("   • Slot:     {}", slot);
+        println!("   • Latency:  {}ms (HTTP)", latency);
+    }
+
+    println!("\n═══════════════════════════════════════════════════════════");
+    println!("  🚀 INICIANDO MONITOR DINÁMICO v0.8.0");
+    println!("═══════════════════════════════════════════════════════════\n");
+    println!("⏰ Start Time: {}", Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+    println!("💡 Tip: Edita targets.json para cambiar SL en caliente (requiere reinicio rápido)\n");
+    
+    println!("───────────────────────────────────────────────────────────\n");
+
+    // 5. Price Scanner Dinámico
+    let scanner = PriceScanner::new();
+    let monitor_clone = Arc::clone(&emergency_monitor);
+    let executor_clone = Arc::clone(&executor);
+    let active_targets = app_config.targets.clone(); // Clonamos para el closure
+    
+    // Loop principal de monitoreo
+    loop {
+        for target in &active_targets {
+            if !target.active { continue; }
+            
+            // 1. Obtener precio
+            match scanner.get_token_price(&target.mint).await {
+                Ok(price) => {
+                    // 2. Calcular valores
+                    let tokens_held = target.amount_sol / target.entry_price;
+                    let current_value = tokens_held * price.price_usd;
+                    
+                    // 3. Actualizar monitor
+                    let mut monitor = monitor_clone.lock().unwrap();
+                    monitor.update_position(&target.symbol, price.price_usd, current_value);
+                    
+                    // 4. Check específico para este target
+                    if let Some(pos) = monitor.get_position(&target.symbol) {
+                        let dd = pos.drawdown_percent();
+                        let dist_to_sl = dd - target.stop_loss_percent;
+                        
+                        // Emoji status
+                        let status_emoji = if dist_to_sl > 10.0 { "🟢" } else if dist_to_sl > 5.0 { "🟡" } else { "🔴" };
+                        
+                        println!("┌────────────────────────────────────────────────────────┐");
+                        println!("│ {} {} Status                                    │", status_emoji, target.symbol);
+                        println!("├────────────────────────────────────────────────────────┤");
+                        println!("│   Price:    ${:.8}                         │", pos.current_price);
+                        println!("│   Drawdown: {:.2}%                                  │", dd);
+                        println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", target.stop_loss_percent, dist_to_sl);
+                        println!("└────────────────────────────────────────────────────────┘");
+
+                        // 5. Lógica de Emergencia Dinámica
+                        if dd <= target.stop_loss_percent {
+                            println!("\n╔════════════════════════════════════════════════════════════╗");
+                            println!("║                  🚨 EMERGENCY ALERT! 🚨                   ║");
+                            println!("║         SL ACTIVADO: {} @ {:.2}% (Limit: {:.1}%)          ║", target.symbol, dd, target.stop_loss_percent);
+                            println!("╚════════════════════════════════════════════════════════════╝\n");
+                            
+                            if app_config.global_settings.auto_execute {
+                                println!("⚡ AUTO-EXECUTING SELL...");
+                                // TODO: Llamar executor real
+                            } else {
+                                println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("⚠️  Error obteniendo precio de {}: {}", target.symbol, e);
+                }
+            }
+            
+            // Breve pausa entre targets para no saturar
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        
+        // Pausa global del ciclo
+        tokio::time::sleep(std::time::Duration::from_secs(app_config.global_settings.monitor_interval_sec)).await;
+        println!(""); // Salto de línea entre ciclos
+    }
+}

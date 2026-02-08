@@ -1,0 +1,19 @@
+{
+  "targets": [
+    {
+      "symbol": "ICEBEAR",
+      "mint": "86WM5NBUtRWTHULKrspS1TdzVFAcZ9buXsGRAiFDpump",
+      "entry_price": 0.0005687,
+      "amount_sol": 0.051,
+      "stop_loss_percent": -50.0,
+      "panic_sell_price": 0.00028,
+      "active": true
+    }
+  ],
+  "global_settings": {
+    "min_sol_balance": 0.01,
+    "jito_tip_lamports": 50000,
+    "auto_execute": false,
+    "monitor_interval_sec": 5
+  }
+}

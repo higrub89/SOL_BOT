@@ -1,0 +1,14 @@
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/serde-a63912512986e5a6.d: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/build/serde-70ff277fe4ebb8b2/out/private.rs
+
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/libserde-a63912512986e5a6.rlib: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/build/serde-70ff277fe4ebb8b2/out/private.rs
+
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/libserde-a63912512986e5a6.rmeta: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/build/serde-70ff277fe4ebb8b2/out/private.rs
+
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/build/serde-70ff277fe4ebb8b2/out/private.rs:
+
+# env-dep:OUT_DIR=/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/build/serde-70ff277fe4ebb8b2/out

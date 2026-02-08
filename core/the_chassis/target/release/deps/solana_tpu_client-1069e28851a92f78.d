@@ -1,0 +1,10 @@
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/solana_tpu_client-1069e28851a92f78.d: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/tpu_client.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/tpu_client.rs
+
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/libsolana_tpu_client-1069e28851a92f78.rlib: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/tpu_client.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/tpu_client.rs
+
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/libsolana_tpu_client-1069e28851a92f78.rmeta: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/tpu_client.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/tpu_client.rs
+
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/lib.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/mod.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/nonblocking/tpu_client.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-tpu-client-2.3.13/src/tpu_client.rs:

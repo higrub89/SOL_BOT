@@ -1,0 +1,10 @@
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/solana_quic_client-de3b3ff0a2f33c8d.d: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/quic_client.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/quic_client.rs
+
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/libsolana_quic_client-de3b3ff0a2f33c8d.rlib: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/quic_client.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/quic_client.rs
+
+/home/ruben/Automatitation/bot_trading/core/the_chassis/target/release/deps/libsolana_quic_client-de3b3ff0a2f33c8d.rmeta: /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/lib.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/mod.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/quic_client.rs /home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/quic_client.rs
+
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/lib.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/mod.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/nonblocking/quic_client.rs:
+/home/ruben/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-quic-client-2.3.13/src/quic_client.rs:
