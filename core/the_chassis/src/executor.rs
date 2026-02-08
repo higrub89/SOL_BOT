@@ -1,18 +1,20 @@
 //! # Trade Executor
 //! 
-//! Módulo para ejecutar ventas de emergencia usando Jito Bundles.
-//! Proporciona MEV protection y garantiza ejecución prioritaria.
+//! Módulo para ejecutar ventas de emergencia usando Jupiter Aggregator.
+//! Proporciona las mejores rutas de swap y soporte para Jito Bundles (MEV protection).
 
 use anyhow::{Result, Context};
 use solana_sdk::{
     pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-    system_instruction,
+    signature::{Keypair, Signer, Signature},
+    transaction::VersionedTransaction,
     commitment_config::CommitmentConfig,
 };
 use solana_client::rpc_client::RpcClient;
 use std::str::FromStr;
+use base64::{Engine as _, engine::general_purpose};
+
+use crate::jupiter::{JupiterClient, SwapResult};
 
 /// Configuración del executor
 #[derive(Debug, Clone)]

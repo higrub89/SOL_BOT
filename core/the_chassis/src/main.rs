@@ -16,14 +16,15 @@ mod wallet;
 mod emergency;
 mod websocket;
 mod scanner;
-mod executor;
+mod jupiter;
+mod executor_simple;
 
 use config::{AppConfig, TargetConfig};
 use geyser::{GeyserClient, GeyserConfig};
 use wallet::WalletMonitor;
 use emergency::{EmergencyMonitor, EmergencyConfig, Position};
 use scanner::PriceScanner;
-use executor::{TradeExecutor, ExecutorConfig};
+use executor_simple::SimpleExecutor;
 
 /// Configuración del motor (API Keys siguen siendo estáticas por seguridad)
 const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
@@ -69,13 +70,9 @@ async fn main() -> Result<()> {
     
     println!("\n───────────────────────────────────────────────────────────\n");
 
-    // 2. Executor Setup
-    println!("⚡ EXECUTOR STATUS:");
-    let executor_config = ExecutorConfig::new(
-        rpc_url.clone(), 
-        !app_config.global_settings.auto_execute
-    );
-    let executor = Arc::new(TradeExecutor::new(executor_config));
+    // 2. Simple Executor Setup (Opción A: Navegador)
+    println!("⚡ EXECUTOR STATUS: SIMPLE (Browser-based)");
+    let executor = Arc::new(SimpleExecutor::new());
 
     // 3. Emergency System Multi-Target Setup
     println!("🛡️  EMERGENCY SYSTEM (Multi-Target):");
@@ -174,10 +171,17 @@ async fn main() -> Result<()> {
                             println!("╚════════════════════════════════════════════════════════════╝\n");
                             
                             if app_config.global_settings.auto_execute {
-                                println!("⚡ AUTO-EXECUTING SELL...");
-                                // TODO: Llamar executor real
+                                println!("⚡ ABRIENDO JUPITER EN NAVEGADOR...");
+                                // Prepara la transacción visual
+                                let _ = executor_clone.execute_emergency_sell_url(
+                                    &target.mint,
+                                    &wallet_addr,
+                                    // Estimamos balance total basado en inversión inicial (muy aproximado)
+                                    (tokens_held * 1_000_000.0) as u64, // Asumimos 6 decimales para quote informativo
+                                    &target.symbol
+                                ).await;
                             } else {
-                                println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN");
+                                println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
                             }
                         }
                     }
