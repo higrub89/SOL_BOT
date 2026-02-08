@@ -46,7 +46,9 @@ echo 'https://mainnet.helius-rpc.com/?api-key=abc123xyz' > /home/ruben/Automatit
 1. El bot generará automáticamente una wallet
 2. Envía `/settings` → `Wallets` → `Export Private Key`
 3. **IMPORTANTE:** Copia la clave y guárdala en **KeePassXC**
-4. **BORRA** el mensaje de Telegram inmediatamente
+4. **CRÍTICO:** Importa esta clave privada ("Private Key") en tu extensión de **Phantom** o **Solflare** en este navegador.
+   - *¿Por qué?* Para que el botón de "Venta de Emergencia" de The Chassis funcione, tu navegador debe tener acceso a la wallet.
+5. **BORRA** el mensaje de Telegram inmediatamente
 
 ### C. Configurar parámetros de trading
 En `/settings`, ajusta:

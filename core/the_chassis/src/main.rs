@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
     let api_key = std::env::var("HELIUS_API_KEY")
         .unwrap_or_else(|_| "1d8b1813-084e-41ed-8e93-87a503c496c6".to_string());
     let wallet_addr = std::env::var("WALLET_ADDRESS")
-        .unwrap_or_else(|_| "HF2UG1JNMuh7vhT4Bt1WehVhvnPzVLLTBUJD4bKY7dQv".to_string());
+        .unwrap_or_else(|_| "6EJeiMFoBgQrUfbpt8jjXZdc5nASe2Kc8qzfVSyGrPQv".to_string());
     
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     
