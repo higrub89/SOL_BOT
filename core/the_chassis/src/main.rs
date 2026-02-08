@@ -18,6 +18,7 @@ mod websocket;
 mod scanner;
 mod jupiter;
 mod executor_simple;
+mod telegram;
 
 use config::{AppConfig, TargetConfig};
 use geyser::{GeyserClient, GeyserConfig};
@@ -25,6 +26,7 @@ use wallet::WalletMonitor;
 use emergency::{EmergencyMonitor, EmergencyConfig, Position};
 use scanner::PriceScanner;
 use executor_simple::SimpleExecutor;
+use telegram::TelegramNotifier;
 
 /// Configuración del motor (API Keys siguen siendo estáticas por seguridad)
 const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
@@ -73,6 +75,11 @@ async fn main() -> Result<()> {
     // 2. Simple Executor Setup (Opción A: Navegador)
     println!("⚡ EXECUTOR STATUS: SIMPLE (Browser-based)");
     let executor = Arc::new(SimpleExecutor::new());
+
+    // 2.5 Telegram Notifier Setup
+    let telegram = Arc::new(TelegramNotifier::new());
+    
+    println!("\n───────────────────────────────────────────────────────────\n");
 
     // 3. Emergency System Multi-Target Setup
     println!("🛡️  EMERGENCY SYSTEM (Multi-Target):");
@@ -129,6 +136,7 @@ async fn main() -> Result<()> {
     let scanner = PriceScanner::new();
     let monitor_clone = Arc::clone(&emergency_monitor);
     let executor_clone = Arc::clone(&executor);
+    let telegram_clone = Arc::clone(&telegram);
     let active_targets = app_config.targets.clone(); // Clonamos para el closure
     
     // Loop principal de monitoreo
@@ -173,15 +181,43 @@ async fn main() -> Result<()> {
                             if app_config.global_settings.auto_execute {
                                 println!("⚡ ABRIENDO JUPITER EN NAVEGADOR...");
                                 // Prepara la transacción visual
-                                let _ = executor_clone.execute_emergency_sell_url(
+                                match executor_clone.execute_emergency_sell_url(
                                     &target.mint,
                                     &wallet_addr,
                                     // Estimamos balance total basado en inversión inicial (muy aproximado)
                                     (tokens_held * 1_000_000.0) as u64, // Asumimos 6 decimales para quote informativo
                                     &target.symbol
-                                ).await;
+                                ).await {
+                                    Ok(url) => {
+                                        // 📱 Enviar alerta de Telegram
+                                        let _ = telegram_clone.send_stop_loss_alert(
+                                            &target.symbol,
+                                            pos.current_price,
+                                            pos.entry_price,
+                                            dd,
+                                            target.stop_loss_percent,
+                                            &url
+                                        ).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("❌ Error ejecutando sell: {}", e);
+                                        let _ = telegram_clone.send_error_alert(
+                                            &format!("Error ejecutando venta de {}: {}", target.symbol, e)
+                                        ).await;
+                                    }
+                                }
                             } else {
                                 println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
+                                // Enviar alerta de Telegram incluso en modo manual
+                                let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
+                                let _ = telegram_clone.send_stop_loss_alert(
+                                    &target.symbol,
+                                    pos.current_price,
+                                    pos.entry_price,
+                                    dd,
+                                    target.stop_loss_percent,
+                                    &url
+                                ).await;
                             }
                         }
                     }

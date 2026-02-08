@@ -32,6 +32,7 @@ anyhow = "1.0"
 chrono = "0.4"
 dotenv = "0.15"
 webbrowser = "0.8" # ⚡ Para abrir Jupiter automáticamente
+teloxide = { version = "0.12", features = ["macros"] } # 📱 Telegram notifications
 
 [profile.release]
 opt-level = 3
