@@ -136,7 +136,7 @@ impl TelegramNotifier {
     }
     
     /// Método interno para enviar mensajes
-    async fn send_message(&self, text: &str, markdown: bool) -> Result<()> {
+    pub async fn send_message(&self, text: &str, markdown: bool) -> Result<()> {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",
             self.bot_token

@@ -109,6 +109,11 @@ impl EmergencyMonitor {
         self.positions.iter().find(|p| p.token_mint == token_mint)
     }
 
+    /// Obtiene todas las posiciones activas
+    pub fn get_all_positions(&self) -> Vec<Position> {
+        self.positions.clone()
+    }
+
     /// Verifica todas las posiciones y detecta emergencias
     pub fn check_emergencies(&mut self) -> Vec<EmergencyAlert> {
         let mut alerts = Vec::new();

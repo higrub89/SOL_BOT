@@ -21,7 +21,18 @@ pub struct TargetConfig {
     pub stop_loss_percent: f64,
     pub panic_sell_price: f64,
     pub active: bool,
+    
+    // Trailing Stop-Loss (opcional)
+    #[serde(default)]
+    pub trailing_enabled: bool,
+    #[serde(default = "default_trailing_distance")]
+    pub trailing_distance_percent: f64,
+    #[serde(default = "default_trailing_activation")]
+    pub trailing_activation_threshold: f64,
 }
+
+fn default_trailing_distance() -> f64 { 30.0 }
+fn default_trailing_activation() -> f64 { 50.0 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GlobalSettings {

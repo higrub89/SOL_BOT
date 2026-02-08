@@ -19,6 +19,9 @@ mod scanner;
 mod jupiter;
 mod executor_simple;
 mod telegram;
+mod telegram_commands;
+mod trailing_sl;
+mod liquidity_monitor;
 
 use config::{AppConfig, TargetConfig};
 use geyser::{GeyserClient, GeyserConfig};
@@ -27,6 +30,9 @@ use emergency::{EmergencyMonitor, EmergencyConfig, Position};
 use scanner::PriceScanner;
 use executor_simple::SimpleExecutor;
 use telegram::TelegramNotifier;
+use telegram_commands::CommandHandler;
+use trailing_sl::TrailingStopLoss;
+use liquidity_monitor::{LiquidityMonitor, LiquiditySnapshot};
 
 /// Configuración del motor (API Keys siguen siendo estáticas por seguridad)
 const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
@@ -66,29 +72,20 @@ async fn main() -> Result<()> {
     
     // 1. Wallet Monitor
     println!("\n🏦 WALLET STATUS:");
-    let monitor = WalletMonitor::new(rpc_url.clone(), &wallet_addr)?;
-    let sol_balance = monitor.get_sol_balance()?;
+    let wallet_monitor = Arc::new(WalletMonitor::new(rpc_url.clone(), &wallet_addr)?);
+    let sol_balance = wallet_monitor.get_sol_balance()?;
     println!("   • Balance:   {:.4} SOL", sol_balance);
     
     println!("\n───────────────────────────────────────────────────────────\n");
 
-    // 2. Simple Executor Setup (Opción A: Navegador)
-    println!("⚡ EXECUTOR STATUS: SIMPLE (Browser-based)");
-    let executor = Arc::new(SimpleExecutor::new());
-
-    // 2.5 Telegram Notifier Setup
-    let telegram = Arc::new(TelegramNotifier::new());
-    
-    println!("\n───────────────────────────────────────────────────────────\n");
-
-    // 3. Emergency System Multi-Target Setup
+    // 2. Emergency System Multi-Target Setup
     println!("🛡️  EMERGENCY SYSTEM (Multi-Target):");
     
-    // Configuración base de emergencia (los valores específicos vienen de cada target)
+    // Configuración base de emergencia
     let base_emergency_config = EmergencyConfig {
-        max_loss_percent: -99.9, // Placeholder, se sobrescribe por target
+        max_loss_percent: -99.9,
         min_sol_balance: app_config.global_settings.min_sol_balance,
-        min_asset_price: 0.0,    // Placeholder
+        min_asset_price: 0.0,
         enabled: true,
     };
     
@@ -96,12 +93,12 @@ async fn main() -> Result<()> {
         EmergencyMonitor::new(base_emergency_config)
     ));
     
-    // Cargar todos los targets activos
+    // Cargar targets activos
     for target in &app_config.targets {
         if !target.active { continue; }
         
         let position = Position {
-            token_mint: target.symbol.clone(), // Usamos el símbolo como ID para visualización
+            token_mint: target.symbol.clone(),
             entry_price: target.entry_price,
             amount_invested: target.amount_sol,
             current_price: target.entry_price,
@@ -111,6 +108,31 @@ async fn main() -> Result<()> {
         emergency_monitor.lock().unwrap().add_position(position);
         println!("   • Cargado: {} (SL: {}%)", target.symbol, target.stop_loss_percent);
     }
+
+    println!("\n───────────────────────────────────────────────────────────\n");
+
+    // 3. Executor & Telegram Setup
+    println!("⚡ EXECUTOR STATUS: SIMPLE (Browser-based)");
+    let executor = Arc::new(SimpleExecutor::new());
+
+    // 3.5 Telegram Notifier & Command Handler Setup
+    let telegram = Arc::new(TelegramNotifier::new());
+    let command_handler = Arc::new(CommandHandler::new());
+    
+    // Lanzar el receptor de comandos en segundo plano
+    let cmd_handler_clone = Arc::clone(&command_handler);
+    let cmd_emergency_monitor = Arc::clone(&emergency_monitor);
+    let cmd_wallet_monitor = Arc::clone(&wallet_monitor);
+    let cmd_config = Arc::new(app_config.clone());
+    
+    tokio::spawn(async move {
+        println!("📱 Telegram Command Handler: ACTIVADO");
+        let _ = cmd_handler_clone.process_commands(
+            cmd_emergency_monitor,
+            cmd_wallet_monitor,
+            cmd_config
+        ).await;
+    });
     
     println!("\n───────────────────────────────────────────────────────────\n");
 
@@ -135,9 +157,32 @@ async fn main() -> Result<()> {
     // 5. Price Scanner Dinámico
     let scanner = PriceScanner::new();
     let monitor_clone = Arc::clone(&emergency_monitor);
-    let executor_clone = Arc::clone(&executor);
     let telegram_clone = Arc::clone(&telegram);
-    let active_targets = app_config.targets.clone(); // Clonamos para el closure
+    let executor_clone = Arc::clone(&executor);
+    let active_targets = app_config.targets.clone();
+    let wallet_addr_clone = wallet_addr.clone();
+
+    // Setup de Trailing SL y Liquidez para cada target
+    let mut trailing_monitors: std::collections::HashMap<String, TrailingStopLoss> = std::collections::HashMap::new();
+    let mut liquidity_monitors: std::collections::HashMap<String, LiquidityMonitor> = std::collections::HashMap::new();
+
+    for target in &active_targets {
+        if target.active {
+            if target.trailing_enabled {
+                trailing_monitors.insert(
+                    target.symbol.clone(),
+                    TrailingStopLoss::new(
+                        target.entry_price,
+                        target.stop_loss_percent,
+                        target.trailing_distance_percent,
+                        target.trailing_activation_threshold,
+                    )
+                );
+            }
+            // Monitor de liquidez por defecto para todos los activos
+            liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
+        }
+    }
     
     // Loop principal de monitoreo
     loop {
@@ -183,7 +228,7 @@ async fn main() -> Result<()> {
                                 // Prepara la transacción visual
                                 match executor_clone.execute_emergency_sell_url(
                                     &target.mint,
-                                    &wallet_addr,
+                                    &wallet_addr_clone,
                                     // Estimamos balance total basado en inversión inicial (muy aproximado)
                                     (tokens_held * 1_000_000.0) as u64, // Asumimos 6 decimales para quote informativo
                                     &target.symbol
@@ -220,6 +265,50 @@ async fn main() -> Result<()> {
                                 ).await;
                             }
                         }
+                    }
+                    // 1. Logica de Trailing Stop-Loss (Feature B)
+                    if let Some(tsl) = trailing_monitors.get_mut(&target.symbol) {
+                        if tsl.update(price.price_usd) {
+                            // Si el SL cambió, podemos avisar o simplemente dejar que actúe en el próximo check
+                        }
+                    }
+
+                    // 2. Logica de Liquidez (Feature C)
+                    if let Some(lm) = liquidity_monitors.get_mut(&target.symbol) {
+                        let snapshot = LiquiditySnapshot {
+                            timestamp: Utc::now().timestamp(),
+                            liquidity_usd: price.liquidity_usd,
+                            volume_24h: price.volume_24h,
+                            price_usd: price.price_usd,
+                            holders_count: None,
+                        };
+                        let alerts = lm.add_snapshot(snapshot);
+                        for alert in alerts {
+                            let msg = alert.to_telegram_message(&target.symbol);
+                            let _ = telegram_clone.send_message(&msg, true).await;
+                        }
+                    }
+
+                    // 3. Logica de Emergencia (Standard / Trailing)
+                    let current_sl = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
+                        tsl.current_sl_percent
+                    } else {
+                        target.stop_loss_percent
+                    };
+
+                    let drawdown = ((price.price_usd - target.entry_price) / target.entry_price) * 100.0;
+                    
+                    if drawdown <= current_sl {
+                        // DISPARAR ALERTA
+                        let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
+                        let _ = telegram_clone.send_stop_loss_alert(
+                            &target.symbol,
+                            price.price_usd,
+                            target.entry_price,
+                            drawdown,
+                            current_sl,
+                            &url
+                        ).await;
                     }
                 }
                 Err(e) => {

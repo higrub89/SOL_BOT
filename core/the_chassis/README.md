@@ -1,17 +1,19 @@
 # 🏎️ The Chassis - Solana Trading Engine
 
-**v0.9.0** - Sistema de Stop-Loss Automático con Notificaciones Telegram
+**v1.0.0** - Bot Interactivo con Trailing Stop-Loss y Monitor de Liquidez
 
 ## 🎯 ¿Qué es The Chassis?
 
-The Chassis es un motor de trading automatizado para Solana que monitorea tus posiciones en tiempo real y te alerta cuando se activa el stop-loss. Está diseñado para proteger tu capital en tokens de alto riesgo.
+The Chassis es un motor de trading automatizado e **interactivo** para Solana que monitorea tus posiciones en tiempo real, ajusta automáticamente tus stop-loss para proteger ganancias, detecta movimientos sospechosos de liquidez, y te permite controlarlo todo desde tu móvil con Telegram.
 
 ### ✨ Características Principales
 
 - 🛡️ **Stop-Loss Dinámico**: Configura límites de pérdida personalizados por token
-- 📱 **Alertas Telegram**: Notificaciones instantáneas en tu móvil cuando se activa el SL
-- ⚡ **Ejecución Asistida**: Abre Jupiter automáticamente con el swap precargado
+- 🎯 **Trailing Stop-Loss**: SL inteligente que sube automáticamente para proteger ganancias
+- 🐋 **Monitor de Liquidez**: Detecta caídas de liquidez, spikes de volumen y posibles rug pulls
+- 📱 **Bot Interactivo de Telegram**: Controla todo desde tu móvil con comandos en tiempo real
 - 📊 **Multi-Target**: Monitorea múltiples tokens simultáneamente
+- ⚡ **Ejecución Asistida**: Abre Jupiter automáticamente con el swap precargado
 - 🔄 **Configuración en Caliente**: Cambia stop-loss sin recompilar
 - 🎨 **Dashboard en Consola**: Visualización clara del estado de tus posiciones
 
@@ -41,16 +43,16 @@ cargo build --release
 
 #### a) Configurar `.env`
 
-El archivo `.env` ya está configurado con tus credenciales:
+El archivo `.env` contiene tus credenciales:
 
 ```bash
-HELIUS_API_KEY=1d8b1813-084e-41ed-8e93-87a503c496c6
-WALLET_ADDRESS=6EJeiMFoBgQrUfbpt8jjXZdc5nASe2Kc8qzfVSyGrPQv
+HELIUS_API_KEY=tu_api_key_aqui
+WALLET_ADDRESS=tu_wallet_aqui
 MAX_LATENCY_MS=150
 
-# Telegram (Opcional - sigue TELEGRAM_SETUP.md para configurar)
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
+# Telegram (REQUERIDO para comandos interactivos)
+TELEGRAM_BOT_TOKEN=tu_bot_token_aqui
+TELEGRAM_CHAT_ID=tu_chat_id_aqui
 ```
 
 #### b) Configurar `targets.json`
@@ -61,13 +63,18 @@ Edita `targets.json` para añadir los tokens que quieres monitorear:
 {
   "targets": [
     {
-      "symbol": "ICEBEAR",
-      "mint": "86WM5NBUtRWTHULKrspS1TdzVFAcZ9buXsGRAiFDpump",
-      "entry_price": 0.0005687,
-      "amount_sol": 0.051,
+      "symbol": "MYTOKEN",
+      "mint": "TokenMintAddressHere...",
+      "entry_price": 0.001,
+      "amount_sol": 0.1,
       "stop_loss_percent": -50.0,
-      "panic_sell_price": 0.00028,
-      "active": true
+      "panic_sell_price": 0.0005,
+      "active": true,
+      
+      // Trailing Stop-Loss (opcional pero recomendado)
+      "trailing_enabled": true,
+      "trailing_distance_percent": 30.0,
+      "trailing_activation_threshold": 50.0
     }
   ],
   "global_settings": {
@@ -88,23 +95,110 @@ Edita `targets.json` para añadir los tokens que quieres monitorear:
 
 **Opción B: Directamente con cargo**
 ```bash
-# Modo debug (compilación rápida)
-cargo run
-
 # Modo release (ejecución optimizada)
 cargo run --release
 ```
 
-## 📱 Configurar Notificaciones Telegram (Recomendado)
+## 📱 Bot Interactivo de Telegram
 
-Las notificaciones de Telegram te permiten recibir alertas instantáneas en tu móvil. Lee la guía completa en:
+### Comandos Disponibles
 
-👉 **[TELEGRAM_SETUP.md](TELEGRAM_SETUP.md)**
+Una vez que el bot está corriendo, puedes controlarlo desde Telegram:
 
-Resumen rápido:
-1. Crea un bot con @BotFather
-2. Obtén tu Chat ID con @getidsbot
-3. Añade las credenciales al archivo `.env`
+- **`/start`** - Activa el bot y muestra la lista de comandos
+- **`/status`** - Ver estado de TODOS tus tokens (precio, drawdown, valor actual)
+- **`/balance`** - Consultar tu balance de SOL en la wallet
+- **`/targets`** - Lista completa de tokens que estás monitoreando
+- **`/help`** - Ayuda de todos los comandos
+
+### Configurar Telegram (Obligatorio)
+
+1. Habla con **@BotFather** en Telegram y crea un nuevo bot
+2. Copia el token que te da
+3. Habla con **@getidsbot** para obtener tu Chat ID
+4. Añade ambos valores al archivo `.env`
+
+👉 Lee la guía completa en **[TELEGRAM_SETUP.md](TELEGRAM_SETUP.md)**
+
+## 🎯 Trailing Stop-Loss Inteligente
+
+### ¿Qué es?
+
+Un stop-loss que **sube automáticamente** cuando el precio sube, protegiendo tus ganancias.
+
+### Ejemplo Práctico:
+
+Imagina que compras un token a **$0.001** con SL al **-50%** (venta en $0.0005):
+
+1. **Precio sube a $0.0015** (+50%) → Trailing SL se **ACTIVA**
+2. **Nuevo SL dinámico**: En lugar de $0.0005, ahora es ~$0.00105
+3. **Precio sigue a $0.002** → SL sube a ~$0.0014
+4. **Precio cae a $0.0013** → **¡VENTA AUTOMÁTICA!**
+   - Resultado: En lugar de perder -50%, ganas **+30%** 🎉
+
+### Configuración:
+
+```json
+{
+  "trailing_enabled": true,                    // Activar trailing SL
+  "trailing_distance_percent": 30.0,           // Permite caer 30% desde el pico
+  "trailing_activation_threshold": 50.0        // Se activa cuando ganas +50%
+}
+```
+
+#### Parámetros Explicados:
+
+- **`trailing_enabled`**: `true` para activar, `false` para usar SL fijo
+- **`trailing_distance_percent`**: Cuánto puede caer desde el pico antes de vender
+  - 20% = conservador (protege ganancias rápido)
+  - 50% = agresivo (deja espacio para volatilidad)
+- **`trailing_activation_threshold`**: A partir de qué ganancia se activa
+  - 30% = se activa rápido
+  - 100% = solo cuando duplicas tu inversión
+
+## 🐋 Monitor de Liquidez y Detector de Ballenas
+
+### ¿Qué Detecta?
+
+El bot monitorea constantemente:
+1. **Caídas dramáticas de liquidez** (posible rug pull)
+2. **Spikes sospechosos de volumen** (ballenas entrando/saliendo)
+3. **Señales de Rug Pull** (caída de precio + caída de liquidez simultánea)
+
+### Alertas que Recibirás en Telegram:
+
+#### 1. Alerta de Liquidez:
+```
+⚠️ ALERTA DE LIQUIDEZ - MYTOKEN
+
+💧 Caída de liquidez: -35.2%
+└─ Antes: $150,000
+└─ Ahora: $97,000
+
+🔍 Esto puede indicar ventas grandes o retiro de LP.
+```
+
+#### 2. Volumen Anormal:
+```
+📊 VOLUMEN ANORMAL - MYTOKEN
+
+🚨 Spike de volumen: 8.5x del promedio
+└─ Actual 24h: $850,000
+└─ Promedio: $100,000
+
+⚠️ Puede indicar actividad de ballenas o dump inminente.
+```
+
+#### 3. Advertencia de Rug Pull:
+```
+🚨🚨 ADVERTENCIA DE RUG PULL - MYTOKEN 🚨🚨
+
+❌ Precio: -42.1%
+❌ Liquidez: -58.3%
+
+⚡ ACCIÓN INMEDIATA RECOMENDADA
+Considera salir de la posición ahora.
+```
 
 ## ⚙️ Configuración Avanzada
 
@@ -118,6 +212,9 @@ Resumen rápido:
 - **`stop_loss_percent`**: Límite de pérdida (ej: -50 = 50% de pérdida)
 - **`panic_sell_price`**: Precio de pánico (opcional)
 - **`active`**: true/false para activar/desactivar el monitoreo
+- **`trailing_enabled`**: Activar trailing stop-loss
+- **`trailing_distance_percent`**: Distancia del trailing desde el pico
+- **`trailing_activation_threshold`**: Ganancia mínima para activar trailing
 
 #### Configuración Global:
 - **`min_sol_balance`**: Balance mínimo de SOL para operar
@@ -125,31 +222,37 @@ Resumen rápido:
 - **`auto_execute`**: true = abre Jupiter automáticamente, false = solo alerta
 - **`monitor_interval_sec`**: Intervalo de monitoreo en segundos
 
-### Ejemplo Multi-Token
+### Ejemplo Multi-Token con Trailing SL
 
 ```json
 {
   "targets": [
     {
-      "symbol": "TOKEN1",
+      "symbol": "SCALP_TOKEN",
       "mint": "...",
       "entry_price": 0.001,
       "amount_sol": 0.1,
       "stop_loss_percent": -30.0,
-      "active": true
+      "active": true,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 20.0,    // Conservador
+      "trailing_activation_threshold": 30.0  // Activa rápido
     },
     {
-      "symbol": "TOKEN2",
+      "symbol": "HODL_TOKEN",
       "mint": "...",
       "entry_price": 0.0005,
-      "amount_sol": 0.05,
+      "amount_sol": 0.2,
       "stop_loss_percent": -50.0,
-      "active": true
+      "active": true,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 50.0,    // Agresivo
+      "trailing_activation_threshold": 100.0 // Solo si 2x
     }
   ],
   "global_settings": {
-    "auto_execute": true,
-    "monitor_interval_sec": 3
+    "auto_execute": false,
+    "monitor_interval_sec": 5
   }
 }
 ```
@@ -159,46 +262,47 @@ Resumen rápido:
 ```
 ╔════════════════════════════════════════════════════════════╗
 ║         🏎️  THE CHASSIS - Solana Trading Engine          ║
-║       v0.9.0 - Dynamic Config (Zero Recompile)            ║
+║       v1.0.0 - Interactive Bot + Trailing SL              ║
 ╚════════════════════════════════════════════════════════════╝
 
 📂 Cargando configuración dinámica desde targets.json...
 ✅ Configuración cargada:
-   • Targets activos: 1
+   • Targets activos: 2
    • Auto-Execute:    DESACTIVADO 🟡
    • Intervalo:       5s
 
 🏦 WALLET STATUS:
-   • Balance:   0.0512 SOL
+   • Balance:   0.3124 SOL
 
 ───────────────────────────────────────────────────────────
 
 ⚡ EXECUTOR STATUS: SIMPLE (Browser-based)
-📱 Telegram Notifier: ACTIVADO
-   • Chat ID: 123456789
+📱 Telegram Command Handler: ACTIVADO
 
 ───────────────────────────────────────────────────────────
 
 🛡️  EMERGENCY SYSTEM (Multi-Target):
-   • Cargado: ICEBEAR (SL: -50%)
+   • Cargado: TOKEN1 (SL: -30%)
+   • Cargado: TOKEN2 (SL: -50%)
 
 ═══════════════════════════════════════════════════════════
-  🚀 INICIANDO MONITOR DINÁMICO v0.9.0
+  🚀 INICIANDO MONITOR DINÁMICO v1.0.0
 ═══════════════════════════════════════════════════════════
 
 ┌────────────────────────────────────────────────────────┐
-│ 🟢 ICEBEAR Status                                       │
+│ 🟢 TOKEN1 Status                                        │
 ├────────────────────────────────────────────────────────┤
-│   Price:    $0.00045123                                │
-│   Drawdown: -20.67%                                     │
-│   SL Limit: -50.0% (Dist: 29.33%)                      │
+│   Price:    $0.00125000                                │
+│   Drawdown: +25.00%                                     │
+│   SL Limit: -30.0% (Dist: 55.00%)                      │
+│   🎯 Trailing SL: INACTIVE (activates at +30%)         │
 └────────────────────────────────────────────────────────┘
 ```
 
 ## 🚨 ¿Qué Pasa Cuando se Activa el Stop-Loss?
 
-### Si `auto_execute: false` (Modo Manual)
-1. El bot detecta que el precio cayó por debajo del límite
+### Si `auto_execute: false` (Modo Manual - Recomendado)
+1. El bot detecta que el precio cayó por debajo del límite (o trailing SL)
 2. Muestra una alerta grande en la consola
 3. Envía notificación a Telegram con el link de Jupiter
 4. **TÚ DECIDES** si ejecutar la venta o no
@@ -216,10 +320,15 @@ Resumen rápido:
 - Consulta precios públicos
 - Lee el balance de tu wallet (solo lectura)
 - Genera URLs de Jupiter
+- Envía notificaciones a Telegram
 
 **Siempre confirmas manualmente** las transacciones en Jupiter.
 
 ## 🐛 Solución de Problemas
+
+### "Telegram Command Handler: DESACTIVADO"
+- Verifica que `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` estén en `.env`
+- Lee `TELEGRAM_SETUP.md` para la configuración completa
 
 ### "Error obteniendo precio de {TOKEN}"
 - Verifica que el `mint` sea correcto
@@ -230,9 +339,9 @@ Resumen rápido:
 - Asegúrate de que el archivo `.env` está en el directorio correcto
 - Verifica que no haya espacios extras en el `.env`
 
-### "Telegram Notifier: DESACTIVADO"
-- Es normal si no has configurado Telegram
-- Lee `TELEGRAM_SETUP.md` para activarlo
+### El bot responde múltiples veces en Telegram
+- Reinicia el bot con `cargo build --release && ./target/release/the_chassis`
+- Esto actualizará el offset de mensajes de Telegram
 
 ### El navegador no se abre automáticamente
 - Verifica que `auto_execute: true` en `targets.json`
@@ -243,29 +352,37 @@ Resumen rápido:
 ```
 the_chassis/
 ├── src/
-│   ├── main.rs              # Punto de entrada principal
-│   ├── config.rs            # Carga de targets.json
-│   ├── scanner.rs           # Monitoreo de precios
-│   ├── emergency.rs         # Lógica de stop-loss
-│   ├── executor_simple.rs   # Generación de URLs Jupiter
-│   ├── telegram.rs          # Notificaciones Telegram
-│   ├── jupiter.rs           # Integración Jupiter API
+│   ├── main.rs                # Punto de entrada principal
+│   ├── config.rs              # Carga de targets.json
+│   ├── scanner.rs             # Monitoreo de precios
+│   ├── emergency.rs           # Lógica de stop-loss
+│   ├── executor_simple.rs     # Generación de URLs Jupiter
+│   ├── telegram.rs            # Notificaciones Telegram
+│   ├── telegram_commands.rs   # 🆕 Bot interactivo
+│   ├── trailing_sl.rs         # 🆕 Trailing stop-loss
+│   ├── liquidity_monitor.rs   # 🆕 Monitor de liquidez
+│   ├── jupiter.rs             # Integración Jupiter API
 │   └── ...
-├── targets.json             # ⚙️ TU CONFIGURACIÓN PRINCIPAL
-├── .env                     # 🔑 Credenciales (NO COMPARTIR)
-├── start.sh                 # 🚀 Script de inicio rápido
-├── TELEGRAM_SETUP.md        # 📱 Guía de Telegram
-└── README.md                # 📖 Este archivo
+├── targets.json               # ⚙️ TU CONFIGURACIÓN PRINCIPAL
+├── .env                       # 🔑 Credenciales (NO COMPARTIR)
+├── start.sh                   # 🚀 Script de inicio rápido
+├── TELEGRAM_SETUP.md          # 📱 Guía de Telegram
+├── ADVANCED_FEATURES.md       # 📖 Guía de features avanzadas
+├── FEATURES_SUMMARY.md        # 📋 Resumen ejecutivo
+└── README.md                  # 📖 Este archivo
 ```
 
 ## 🛣️ Roadmap
 
-### ✅ Completado
+### ✅ Completado (v1.0.0)
 - [x] Sistema de monitoreo multi-target
 - [x] Stop-loss dinámico configurable
 - [x] Integración con Jupiter API
 - [x] Notificaciones Telegram
 - [x] Ejecución asistida (browser-based)
+- [x] **BOT de Telegram para comandos interactivos** ✨
+- [x] **Trailing stop-loss inteligente** ✨
+- [x] **Monitor de liquidez y detector de rug pulls** ✨
 
 ### 🚧 En Progreso
 - [ ] Dashboard web en tiempo real
@@ -274,12 +391,20 @@ the_chassis/
 - [ ] Historial de trades y performance
 
 ### 🔮 Futuro
-- [ ] BOT de Telegram para comandos interactivos
-- [ ] Soporte para trailing stop-loss
 - [ ] Indicadores técnicos (RSI, MACD)
 - [ ] Backtesting de estrategias
+- [ ] Machine Learning para detección de patrones
+- [ ] Soporte para múltiples blockchains
 
 ## 📝 Changelog
+
+### v1.0.0 (2026-02-08) 🎉
+- ✨ Bot interactivo de Telegram con comandos en tiempo real
+- 🎯 Sistema de trailing stop-loss para proteger ganancias
+- 🐋 Monitor de liquidez y detector de rug pulls
+- 📱 Comandos: /status, /balance, /targets, /help
+- 🛠️ Fix: Prevención de spam en notificaciones de Telegram
+- 📖 Documentación completa de nuevas features
 
 ### v0.9.0 (2026-02-08)
 - ✨ Añadidas notificaciones de Telegram
