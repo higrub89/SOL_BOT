@@ -9,11 +9,34 @@ description = "High-performance Solana trading engine - The Chassis"
 # Solana Core (Versiones estables)
 solana-client = "1.17"
 solana-sdk = "1.17"
-spl-token = "4.0"
-spl-associated-token-account = "2.0"
+solana-account-decoder = "1.17"
+# Pinning exacto requerido por solana-client 1.17
+spl-token = "=4.0.0"
+spl-associated-token-account = "=2.2.0"
+spl-memo = "=4.0.0"
+spl-token-2022 = "=0.9.0"
 
 # Async Runtime
 tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+
+# gRPC & Protobuf (Comunicación Rust ↔ Python)
+tonic = "0.11"
+prost = "0.12"
+tonic-build = "0.11"
+
+# Database - ACID Compliance (The Black Box)
+# Desactivamos default-features para evitar conflictos con drivers no usados (MySQL/Postgres)
+sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-native-tls", "sqlite", "macros"] }
+
+# Observability - Telemetría de Hiperlujo
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# Security - Manejo seguro de secretos
+secrecy = { version = "0.7", features = ["serde"] }
+zeroize = "=1.3.0"
 
 # WebSocket & Network
 tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
@@ -34,6 +57,9 @@ dotenv = "0.15"
 webbrowser = "0.8" # ⚡ Para abrir Jupiter automáticamente
 teloxide = { version = "0.12", features = ["macros"] } # 📱 Telegram notifications
 clap = { version = "4.0", features = ["derive"] } # 🚀 CLI Argument handling
+
+[build-dependencies]
+tonic-build = "0.11"
 
 [profile.release]
 opt-level = 3

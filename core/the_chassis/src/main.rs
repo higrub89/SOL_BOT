@@ -25,6 +25,11 @@ mod trailing_sl;
 mod liquidity_monitor;
 mod raydium;
 
+// 🏎️ Módulos del Framework Institucional (v2.0)
+mod executor_trait;
+mod raydium_executor;
+mod observability;
+
 use config::AppConfig;
 use wallet::WalletMonitor;
 use emergency::{EmergencyMonitor, EmergencyConfig, Position};
