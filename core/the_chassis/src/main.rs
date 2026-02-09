@@ -23,6 +23,7 @@ mod telegram;
 mod telegram_commands;
 mod trailing_sl;
 mod liquidity_monitor;
+mod raydium;
 
 use config::AppConfig;
 use wallet::WalletMonitor;
@@ -33,15 +34,109 @@ use telegram::TelegramNotifier;
 use telegram_commands::CommandHandler;
 use trailing_sl::TrailingStopLoss;
 use liquidity_monitor::{LiquidityMonitor, LiquiditySnapshot};
+use jupiter::BuyResult;
+use clap::{Parser, Subcommand};
+
+/// Argumentos de línea de comandos para The Chassis
+#[derive(Parser)]
+#[command(name = "the_chassis")]
+#[command(about = "Solana Trading Engine - Speed and Performance", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Ejecuta una compra inmediata de un token
+    Buy {
+        /// Mint address del token
+        #[arg(short, long)]
+        mint: String,
+        
+        /// Cantidad de SOL a invertir
+        #[arg(short, long)]
+        sol: f64,
+
+        /// Slippage en bps (100 = 1.0%)
+        #[arg(long, default_value_t = 100)]
+        slippage: u16,
+    },
+    /// Escanea la red en tiempo real (Sensor de Pump.fun)
+    Scan,
+    /// Inicia el monitor dinámico de posiciones (por defecto)
+    Monitor,
+}
 
 /// Configuración del motor (API Keys siguen siendo estáticas por seguridad)
 const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Buy { mint, sol, slippage }) => {
+            handle_buy_mode(mint, sol, slippage).await?;
+        }
+        Some(Commands::Scan) => {
+            handle_scan_mode().await?;
+        }
+        _ => {
+            run_monitor_mode().await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_buy_mode(mint: String, sol: f64, slippage: u16) -> Result<()> {
+    println!("🚀 INICIANDO MODO COMPRA DIRECTA...");
+    
+    let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY missing");
+    let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
+    
+    let config = ExecutorConfig {
+        rpc_url: rpc_url.clone(),
+        slippage_bps: slippage,
+        priority_fee: 50_000,
+        dry_run: false, // Forzar ejecución real
+    };
+    
+    let executor = TradeExecutor::new(config);
+    
+    let priv_key = std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY missing");
+    let keypair = Keypair::from_base58_string(&priv_key);
+    
+    executor.execute_buy(&mint, Some(&keypair), sol).await?;
+    
+    Ok(())
+}
+
+async fn handle_scan_mode() -> Result<()> {
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║         📡 NETWORK SCANNER - Pump.fun Telemetry          ║");
+    println!("║           Sensor de Alta Frecuencia Activado              ║");
+    println!("╚════════════════════════════════════════════════════════════╝\n");
+    
+    use websocket::{WebSocketConfig, SolanaWebSocket};
+    
+    let config = WebSocketConfig::from_env();
+    let scanner = SolanaWebSocket::new(config);
+    
+    println!("⚠️  AVISO: Este modo mostrará TODOS los eventos de Pump.fun en tiempo real.");
+    println!("   Es posible que veas mucha actividad. Presiona Ctrl+C para salir.\n");
+    
+    scanner.listen_to_pump_events().await?;
+    
+    Ok(())
+}
+
+async fn run_monitor_mode() -> Result<()> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║         🏎️  THE CHASSIS - Solana Trading Engine          ║");
-    println!("║           v0.9.0 - Auto-Sell Ready (Sim Mode)             ║");
+    println!("║           v1.0.0 - Auto-Buy & Auto-Sell Ready             ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     // Cargar config y .env

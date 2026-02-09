@@ -1,37 +1,37 @@
-//! # WebSocket Real-Time Streaming
+//! # WebSocket Real-Time Event Listener
 //! 
-//! Monitoreo en tiempo real de cuentas de Solana via WebSocket.
-//! Latencia esperada: 50-80ms (vs 150ms HTTP)
+//! Monitoreo de eventos de Pump.fun en tiempo real via WebSocket.
+//! Estándar: Calidad Suiza / Alta Frecuencia.
+//! Features: Auto-reconnection, Event Detection, Low Latency
 
 use anyhow::{Result, Context};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+/// Program ID de Pump.fun para monitorear eventos
+const PUMP_PROGRAM_ID: &str = "6EF8rrecthR5Dkzy5fG9VGA7zF5rR9WADwpupump";
+
+/// Número máximo de reconexiones antes de pausar
+const MAX_RETRIES: u32 = 5;
 
 /// Configuración del WebSocket
 pub struct WebSocketConfig {
     pub rpc_url: String,
-    pub api_key: String,
 }
 
 impl WebSocketConfig {
     pub fn from_env() -> Self {
         let api_key = std::env::var("HELIUS_API_KEY")
             .unwrap_or_else(|_| "1d8b1813-084e-41ed-8e93-87a503c496c6".to_string());
-        
-        // Helius WebSocket endpoint
         let ws_url = format!("wss://mainnet.helius-rpc.com/?api-key={}", api_key);
-        
-        Self {
-            rpc_url: ws_url,
-            api_key,
-        }
+        Self { rpc_url: ws_url }
     }
 }
 
-/// Cliente de WebSocket para Solana
+/// Cliente de WebSocket para Solana con reconexión automática
 pub struct SolanaWebSocket {
     config: WebSocketConfig,
 }
@@ -41,159 +41,151 @@ impl SolanaWebSocket {
         Self { config }
     }
 
-    /// Conecta al WebSocket y se suscribe a una wallet
-    pub async fn subscribe_to_account(&self, pubkey: &str) -> Result<()> {
-        println!("🔌 Conectando a Solana WebSocket...");
-        println!("   Endpoint: {}", self.config.rpc_url.split('?').next().unwrap());
-        println!("   Cuenta:   {}...{}\n", &pubkey[..8], &pubkey[pubkey.len()-4..]);
+    /// Escucha eventos de Pump.fun con reconexión automática
+    pub async fn listen_to_pump_events(&self) -> Result<()> {
+        let mut retry_count = 0;
+        
+        loop {
+            match self.connect_and_listen().await {
+                Ok(_) => {
+                    // Conexión cerrada limpiamente, reconectar
+                    println!("⚠️ Conexión cerrada. Reconectando...");
+                    retry_count = 0;
+                }
+                Err(e) => {
+                    retry_count += 1;
+                    eprintln!("❌ Error en WebSocket (intento {}/{}): {}", retry_count, MAX_RETRIES, e);
+                    
+                    if retry_count >= MAX_RETRIES {
+                        eprintln!("⛔ Máximo de reintentos alcanzado. Pausando 60s...");
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        retry_count = 0;
+                    }
+                }
+            }
+            
+            // Pequeña pausa antes de reconectar
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            println!("🔄 Reconectando al sensor...\n");
+        }
+    }
 
-        // Conectar al WebSocket
+    /// Conexión interna al WebSocket
+    async fn connect_and_listen(&self) -> Result<()> {
+        println!("🔌 Conectando al Sensor de Red (Pump.fun)...");
+        
         let (ws_stream, _) = connect_async(&self.config.rpc_url)
             .await
             .context("Error conectando a WebSocket")?;
 
-        println!("✅ WebSocket conectado\n");
+        println!("✅ Telemetría conectada\n");
 
         let (mut write, mut read) = ws_stream.split();
 
-        // Crear mensaje de suscripción
+        // Suscripción a logs
         let subscribe_msg = json!({
             "jsonrpc": "2.0",
             "id": 1,
-            "method": "accountSubscribe",
+            "method": "logsSubscribe",
             "params": [
-                pubkey,
-                {
-                    "encoding": "jsonParsed",
-                    "commitment": "confirmed"
-                }
+                { "mentions": [PUMP_PROGRAM_ID] },
+                { "commitment": "processed" }
             ]
         });
 
-        // Enviar suscripción
         write.send(Message::Text(subscribe_msg.to_string()))
             .await
             .context("Error enviando suscripción")?;
 
-        println!("📡 Suscripción activada. Monitoreando cambios...\n");
-        println!("╔════════════════════════════════════════════════════════════╗");
-        println!("║              🔴 LIVE STREAM - Account Updates             ║");
-        println!("╚════════════════════════════════════════════════════════════╝\n");
+        println!("📡 Escuchando logs del programa Pump.fun...\n");
+        println!("╔══════════════════════════════════════════════════════════════╗");
+        println!("║              📡 LIVE TELEMETRY - Pump.fun Events             ║");
+        println!("╚══════════════════════════════════════════════════════════════╝\n");
 
-        let mut update_count = 0;
-
-        // Leer mensajes del WebSocket
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
-                    match serde_json::from_str::<AccountUpdate>(&text) {
-                        Ok(update) => {
-                            update_count += 1;
-                            self.handle_account_update(update, update_count).await;
-                        }
-                        Err(_) => {
-                            // Podría ser un mensaje de confirmación de suscripción
-                            if text.contains("\"result\"") {
-                                println!("✅ Confirmación de suscripción recibida\n");
-                            }
-                        }
+                    if let Ok(update) = serde_json::from_str::<LogUpdate>(&text) {
+                        self.handle_log_update(update).await;
                     }
                 }
                 Ok(Message::Ping(_)) => {
-                    // Responder a ping para mantener conexión viva
-                    write.send(Message::Pong(vec![]))
-                        .await
-                        .context("Error enviando pong")?;
+                    let _ = write.send(Message::Pong(vec![])).await;
                 }
                 Ok(Message::Close(_)) => {
-                    println!("\n🔴 WebSocket cerrado por el servidor");
+                    println!("🔴 Servidor cerró la conexión");
                     break;
                 }
                 Err(e) => {
-                    eprintln!("❌ Error en WebSocket: {}", e);
-                    break;
+                    return Err(anyhow::anyhow!("Error en stream: {}", e));
                 }
                 _ => {}
             }
         }
-
         Ok(())
     }
 
-    /// Procesa un update de cuenta
-    async fn handle_account_update(&self, update: AccountUpdate, count: usize) {
-        let timestamp = Self::now();
-        
-        println!("┌──────────────────────────────────────────────────────────┐");
-        println!("│ UPDATE #{:<3}                     {} │", count, timestamp);
-        println!("├──────────────────────────────────────────────────────────┤");
-        
+    /// Procesa eventos de logs
+    async fn handle_log_update(&self, update: LogUpdate) {
         if let Some(params) = update.params {
             if let Some(result) = params.result {
-                if let Some(value) = result.value {
-                    let lamports = value.lamports.unwrap_or(0);
-                    let sol = lamports as f64 / 1_000_000_000.0;
+                let logs = &result.value.logs;
+                let sig = &result.value.signature;
+                let slot = result.context.slot;
+                
+                for log in logs {
+                    // Nuevo token creado
+                    if log.contains("Program log: Instruction: Create") {
+                        println!("✨ [NUEVO TOKEN] Creación detectada!");
+                        println!("   Slot: {} | Sig: {}...", slot, &sig[..16]);
+                    }
                     
-                    println!("│ 💰 Balance: {:.4} SOL ({} lamports)", sol, lamports);
-                    println!("│ 🔢 Slot:    {}", result.context.slot);
+                    // Graduación (migración a Raydium/PumpSwap)
+                    if log.contains("Program log: Instruction: Withdraw") {
+                        println!("🏁 [GRADUACIÓN] ¡Token migrando a DEX!");
+                        println!("   Slot: {} | Sig: {}...", slot, &sig[..16]);
+                        println!("   🚀 OPORTUNIDAD DE SNIPE DETECTADA");
+                    }
                     
-                    // Detectar cambios
-                    let change_type = if lamports > 0 {
-                        "🟢 ENTRADA"
-                    } else {
-                        "🔴 SALIDA"
-                    };
+                    // Compra detectada
+                    if log.contains("Program log: Instruction: Buy") {
+                        println!("🟢 [COMPRA] Actividad de compra detectada");
+                    }
                     
-                    println!("│ 📊 Tipo:    {}", change_type);
+                    // Venta detectada
+                    if log.contains("Program log: Instruction: Sell") {
+                        println!("🔴 [VENTA] Actividad de venta detectada");
+                    }
                 }
             }
         }
-        
-        println!("└──────────────────────────────────────────────────────────┘\n");
-    }
-
-    fn now() -> String {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap();
-        
-        let secs = now.as_secs();
-        let hours = (secs / 3600) % 24;
-        let mins = (secs / 60) % 60;
-        let secs = secs % 60;
-        
-        format!("{:02}:{:02}:{:02} UTC", hours, mins, secs)
     }
 }
 
 /// Estructura para parsear mensajes de WebSocket
 #[derive(Debug, Deserialize, Serialize)]
-struct AccountUpdate {
-    jsonrpc: Option<String>,
-    method: Option<String>,
-    params: Option<UpdateParams>,
+struct LogUpdate {
+    params: Option<LogParams>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct UpdateParams {
-    result: Option<UpdateResult>,
-    subscription: Option<u64>,
+struct LogParams {
+    result: Option<LogResult>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct UpdateResult {
-    context: UpdateContext,
-    value: Option<AccountValue>,
+struct LogResult {
+    context: LogContext,
+    value: LogValue,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct UpdateContext {
+struct LogContext {
     slot: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct AccountValue {
-    lamports: Option<u64>,
-    owner: Option<String>,
-    executable: Option<bool>,
+struct LogValue {
+    signature: String,
+    logs: Vec<String>,
 }

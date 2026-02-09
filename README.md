@@ -1,153 +1,152 @@
-# 🚀 Bot Trading - Sistema de Operaciones de Alta Frecuencia en Solana
+# 🚀 SOL_BOT - Motor de Trading de "Ultralujo y Sistemas Críticos"
 
 **Autor:** Rubén  
 **Entorno:** Ubuntu/Linux  
-**Stack Principal:** Rust (Core Engine), Python (Analytics), Telegram Bot API (Control)  
-**Objetivo:** Operar el 5% de la cartera con disciplina militar para buscar retornos 10X en memecoins/tokens hyperagresivos.
+**Filosofía:** Ingeniería de precisión (Estilo MV Agusta / Ferrari / 42 Madrid)  
+**Stack Principal:** Rust (Chassis Engine), Python (Intelligence), Jupiter/Helius (Infrastructure)
 
 ---
 
-## 📋 Filosofía del Proyecto
+## 🏎️ El Concepto: "The Chassis" v1.1.0
 
-Este proyecto sigue la filosofía de **"Soberanía Técnica Progresiva"**:
+Este no es un bot genérico. Es un **chasis de alto rendimiento** diseñado para competir en el Gran Premio de las memecoins de Solana. Siguiendo el rigor técnico de **42 Madrid**, hemos pasado de un sistema de monitoreo pasivo a un **ecosistema de ejecución reactiva de baja latencia**.
 
-1. **Fase Táctica:** Operar con herramientas de ejecución rápida (Trojan Bot) manteniendo control total de logs y auditoría manual.
-2. **Fase Estratégica (HOY):** Uso de **"The Chassis"**, nuestro motor propio en Rust para monitoreo 24/7, trailing stop-loss y alertas de liquidez proactivas.
-3. **Fase Soberana (Próximamente):** Ejecución directa on-chain (auto-sell/buy) sin dependencias de interfaces de terceros.
-
-> *"No se trata de reinventar la rueda, sino de fabricar un chasis que nadie pueda sabotear."*
-
----
-
-## 🏗️ Arquitectura del Sistema
+## 🏗️ Arquitectura Mejorada (Hiperluxury Standard)
 
 ```
 bot_trading/
-├── core/                # 🏎️ MOTOR PRINCIPAL (The Chassis)
-│   ├── the_chassis/     # Lógica en Rust v1.0.0 (Precios, SL, Telegram)
-│   ├── src/             # Código fuente (Trailing SL, Liquidity Monitor)
-│   └── targets.json     # Configuración dinámica de posiciones
+├── core/                # 🚀 MOTOR DE EJECUCIÓN (The Chassis)
+│   ├── src/             
+│   │   ├── main.rs      # Orquestador con soporte CLI (Buy/Scan/Monitor)
+│   │   ├── executor_v2.rs # Motor de Swaps (Jupiter v6 Integration)
+│   │   ├── websocket.rs # Sensor de Telemetría (Logs Listener) + Auto-reconnect
+│   │   ├── raydium.rs   # 🆕 Direct Swap Engine (Bypass Jupiter) - EN DESARROLLO
+│   │   └── telegram_commands.rs # Control remoto + /buy command
+│   └── proto/           # Contratos gRPC para Fase 3
 │
-├── operational/         # Operativa diaria
-│   ├── scripts/         # Automatización de entorno
-│   └── wallets/         # Seguridad y gestión de claves
+├── intelligence/        # 🧠 MÓDULO DE INTELIGENCIA (Auto-Audit)
+│   └── scripts/         
+│       ├── auto_audit.py  # Auditoría 2s (RugCheck + DexScreener API)
+│       └── chassis_buy.py # Orquestador de compra semi-automática (Python Fallback)
 │
-├── intelligence/        # Análisis y detección (En desarrollo)
-│   └── models/          # Detección de Smart Money / Rug Pulls
+├── operational/         # 📊 DEPÓSITO DE DATOS & LOGS
+│   ├── audits/          # Reportes históricos (🟢/🟡/🔴)
+│   └── logs/            # Registros de Paper Trading y Ejecución Real
 │
-└── docs/                # Documentación técnica y setups
+├── docs/                # 📚 ROADMAP & ESPECIFICACIONES TÉCNICAS
+├── DEPLOYMENT.md        # 🆕 Guía completa para hosting en servidor VPS
+└── start_bot.sh         # 🆕 Script de arranque con menú interactivo
 ```
 
 ---
 
-## 🎯 Objetivos del 5% de Cartera
+## 🛠️ Capacidades Actuales de Competición
 
-| Métrica | Objetivo |
-|---------|----------|
-| **Capital Asignado** | 5% de la cartera total |
-| **Tamaño por Operación** | 0.25 - 0.5 SOL |
-| **Take Profit 1** | 100% (2X) → Recuperar principal |
-| **Moonshot Target** | 900% (10X) |
-| **Trailing Stop Loss** | Dinámico (ajustado por The Chassis) |
-| **Ratio Riesgo/Recompensa** | 1:10 mínimo |
+### 1. 🧠 Módulo de Inteligencia (Auto-Audit)
+Hemos eliminado el cuello de botella de la auditoría manual.
+- **Velocidad:** 2 segundos por token.
+- **Rigor:** Consulta directa a los "Storage" de Solana para verificar autoridades (Mint/Freeze) y liquidez bloqueada.
+- **Uso:** `python3 intelligence/scripts/auto_audit.py <MINT_ADDRESS>`
+
+### 2. 💰 Sistema de Ejecución Directa (CLI + Telegram)
+Ya no dependemos de dashboards lentos. El bot tiene "dedos" propios.
+- **CLI:** `cargo run -- buy --mint <MINT> --sol <CANTIDAD>`
+- **Telegram:** `/buy <MINT> <SOL>` desde tu móvil
+- **Ventaja:** Swaps directos vía Jupiter Aggregator con cálculo de slippage dinámico.
+- **Estado:** ⚠️ Requiere conexión estable a `quote-api.jup.ag` (ver Roadmap Raydium)
+
+### 📡 3. Sensor de Telemetría (WebSocket logs) + Auto-Reconnect
+"Escuchamos" la red, no preguntamos por ella.
+- **Tipo:** `logsSubscribe` (mentions: Pump.fun Program ID).
+- **Latencia:** <100ms (Modo `processed`).
+- **Detección:** Captura eventos de `Create`, `Withdraw` (Graduación), `Buy` y `Sell` antes de que aparezcan en interfaces web.
+- **Resiliencia:** Auto-reconexión con retry logic (máx 5 intentos).
+- **Uso:** `cargo run -- scan`
+
+### 🛡️ 4. Monitor 24/7 con Trailing Stop-Loss
+Protección automática de posiciones.
+- **Trailing SL:** Ajuste dinámico del stop-loss siguiendo el precio al alza.
+- **Alertas Telegram:** Notificaciones instantáneas de cambios críticos.
+- **Uso:** `cargo run`
 
 ---
 
-## 🛠️ Stack Tecnológico Actual (v1.0.0)
+## 📋 Comandos del Paddock
 
-### Motor de Control & Monitoreo (The Chassis)
-- **Lenguaje:** Rust (Alta eficiencia y seguridad de memoria)
-- **Control Remoto:** Telegram Bot API (Comandos interactivos `/status`, `/balance`)
-- **Gestión de Riesgo:** Trailing Stop-Loss inteligente y Monitor de Liquidez en tiempo real.
-- **RPC:** Helius RPC (Latencia optimizada)
+| Comando | Descripción | Estado |
+|---------|-------------|--------|
+| `./start_bot.sh` | Menú interactivo con todas las opciones | ✅ Operativo |
+| `cargo run` | **Monitor Mode:** Vigilancia 24/7 con Trailing Stop-Loss. | ✅ Operativo |
+| `cargo run -- buy --mint <M> --sol <S>` | **Execution Mode:** Compra inmediata desde terminal. | ⚠️ DNS Bloqueado |
+| `cargo run -- scan` | **Telemetry Mode:** Scanner de eventos en Pump.fun. | ✅ Operativo |
+| `python3 auto_audit.py <MINT>` | **Intelligence:** Auditoría técnica instantánea. | ✅ Operativo |
 
-### Ejecución & Seguridad
-- **Ejecución:** Trojan on Solana + Jupiter Aggregator (vía The Chassis)
-- **Auditoría:** RugCheck.xyz (Integrado en protocolo), Sol Sniffer
-- **Infraestructura:** Ubuntu Linux + Jito Bundles (Anti-MEV)
-
----
-
-## ⚙️ Configuración del Sistema
-
-### Capa de Protección (The Chassis)
-```json
-// Ejemplo de configuración en targets.json
-{
-  "trailing_enabled": true,
-  "trailing_distance_percent": 30.0,
-  "trailing_activation_threshold": 50.0,
-  "liquidity_check": true
-}
+### Desde Telegram:
+```
+/buy <MINT> <SOL>   # Comprar token
+/status             # Ver posiciones
+/balance            # Ver balance
+/targets            # Ver configuración
+/help               # Ver ayuda
 ```
 
-### Capa de Ejecución (Trojan/Jito)
-```
-Slippage:         20-30%
-Priority Fee:     0.005 SOL
-Jito Tip:         ON (0.001 SOL)
-```
+---
+
+## 📊 Protocolo de Operación "Estándar Suizo"
+
+1. **Detección:** El sensor WebSocket (`scan`) detecta una graduación.
+2. **Auditoría:** Se lanza `auto_audit.py`. Si el veredicto es 🟢 APROBADO, se procede.
+3. **Ejecución:** Se decide la entrada (manual o vía `buy` command cuando esté resuelto el DNS).
+4. **Protección:** `The Chassis` toma el control con un Stop-Loss del -35% y Trailing Step de +30%.
 
 ---
 
-## 🚀 Inicio Rápido
+## 📈 Roadmap de Ingeniería 2026
 
-### 1. Arrancar el Motor Core
-```bash
-cd core/the_chassis
-./target/release/the_chassis
-```
+### ✅ Fase 2: Chasis Reforzado (Completado 2026-02-09)
+- [x] Soporte CLI para comandos modulares.
+- [x] Sensor de Logs WebSocket (Telemetría) con auto-reconnect.
+- [x] Módulo Intelligence con veredicto automático.
+- [x] Integración de Jupiter v6 en el motor de Rust.
+- [x] Comando `/buy` en Telegram.
+- [x] Script de arranque automatizado (`start_bot.sh`).
+- [x] Guía de deployment para servidor VPS.
 
-### 2. Control desde Telegram
-Busca a `@solbotruben` (o tu bot configurado) y usa:
-- `/status` - Revisar todas las posiciones y drawdowns.
-- `/balance` - Consultar SOL disponible.
-- `/targets` - Ver configuración activa de tokens.
+### 🚧 Fase 3: Soberanía Total (En Curso - Prioridad #1)
+- [ ] **Raydium Direct Swap:** Eliminación de dependencia externa (Jupiter API).
+  - Descubrimiento automático de Pools usando RPC.
+  - Construcción de instrucciones de swap a bajo nivel.
+  - Ver `docs/RAYDIUM_IMPLEMENTATION.md` para roadmap técnico.
+- [ ] **Jito Bundles:** Ejecución atómica para garantizar entrada en el bloque 1.
+- [ ] **Error Handling (Estándar 42):** Eliminación total de `unwrap()` y gestión de pánicos.
 
----
-
-## 📊 Protocolo de Ejecución Actualizado
-
-### Entrada (Manual/Asistida)
-1. Detectar CA en Dexscreener/GMGN.
-2. Auditoría rápida en RugCheck (Score > 85 obligatorio).
-3. Compra vía Trojan (0.25-0.5 SOL).
-4. **Alta en The Chassis:** Añadir a `targets.json` para protección automática.
-
-### Salida (Protegida por Trailing SL)
-1. **Fase de Crecimiento:** El bot monitorea el precio 24/7.
-2. **Activación:** Al superar el `activation_threshold` (ej. +50%), el Trailing SL se activa.
-3. **Protección:** Si el precio cae la distancia configurada (ej. -30% desde el pico), el bot lanza alerta inmediata con link de ejecución en Jupiter.
+### 🔮 Fase 4: Inteligencia Artificial (Futuro)
+- [ ] **gRPC / Geyser:** Migración de WebSockets a gRPC (Latencia de grado militar <20ms).
+- [ ] **Dashboard Telemetría:** Interfaz visual estilo cockpit de F1.
+- [ ] **ML Pattern Detection:** Detección de patrones de "Smart Money" usando históricos.
 
 ---
 
-## 📈 Roadmap de Desarrollo
+## 🖥️ Hosting en Servidor (Recomendado para 24/7)
 
-### ✅ Fase 1: Cimientos (Completado)
-- [x] Estructura de proyecto y entorno Linux.
-- [x] Conectividad RPC Helius optimizada.
-- [x] Integración de notificaciones Telegram.
+Tu laptop es tu "Taller de Ingeniería", pero el bot debe vivir en un servidor para:
+- **Uptime 24/7:** Sin depender de que tu laptop esté encendida.
+- **Latencia Profesional:** Conexión directa a RPCs de Solana.
+- **IP Estable:** Mayor confiabilidad con servicios RPC premium.
 
-### ✅ Fase 2: El Chasis v1.0.0 (Completado)
-- [x] Motor de monitoreo multithread en Rust.
-- [x] **Comandos Interactivos de Telegram.**
-- [x] **Sistema de Trailing Stop-Loss.**
-- [x] **Detector de Liquidez y Rug Pulls.**
+**Ver guía completa:** [`DEPLOYMENT.md`](DEPLOYMENT.md)
 
-### 🚧 Fase 3: Automatización Total (Siguiente Paso)
-- [ ] **Ejecución On-Chain Directa:** Venta automática sin pasar por navegador.
-- [ ] **Auto-Buy:** Compra automática basada en filtros de seguridad.
-- [ ] **Integración Yellowstone gRPC:** Monitoreo a nivel de slot (latencia <10ms).
+**Proveedores recomendados:**
+- **Hetzner Cloud CX21:** €4.51/mes (2vCPU, 4GB RAM) - Alemania
+- **DigitalOcean Droplet:** $6/mes (1vCPU, 1GB RAM) - NYC/SF
+- **AWS Lightsail:** $5/mes (us-east-1) - Ultra latencia
 
 ---
 
-## ⚠️ Disclaimers
+## ⚠️ Disclaimer
+Este sistema está diseñado por y para ingenieros con alta tolerancia al riesgo. La velocidad es nuestra ventaja, pero la disciplina es nuestra salvaguarda.
 
-> Este proyecto es para uso educacional y personal. El trading de criptomonedas conlleva riesgos significativos. No se garantiza ninguna ganancia. Opera solo con capital que puedas permitirte perder.
+**Versión:** 1.1.0-luxury  
+**Última Actualización:** 2026-02-09  
+**Ingeniería:** Rubén | *MV Agusta Mindset* ⚡
 
-**Versión:** 1.0.0 (v1.0.0-release)  
-**Última Actualización:** 2026-02-08  
-**Licencia:** Privada (Configuraciones) | MIT (Componentes Core)
-
----  
-Desarrollado con ⚡ por Ruben | 2026

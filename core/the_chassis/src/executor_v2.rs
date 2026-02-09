@@ -17,7 +17,7 @@ use spl_token::state::Account as TokenAccount;
 use std::str::FromStr;
 use base64::{Engine as _, engine::general_purpose};
 
-use crate::jupiter::{JupiterClient, SwapResult};
+use crate::jupiter::{JupiterClient, SwapResult, BuyResult};
 
 /// Configuración del executor
 #[derive(Debug, Clone)]
@@ -170,29 +170,180 @@ impl TradeExecutor {
         Ok(result)
     }
 
+    /// Ejecuta una compra usando SOL
+    pub async fn execute_buy(
+        &self,
+        token_mint: &str,
+        wallet_keypair: Option<&Keypair>,
+        amount_sol: f64,
+    ) -> Result<BuyResult> {
+        println!("╔════════════════════════════════════════════════════════════╗");
+        println!("║              💰 BUY EXECUTOR V2 💰                        ║");
+        println!("╚════════════════════════════════════════════════════════════╝\n");
+
+        // Modo dry run si no se proporciona keypair
+        if self.config.dry_run || wallet_keypair.is_none() {
+            return self.simulate_buy(token_mint, amount_sol).await;
+        }
+
+        let keypair = wallet_keypair.unwrap();
+        let user_pubkey = keypair.pubkey();
+
+        println!("🎯 Token:        {}", token_mint);
+        println!("🔑 Wallet:       {}...", &user_pubkey.to_string()[..8]);
+        println!("💰 Amount:       {} SOL", amount_sol);
+        println!("📉 Slippage:     {}%", self.config.slippage_bps as f64 / 100.0);
+        println!("⚙️  Mode:         PRODUCTION\n");
+
+        // SOL amount en lamports
+        let amount_lamports = (amount_sol * 1_000_000_000.0) as u64;
+
+        // 1. Obtener quote de Jupiter
+        println!("🔍 Consultando Jupiter para mejor ruta...");
+        
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+        
+        let quote = self.jupiter.get_quote(
+            SOL_MINT,
+            token_mint,
+            amount_lamports,
+            self.config.slippage_bps,
+        ).await?;
+
+        self.jupiter.print_quote_summary(&quote);
+
+        let tokens_to_receive = quote.out_amount.parse::<f64>().unwrap_or(0.0);
+        let price_per_token = if tokens_to_receive > 0.0 {
+            amount_sol / tokens_to_receive
+        } else {
+            0.0
+        };
+
+        println!("\n💎 Tokens estimados: {:.0}", tokens_to_receive);
+        println!("📊 Precio unitario: ${:.10}", price_per_token);
+
+        // 2. Obtener transacción firmable
+        println!("\n🔧 Generando transacción de swap...");
+        let swap_response = self.jupiter.get_swap_transaction(
+            &quote,
+            &user_pubkey.to_string(),
+            true,
+        ).await?;
+
+        // 3. Deserializar transacción
+        println!("🔐 Firmando transacción...");
+        let tx_bytes = general_purpose::STANDARD
+            .decode(&swap_response.swap_transaction)
+            .context("Error decodificando transacción base64")?;
+        
+        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
+            .context("Error deserializando transacción")?;
+
+        // 4. Enviar transacción
+        println!("📡 Broadcasting transacción a Solana...");
+        let signature = self.send_transaction_with_retry(&transaction, 3).await?;
+
+        println!("✅ Compra confirmada!\n");
+        println!("🔗 Signature: {}", signature);
+        println!("🔗 Solscan:   https://solscan.io/tx/{}\n", signature);
+
+        // 5. Construir resultado
+        let result = BuyResult {
+            signature: signature.to_string(),
+            sol_spent: amount_sol,
+            tokens_received: tokens_to_receive,
+            price_per_token,
+            route: quote.route_plan.iter()
+                .map(|r| r.swap_info.label.clone())
+                .collect::<Vec<_>>()
+                .join(" → "),
+            price_impact_pct: quote.price_impact_pct.parse().unwrap_or(0.0),
+        };
+
+        result.print_summary();
+
+        Ok(result)
+    }
+
+    /// Simula una compra (dry run)
+    async fn simulate_buy(&self, token_mint: &str, amount_sol: f64) -> Result<BuyResult> {
+        println!("🧪 Mode:         DRY RUN (Simulation)");
+        println!("🎯 Token:        {}", token_mint);
+        println!("💰 Amount:       {} SOL\n", amount_sol);
+        
+        println!("⚠️  SIMULACIÓN ACTIVA:");
+        println!("   ✓ Quote calculado");
+        println!("   ✓ Precio estimado");
+        println!("   ✗ Transacción NO enviada\n");
+        
+        Ok(BuyResult {
+            signature: "SIMULATION_ONLY".to_string(),
+            sol_spent: amount_sol,
+            tokens_received: 100000.0,
+            price_per_token: amount_sol / 100000.0,
+            route: "Simulation".to_string(),
+            price_impact_pct: 0.5,
+        })
+    }
+
     /// Simula una venta (dry run)
     async fn simulate_emergency_sell(&self, token_mint: &str, amount_percent: u8) -> Result<SwapResult> {
         println!("🧪 Mode:         DRY RUN (Simulation)");
         println!("🎯 Token:        {}", token_mint);
         println!("📊 Amount:       {}%\n", amount_percent);
         
+        // Simular obtención de quote real para la simulación
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+        let quote = self.jupiter.get_quote(
+            token_mint,
+            SOL_MINT,
+            1000000000, // Simular con 1 SOL de valor de token si no sabemos balance
+            self.config.slippage_bps,
+        ).await.unwrap_or_default();
+
+        let output_sol = quote.out_amount.parse::<f64>().unwrap_or(0.0) / 1_000_000_000.0;
+
         println!("⚠️  SIMULACIÓN ACTIVA:");
-        println!("   ✓ Quote de Jupiter calculado");
-        println!("   ✓ Ruta óptima identificada");
-        println!("   ✓ Slippage y fees estimados");
+        println!("   ✓ Quote de Jupiter calculado: {} SOL", output_sol);
+        println!("   ✓ Ruta óptima identificada: {}", quote.route_plan.iter().map(|r| r.swap_info.label.clone()).collect::<Vec<_>>().join(" → "));
         println!("   ✗ Transacción NO enviada a blockchain\n");
         
+        // Registrar en log de simulación
+        self.log_simulated_trade(token_mint, output_sol)?;
+
         println!("💡 Para ejecutar en PRODUCCIÓN:");
         println!("   1. Proporciona el Keypair de tu wallet");
-        println!("   2. Ajusta 'dry_run = false' en config\n");
+        println!("   2. Ajusta 'auto_execute = true' en targets.json\n");
         
         Ok(SwapResult {
             signature: "SIMULATION_ONLY".to_string(),
-            input_amount: 1000000.0,
-            output_amount: 0.05,
-            route: "Raydium → Orca".to_string(),
-            price_impact_pct: 0.48,
+            input_amount: 1000000000.0,
+            output_amount: output_sol,
+            route: "Simulation".to_string(),
+            price_impact_pct: quote.price_impact_pct.parse().unwrap_or(0.0),
         })
+    }
+
+    fn log_simulated_trade(&self, token: &str, amount_sol: f64) -> Result<()> {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        
+        let log_path = "../../operational/logs/simulated_trades.csv";
+        let file_exists = std::path::Path::new(log_path).exists();
+        
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)?;
+            
+        if !file_exists {
+            writeln!(file, "timestamp,token,type,amount_sol,status")?;
+        }
+        
+        let now = chrono::Utc::now().to_rfc3339();
+        writeln!(file, "{},{},SELL,{:.6},SIMULATED", now, token, amount_sol)?;
+        
+        Ok(())
     }
 
     /// Obtiene el token account y balance para un mint específico

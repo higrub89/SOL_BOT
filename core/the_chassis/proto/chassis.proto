@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package chassis;
+
+service ChassisService {
+  // Monitoreo de posiciones
+  rpc GetPositions (Empty) returns (PositionsResponse);
+  
+  // Control de trading
+  rpc ExecuteTrade (TradeRequest) returns (TradeResponse);
+  
+  // Auditoría instantánea
+  rpc GetTokenAudit (AuditRequest) returns (AuditResponse);
+}
+
+message Empty {}
+
+message TradeRequest {
+  string token_mint = 1;
+  double amount_sol = 2;
+  string side = 3; // "BUY" or "SELL"
+}
+
+message TradeResponse {
+  bool success = 1;
+  string signature = 2;
+  string error_message = 3;
+}
+
+message Position {
+  string symbol = 1;
+  double entry_price = 2;
+  double current_price = 3;
+  double pnl_percent = 4;
+}
+
+message PositionsResponse {
+  repeated Position positions = 1;
+}
+
+message AuditRequest {
+  string token_mint = 1;
+}
+
+message AuditResponse {
+  string verdict = 1;
+  int32 score = 2;
+  double lp_locked_pct = 3;
+}

@@ -33,6 +33,7 @@ chrono = "0.4"
 dotenv = "0.15"
 webbrowser = "0.8" # ⚡ Para abrir Jupiter automáticamente
 teloxide = { version = "0.12", features = ["macros"] } # 📱 Telegram notifications
+clap = { version = "4.0", features = ["derive"] } # 🚀 CLI Argument handling
 
 [profile.release]
 opt-level = 3

@@ -122,7 +122,7 @@ impl JupiterClient {
 }
 
 /// Respuesta de Jupiter Quote API
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct QuoteResponse {
     pub input_mint: String,
@@ -194,6 +194,31 @@ impl SwapResult {
         println!("🔄 Route:         {}", self.route);
         println!("💎 Input:         {:.4} tokens", self.input_amount);
         println!("💰 Output:        {:.6} SOL", self.output_amount);
+        println!("📉 Price Impact:  {:.2}%\n", self.price_impact_pct);
+    }
+}
+
+/// Información de resultado de compra ejecutada
+#[derive(Debug, Clone)]
+pub struct BuyResult {
+    pub signature: String,
+    pub sol_spent: f64,
+    pub tokens_received: f64,
+    pub price_per_token: f64,
+    pub route: String,
+    pub price_impact_pct: f64,
+}
+
+impl BuyResult {
+    pub fn print_summary(&self) {
+        println!("╔════════════════════════════════════════════════════════════╗");
+        println!("║               ✅ COMPRA EJECUTADA CON ÉXITO              ║");
+        println!("╚════════════════════════════════════════════════════════════╝\n");
+        println!("📝 Signature:     {}", self.signature);
+        println!("🔄 Route:         {}", self.route);
+        println!("💰 SOL gastado:   {:.4} SOL", self.sol_spent);
+        println!("💎 Tokens:        {:.0}", self.tokens_received);
+        println!("📊 Precio/token:  ${:.10}", self.price_per_token);
         println!("📉 Price Impact:  {:.2}%\n", self.price_impact_pct);
     }
 }

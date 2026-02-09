@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use crate::emergency::EmergencyMonitor;
 use crate::wallet::WalletMonitor;
 use crate::config::AppConfig;
+use crate::executor_v2::{TradeExecutor, ExecutorConfig};
+use solana_sdk::signature::Keypair;
 
 pub struct CommandHandler {
     bot_token: String,
@@ -84,13 +86,14 @@ impl CommandHandler {
     ) -> Result<()> {
         match command.trim() {
             "/start" => {
-                self.send_message("🏎️ **The Chassis Bot Activado**\n\nComandos disponibles:\n\n\
-                    /status - Ver estado de todos los tokens\n\
-                    /balance - Ver balance de wallet\n\
-                    /targets - Lista de targets activos\n\
-                    /pause - Pausar monitoreo\n\
-                    /resume - Reanudar monitoreo\n\
-                    /help - Ver esta ayuda").await?;
+                self.send_message("🏎️ **The Chassis Bot v1.1.0**\n\n\
+                    ⚡ *Comandos disponibles:*\n\n\
+                    💰 `/buy <MINT> <SOL>` - Comprar token\n\
+                    📊 `/status` - Estado de posiciones\n\
+                    💵 `/balance` - Balance de wallet\n\
+                    🎯 `/targets` - Tokens monitoreados\n\
+                    ❓ `/help` - Ver ayuda completa\n\n\
+                    _El bot protege tus posiciones 24/7 con Trailing Stop-Loss._").await?;
             }
 
             "/status" => {
@@ -110,13 +113,94 @@ impl CommandHandler {
                     • `/status` - Muestra precio actual, drawdown y distancia al SL de cada token\n\
                     • `/balance` - Balance de SOL en tu wallet\n\
                     • `/targets` - Lista de tokens monitoreados\n\
+                    • `/buy <MINT> <SOL>` - Compra un token (ej: /buy ABC123... 0.05)\n\
                     • `/pause` - Pausa las alertas (el monitoreo continúa)\n\
                     • `/resume` - Reactiva las alertas\n\n\
                     El bot monitorea automáticamente tus tokens 24/7.").await?;
             }
 
+            cmd if cmd.starts_with("/buy ") => {
+                self.cmd_buy(cmd).await?;
+            }
+
             _ => {
                 // Comando no reconocido, ignorar silenciosamente
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Comando /buy - Ejecuta una compra de token
+    async fn cmd_buy(&self, command: &str) -> Result<()> {
+        // Parsear: /buy <MINT> <AMOUNT>
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        
+        if parts.len() < 3 {
+            self.send_message("❌ **Uso:** `/buy <MINT> <SOL>`\n\nEjemplo: `/buy 7SYuU1Z6EKfp... 0.05`").await?;
+            return Ok(());
+        }
+
+        let mint = parts[1];
+        let amount: f64 = match parts[2].parse() {
+            Ok(a) => a,
+            Err(_) => {
+                self.send_message("❌ Cantidad inválida. Usa un número (ej: 0.05)").await?;
+                return Ok(());
+            }
+        };
+
+        // Validar cantidad mínima
+        if amount < 0.01 {
+            self.send_message("❌ Cantidad mínima: 0.01 SOL").await?;
+            return Ok(());
+        }
+
+        self.send_message(&format!("🔍 Preparando compra...\n\n💰 {:.4} SOL → {}", amount, &mint[..12])).await?;
+
+        // Configurar executor
+        let api_key = std::env::var("HELIUS_API_KEY").unwrap_or_default();
+        let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
+        
+        let config = ExecutorConfig {
+            rpc_url,
+            slippage_bps: 100, // 1%
+            priority_fee: 50_000,
+            dry_run: false,
+        };
+
+        let executor = TradeExecutor::new(config);
+
+        // Cargar keypair
+        let priv_key = match std::env::var("WALLET_PRIVATE_KEY") {
+            Ok(k) => k,
+            Err(_) => {
+                self.send_message("❌ WALLET_PRIVATE_KEY no configurada en .env").await?;
+                return Ok(());
+            }
+        };
+        let keypair = Keypair::from_base58_string(&priv_key);
+
+        // Ejecutar compra
+        self.send_message("🚀 Ejecutando swap en Jupiter...").await?;
+        
+        match executor.execute_buy(mint, Some(&keypair), amount).await {
+            Ok(result) => {
+                let msg = format!(
+                    "✅ **COMPRA EXITOSA**\n\n\
+                    💰 SOL gastado: {:.4}\n\
+                    💎 Tokens: {:.0}\n\
+                    📊 Precio: ${:.10}\n\
+                    🔗 [Ver en Solscan](https://solscan.io/tx/{})",
+                    result.sol_spent,
+                    result.tokens_received,
+                    result.price_per_token,
+                    result.signature
+                );
+                self.send_message(&msg).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ Error en la compra: {}", e)).await?;
             }
         }
 

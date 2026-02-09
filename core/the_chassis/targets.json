@@ -1,9 +1,22 @@
 {
-  "targets": [],
+  "targets": [
+    {
+      "symbol": "GENTLEMEN",
+      "mint": "5TATk16oMrt4vsMR8WwQ9AtiPeosdJhXFkp2UhGJpump",
+      "entry_price": 0.0003867,
+      "amount_sol": 0.05,
+      "stop_loss_percent": -35.0,
+      "panic_sell_price": 0.0001,
+      "active": true,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 20.0,
+      "trailing_activation_threshold": 30.0
+    }
+  ],
   "global_settings": {
     "min_sol_balance": 0.01,
     "jito_tip_lamports": 50000,
-    "auto_execute": false,
+    "auto_execute": true,
     "monitor_interval_sec": 5
   }
 }
