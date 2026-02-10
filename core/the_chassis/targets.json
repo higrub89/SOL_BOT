@@ -1,10 +1,10 @@
 {
-  "version": "1.2",
+  "version": "1.3",
   "global_settings": {
     "min_sol_balance": 0.05,
     "max_concurrent_positions": 5,
     "jito_tip_lamports": 1000,
-    "monitor_interval_sec": 10,
+    "monitor_interval_sec": 30,
     "auto_execute": false
   },
   "targets": [
@@ -12,11 +12,11 @@
       "symbol": "JUP",
       "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
       "amount_sol": 0.05,
-      "entry_price": 0.80,
-      "stop_loss_percent": -15.0,
-      "panic_sell_price": 0.20,
+      "entry_price": 0.05,
+      "stop_loss_percent": -90.0,
+      "panic_sell_price": 0.01,
       "trailing_enabled": true,
-      "trailing_distance_percent": 3.0,
+      "trailing_distance_percent": 10.0,
       "trailing_activation_threshold": 10.0,
       "active": true
     },
@@ -24,11 +24,11 @@
       "symbol": "PYTH",
       "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
       "amount_sol": 0.05,
-      "entry_price": 0.35,
-      "stop_loss_percent": -15.0,
-      "panic_sell_price": 0.10,
+      "entry_price": 0.01,
+      "stop_loss_percent": -90.0,
+      "panic_sell_price": 0.005,
       "trailing_enabled": true,
-      "trailing_distance_percent": 3.0,
+      "trailing_distance_percent": 10.0,
       "trailing_activation_threshold": 10.0,
       "active": true
     }
