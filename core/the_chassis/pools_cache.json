@@ -1,0 +1,47 @@
+{
+    "version": "1.0.0",
+    "last_updated": "2026-02-10T13:50:00Z",
+    "pools": [
+        {
+            "name": "SOL/USDC",
+            "base_mint": "So11111111111111111111111111111111111111112",
+            "quote_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amm_id": "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2",
+            "amm_authority": "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+            "amm_open_orders": "HRk9CMrpq7Jn9sh7mzxE8CChHG8dneX9p475QKz4Fsfc",
+            "coin_vault": "DQyrAcCrDXQ7NeoqGgDCZwBvWDcYmFCjSb9JtteuvPpz",
+            "pc_vault": "HLmqeL62xR1QoZ1HKKbXRrdN1p3phKpxRMb2VVopvBBz",
+            "lp_mint": "8HoQnePLqPj4M7PUDzfw8e3Ymdwgc7NLGnaTUapubyvu",
+            "serum_market": "9wFFyRfZBsuAha4YcuxcXLKwMxJR43S7fPfQLusDBzvT",
+            "serum_bids": "14ivtgssEBoBjuZJtSAPKYgpUK7DmnSwuPMqJoVTSgKJ",
+            "serum_asks": "CEQdAFKdycHugujQg9k2wbmxjcpdYZyVLfV9WerTnafJ",
+            "serum_event_queue": "5KKsLVU6TcbVDK4BS6K1DGDxnh4Q9xjYJ8XaDCG5t8ht",
+            "serum_coin_vault": "36c6YqAwyGKQG66XEp2dJc5JqjaBNv7sVghEtJv4c7u6",
+            "serum_pc_vault": "8CFo8bL8mZQK8abbFyypFMwEDd8tVJjHTTojMLgQTUSZ",
+            "serum_vault_signer": "F8Vyqk3unwxkXukZFQeYyGmFfTG3CAX4v24iyrjEYBJV"
+        },
+        {
+            "name": "SOL/USDT",
+            "base_mint": "So11111111111111111111111111111111111111112",
+            "quote_mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+            "amm_id": "7XawhbbxtsRcQA8KTkHT9f9nc6d69UwqCDh6U5EEbEmX",
+            "amm_authority": "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+            "amm_open_orders": "4NJVwEAoudfSvU5kdxKm5DsQe4AAqG6XxpZcNdQVinuM",
+            "coin_vault": "876Z9waBygfzUrwwKFfnRcc7cfY4EQf6Kz1w7GRgbVYW",
+            "pc_vault": "CB86HtaqpXbNWbq67L18y5x2RhqoJ6smb7xHUcyWdQAQ",
+            "lp_mint": "89ZKE4aoyfLBe2RuV6jM3JGNhaV18Nxh8eNtjRcndBip",
+            "serum_market": "HWHvQhFmJB3NUcu1aihKmrKegfVxBEHzwVX6yZCKEsi1",
+            "serum_bids": "7QKQbfWHtJNdQwcG3Y5W4yf8YbJMT3VmKEgNykN5eF5X",
+            "serum_asks": "EiNUr6W5JXyVqxPmEpMXP3QNvqECxKZfWUVH5i6mJ1v7",
+            "serum_event_queue": "8SbTsRk9y3LXTE6xLDTYQBpVfYPPvK5n5T3MYUZHZsRM",
+            "serum_coin_vault": "BxCW7KpwNF9SHCsBZ8qYFjCwUJzM2pQCFaHd3yJQYHNi",
+            "serum_pc_vault": "BdS9gQMD68j9cMLvBSJTqQjZZzKUaRVs2Bh5RThSMEKh",
+            "serum_vault_signer": "FArG5MxwjLAkqPPEcNX6H4z3BYpE5aVc7xZqZ1GcXKAv"
+        }
+    ],
+    "discovery_metadata": {
+        "raydium_v4_program_id": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+        "serum_program_id": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+        "sol_mint": "So11111111111111111111111111111111111111112"
+    }
+}

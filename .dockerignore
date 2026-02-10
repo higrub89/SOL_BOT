@@ -1,0 +1,11 @@
+# Excluir solo archivos de build y temporales
+target/
+.git/
+.gitignore
+*.log
+logs/
+node_modules/
+.DS_Store
+bot_trading_pack.zip
+scratch/
+docs/

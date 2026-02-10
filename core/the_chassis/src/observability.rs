@@ -1,6 +1,7 @@
 //! # Observability - Telemetría de Hiperlujo
 //! 
 //! Sistema de logging estructurado con niveles de detalle institucionales.
+//! Soporta formato JSON para integración con Grafana/Datadog.
 //! 
 //! ## Niveles de Log
 //! - **TRACE:** Debugging extremo (solo en desarrollo)
@@ -8,13 +9,8 @@
 //! - **INFO:** Eventos importantes del sistema
 //! - **WARN:** Situaciones anómalas pero recuperables
 //! - **ERROR:** Errores que requieren atención
-//! 
-//! ## Formato de Log Premium
-//! ```
-//! [2026-02-09 22:15:01.423][INFO][EXECUTOR-RAYDIUM] Swap Success | TX: 5ghZ... | Latency: 420ms | Slippage: 0.5%
-//! ```
 
-use tracing::{info, warn, error, debug, Level};
+use tracing::{info, Level};
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
     EnvFilter,
@@ -22,7 +18,6 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use std::path::Path;
 
 /// Configuración del sistema de observabilidad
 pub struct ObservabilityConfig {
@@ -40,7 +35,7 @@ impl Default for ObservabilityConfig {
     fn default() -> Self {
         Self {
             log_level: Level::INFO,
-            log_dir: "../../operational/logs".to_string(),
+            log_dir: Self::detect_log_dir(),
             stdout_enabled: true,
             json_format: false,
         }
@@ -48,23 +43,33 @@ impl Default for ObservabilityConfig {
 }
 
 impl ObservabilityConfig {
-    /// Configuración para producción (logs JSON rotativos)
+    /// Configuración para producción (logs JSON rotativos + stdout)
     pub fn production() -> Self {
         Self {
             log_level: Level::INFO,
-            log_dir: "../../operational/logs".to_string(),
-            stdout_enabled: false,
+            log_dir: Self::detect_log_dir(),
+            stdout_enabled: true,
             json_format: true,
         }
     }
 
-    /// Configuración para desarrollo (logs verbosos en stdout)
+    /// Configuración para desarrollo (logs verbosos en stdout, texto plano)
     pub fn development() -> Self {
         Self {
             log_level: Level::DEBUG,
-            log_dir: "../../operational/logs".to_string(),
+            log_dir: Self::detect_log_dir(),
             stdout_enabled: true,
             json_format: false,
+        }
+    }
+
+    /// Auto-detecta el directorio de logs según el entorno
+    fn detect_log_dir() -> String {
+        // En Docker: /app/logs (montado como volumen)
+        if std::path::Path::new("/app/logs").exists() {
+            "/app/logs".to_string()
+        } else {
+            "logs".to_string()
         }
     }
 }
@@ -85,39 +90,67 @@ pub fn init_observability(config: ObservabilityConfig) -> anyhow::Result<()> {
     let env_filter = EnvFilter::from_default_env()
         .add_directive(config.log_level.into());
 
-    // Layer de archivo
-    let file_layer = fmt::layer()
-        .with_writer(file_appender)
-        .with_ansi(false)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_line_number(true)
-        .with_span_events(FmtSpan::CLOSE);
-
-    // Construir subscriber
-    if config.stdout_enabled {
-        // Con stdout
-        let stdout_layer = fmt::layer()
+    if config.json_format {
+        // === MODO JSON (Producción) ===
+        let json_file_layer = fmt::layer()
+            .with_writer(file_appender)
+            .with_ansi(false)
             .with_target(true)
-            .with_thread_ids(false)
-            .with_line_number(false);
+            .with_thread_ids(true)
+            .with_line_number(true)
+            .with_span_events(FmtSpan::CLOSE)
+            .json();
 
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(file_layer)
-            .with(stdout_layer)
-            .init();
+        if config.stdout_enabled {
+            let json_stdout_layer = fmt::layer()
+                .with_target(true)
+                .with_thread_ids(false)
+                .json();
+
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(json_file_layer)
+                .with(json_stdout_layer)
+                .init();
+        } else {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(json_file_layer)
+                .init();
+        }
     } else {
-        // Solo archivo
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(file_layer)
-            .init();
+        // === MODO TEXTO (Desarrollo) ===
+        let file_layer = fmt::layer()
+            .with_writer(file_appender)
+            .with_ansi(false)
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_line_number(true)
+            .with_span_events(FmtSpan::CLOSE);
+
+        if config.stdout_enabled {
+            let stdout_layer = fmt::layer()
+                .with_target(true)
+                .with_thread_ids(false)
+                .with_line_number(false);
+
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(file_layer)
+                .with(stdout_layer)
+                .init();
+        } else {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(file_layer)
+                .init();
+        }
     }
 
     info!("✅ Observability system initialized");
     info!("📁 Log directory: {}", config.log_dir);
     info!("📊 Log level: {:?}", config.log_level);
+    info!("📋 Format: {}", if config.json_format { "JSON (Grafana-ready)" } else { "Text (Development)" });
 
     Ok(())
 }
@@ -178,6 +211,21 @@ macro_rules! log_error {
     };
 }
 
+/// Log de paper trade para Ghost Protocol
+#[macro_export]
+macro_rules! log_paper_trade {
+    ($action:expr, $symbol:expr, $price:expr, $amount_sol:expr, $pnl:expr) => {
+        tracing::info!(
+            action = $action,
+            symbol = $symbol,
+            price = $price,
+            amount_sol = $amount_sol,
+            pnl_percent = $pnl,
+            "Paper trade recorded"
+        );
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +235,7 @@ mod tests {
         let dev_config = ObservabilityConfig::development();
         assert_eq!(dev_config.log_level, Level::DEBUG);
         assert!(dev_config.stdout_enabled);
+        assert!(!dev_config.json_format);
 
         let prod_config = ObservabilityConfig::production();
         assert_eq!(prod_config.log_level, Level::INFO);

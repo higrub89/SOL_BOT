@@ -1,22 +1,36 @@
 {
+  "version": "1.2",
+  "global_settings": {
+    "min_sol_balance": 0.05,
+    "max_concurrent_positions": 5,
+    "jito_tip_lamports": 1000,
+    "monitor_interval_sec": 10,
+    "auto_execute": false
+  },
   "targets": [
     {
-      "symbol": "GENTLEMEN",
-      "mint": "5TATk16oMrt4vsMR8WwQ9AtiPeosdJhXFkp2UhGJpump",
-      "entry_price": 0.0003867,
+      "symbol": "JUP",
+      "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
       "amount_sol": 0.05,
-      "stop_loss_percent": -35.0,
-      "panic_sell_price": 0.0001,
-      "active": true,
+      "entry_price": 0.80,
+      "stop_loss_percent": -15.0,
+      "panic_sell_price": 0.20,
       "trailing_enabled": true,
-      "trailing_distance_percent": 20.0,
-      "trailing_activation_threshold": 30.0
+      "trailing_distance_percent": 3.0,
+      "trailing_activation_threshold": 10.0,
+      "active": true
+    },
+    {
+      "symbol": "PYTH",
+      "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+      "amount_sol": 0.05,
+      "entry_price": 0.35,
+      "stop_loss_percent": -15.0,
+      "panic_sell_price": 0.10,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 3.0,
+      "trailing_activation_threshold": 10.0,
+      "active": true
     }
-  ],
-  "global_settings": {
-    "min_sol_balance": 0.01,
-    "jito_tip_lamports": 50000,
-    "auto_execute": true,
-    "monitor_interval_sec": 5
-  }
+  ]
 }

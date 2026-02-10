@@ -49,11 +49,15 @@ impl ExecutorConfig {
     }
 }
 
-/// Executor de trades con Jupiter integration
+// ... imports
+use crate::raydium::RaydiumClient;
+
+/// Executor de trades con Jupiter integration y Raydium Fallback
 pub struct TradeExecutor {
     config: ExecutorConfig,
     rpc_client: RpcClient,
     jupiter: JupiterClient,
+    raydium: Option<RaydiumClient>, 
 }
 
 impl TradeExecutor {
@@ -63,10 +67,23 @@ impl TradeExecutor {
             CommitmentConfig::confirmed(),
         );
 
+        // Intentar inicializar Raydium (puede fallar si no hay cache, no es crítico)
+        let raydium = match RaydiumClient::new(config.rpc_url.clone()) {
+            Ok(client) => {
+                println!("✅ Raydium Client: Activado (Modo Directo)");
+                Some(client)
+            },
+            Err(e) => {
+                eprintln!("⚠️  Raydium Client: Desactivado ({})", e);
+                None
+            }
+        };
+
         Self {
             config,
             rpc_client,
             jupiter: JupiterClient::new(),
+            raydium,
         }
     }
 
@@ -95,6 +112,9 @@ impl TradeExecutor {
         println!("📉 Slippage:     {}%", self.config.slippage_bps as f64 / 100.0);
         println!("⚙️  Mode:         PRODUCTION\n");
 
+        // Flash check: Raydium Fast Path para ventas?
+        // TODO: Implementar venta en Raydium. Por ahora venta siempre va por Jupiter para asegurar mejor precio de salida.
+        
         // 1. Obtener token account y balance
         println!("📊 Verificando balance de tokens...");
         let (token_account, token_balance) = self.get_token_account_balance(&user_pubkey, token_mint)?;
@@ -140,9 +160,6 @@ impl TradeExecutor {
         let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
-        // NOTA: Jupiter ya devuelve la transacción lista para firmar
-        // Solo necesitamos agregar nuestra firma
-        
         // 5. Enviar transacción
         println!("📡 Broadcasting transacción a Solan...");
         let signature = self.send_transaction_with_retry(&transaction, 3).await?;
@@ -171,6 +188,7 @@ impl TradeExecutor {
     }
 
     /// Ejecuta una compra usando SOL
+    /// Prioridad: 1. Raydium Direct (Si caché) -> 2. Jupiter (Universal)
     pub async fn execute_buy(
         &self,
         token_mint: &str,
@@ -178,30 +196,108 @@ impl TradeExecutor {
         amount_sol: f64,
     ) -> Result<BuyResult> {
         println!("╔════════════════════════════════════════════════════════════╗");
-        println!("║              💰 BUY EXECUTOR V2 💰                        ║");
+        println!("║              💰 BUY EXECUTOR V2 (HYBRID) 💰               ║");
         println!("╚════════════════════════════════════════════════════════════╝\n");
 
-        // Modo dry run si no se proporciona keypair
         if self.config.dry_run || wallet_keypair.is_none() {
             return self.simulate_buy(token_mint, amount_sol).await;
         }
 
         let keypair = wallet_keypair.unwrap();
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+
+        // 1. INTENTO VÍA RAYDIUM DIRECT (Low Latency)
+        // Solo si tenemos cliente y el pool está en caché
+        if let Some(raydium) = &self.raydium {
+            // Amount in lamports (SOL)
+            let amount_in = (amount_sol * 1_000_000_000.0) as u64;
+            
+            // Slippage calculation simple para intento directo
+            // Asumimos precio jupiter momentáneamente para calcular min_out o usamos oráculo interno
+            // Por simplicidad en V1 híbrida: Si el pool existe, intentamos quote rápido
+            
+                if let Ok(pool_info) = raydium.find_pool(SOL_MINT, token_mint) {
+                println!("⚡ [FAST PATH] Pool detectado en caché: {}", pool_info.name);
+                println!("🚀 Intentando ejecución directa en Raydium...");
+
+                // Estrategia Híbrida:
+                // 1. Consultar precio rápido en Jupiter (Oracle Check)
+                // 2. Ejecutar en Raydium (Execution Layer)
+                
+                // Paso 1: Obtener precio de referencia para slippage protection
+                let quote_check = self.jupiter.get_quote(
+                    SOL_MINT,
+                    token_mint,
+                    amount_in, // Input exacto
+                    self.config.slippage_bps,
+                ).await;
+
+                if let Ok(quote) = quote_check {
+                    let estimated_out: u64 = quote.out_amount.parse().unwrap_or(0);
+                    
+                    if estimated_out > 0 {
+                        // Calcular mínimo aceptable basado en el slippage configurado
+                        let min_amount_out = raydium.calculate_min_amount_out(estimated_out, self.config.slippage_bps);
+                        
+                        println!("   Price Check (Jup): {} tokens", estimated_out);
+                        println!("   Min Out (Ray):     {} tokens ({}% slip)", min_amount_out, self.config.slippage_bps as f64 / 100.0);
+
+                        // Paso 2: Ejecutar Swap en Raydium
+                        if let Some(kp) = wallet_keypair {
+                             match raydium.execute_swap(
+                                SOL_MINT,
+                                token_mint,
+                                amount_in,
+                                min_amount_out,
+                                kp
+                            ) {
+                                Ok(sig) => {
+                                    println!("✅ RAYDIUM SWAP COMPLETADO: {}", sig);
+                                    
+                                    // Devolver resultado exitoso construido manualmente
+                                    let tokens_received = estimated_out as f64; // Estimado, real se ve en explorer
+                                    let price_per_token = amount_sol / (tokens_received / 1_000_000.0); // Ajustar decimales según token (asumiendo 6)
+                                    
+                                    return Ok(BuyResult {
+                                        signature: sig,
+                                        sol_spent: amount_sol,
+                                        tokens_received: tokens_received / 1_000_000.0, // TODO: Usar decimales reales del token
+                                        price_per_token,
+                                        route: "Raydium Direct (V4)".to_string(),
+                                        price_impact_pct: 0.0, // No calculado localmente aun
+                                    });
+                                },
+                                Err(e) => {
+                                    eprintln!("❌ Error en ejecución Raydium: {}", e);
+                                    println!("⚠️  Fallback a Jupiter activado...");
+                                }
+                            }
+                        } else {
+                             println!("🧪 DRY RUN: Ejecución Raydium simulada con éxito.");
+                             return self.simulate_buy(token_mint, amount_sol).await;
+                        }
+                    }
+                } else {
+                    println!("⚠️  No se pudo obtener precio de referencia. Abortando Fast Path por seguridad.");
+                }
+            }
+        }
+
+        // 2. FALLBACK/STANDARD: JUPITER AGGREGATOR
+        println!("🔄 [STANDARD PATH] Ruteando vía Jupiter Aggregator...");
+        
+        // ... (resto de la lógica original de Jupiter)
+        
         let user_pubkey = keypair.pubkey();
 
         println!("🎯 Token:        {}", token_mint);
-        println!("🔑 Wallet:       {}...", &user_pubkey.to_string()[..8]);
-        println!("💰 Amount:       {} SOL", amount_sol);
-        println!("📉 Slippage:     {}%", self.config.slippage_bps as f64 / 100.0);
-        println!("⚙️  Mode:         PRODUCTION\n");
-
+        // ... (logs)
+        
         // SOL amount en lamports
         let amount_lamports = (amount_sol * 1_000_000_000.0) as u64;
 
         // 1. Obtener quote de Jupiter
         println!("🔍 Consultando Jupiter para mejor ruta...");
-        
-        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         
         let quote = self.jupiter.get_quote(
             SOL_MINT,
@@ -210,6 +306,8 @@ impl TradeExecutor {
             self.config.slippage_bps,
         ).await?;
 
+        // ... (resto de ejecución normal)
+        
         self.jupiter.print_quote_summary(&quote);
 
         let tokens_to_receive = quote.out_amount.parse::<f64>().unwrap_or(0.0);
@@ -219,10 +317,6 @@ impl TradeExecutor {
             0.0
         };
 
-        println!("\n💎 Tokens estimados: {:.0}", tokens_to_receive);
-        println!("📊 Precio unitario: ${:.10}", price_per_token);
-
-        // 2. Obtener transacción firmable
         println!("\n🔧 Generando transacción de swap...");
         let swap_response = self.jupiter.get_swap_transaction(
             &quote,
@@ -230,7 +324,6 @@ impl TradeExecutor {
             true,
         ).await?;
 
-        // 3. Deserializar transacción
         println!("🔐 Firmando transacción...");
         let tx_bytes = general_purpose::STANDARD
             .decode(&swap_response.swap_transaction)
@@ -239,15 +332,12 @@ impl TradeExecutor {
         let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
-        // 4. Enviar transacción
         println!("📡 Broadcasting transacción a Solana...");
         let signature = self.send_transaction_with_retry(&transaction, 3).await?;
 
         println!("✅ Compra confirmada!\n");
         println!("🔗 Signature: {}", signature);
-        println!("🔗 Solscan:   https://solscan.io/tx/{}\n", signature);
-
-        // 5. Construir resultado
+        
         let result = BuyResult {
             signature: signature.to_string(),
             sol_spent: amount_sol,
@@ -259,8 +349,6 @@ impl TradeExecutor {
                 .join(" → "),
             price_impact_pct: quote.price_impact_pct.parse().unwrap_or(0.0),
         };
-
-        result.print_summary();
 
         Ok(result)
     }

@@ -1,19 +1,26 @@
 //! # Telegram Commands Handler
 //! 
 //! Sistema de comandos interactivos para controlar The Chassis desde Telegram
+//! Incluye Health Check (/ping) y modo hibernación.
 
 use anyhow::Result;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::time::Instant;
 use crate::emergency::EmergencyMonitor;
 use crate::wallet::WalletMonitor;
 use crate::config::AppConfig;
 use crate::executor_v2::{TradeExecutor, ExecutorConfig};
 use solana_sdk::signature::Keypair;
+use solana_client::rpc_client::RpcClient;
+
+/// Flag global de hibernación — cuando true, el bot no ejecuta trades
+pub static HIBERNATION_MODE: AtomicBool = AtomicBool::new(false);
 
 pub struct CommandHandler {
     bot_token: String,
     chat_id: String,
     enabled: bool,
+    start_time: Instant,
 }
 
 impl CommandHandler {
@@ -27,7 +34,13 @@ impl CommandHandler {
             bot_token,
             chat_id,
             enabled,
+            start_time: Instant::now(),
         }
+    }
+
+    /// Verifica si el bot está en modo hibernación
+    pub fn is_hibernating() -> bool {
+        HIBERNATION_MODE.load(Ordering::Relaxed)
     }
 
     /// Procesa comandos recibidos del usuario
@@ -35,6 +48,7 @@ impl CommandHandler {
         &self,
         emergency_monitor: Arc<Mutex<EmergencyMonitor>>,
         wallet_monitor: Arc<WalletMonitor>,
+        executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
     ) -> Result<()> {
         if !self.enabled {
@@ -61,6 +75,7 @@ impl CommandHandler {
                                 command,
                                 Arc::clone(&emergency_monitor),
                                 Arc::clone(&wallet_monitor),
+                                Arc::clone(&executor),
                                 Arc::clone(&config),
                             ).await?;
                         }
@@ -82,18 +97,26 @@ impl CommandHandler {
         command: &str,
         emergency_monitor: Arc<Mutex<EmergencyMonitor>>,
         wallet_monitor: Arc<WalletMonitor>,
+        executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
     ) -> Result<()> {
         match command.trim() {
             "/start" => {
-                self.send_message("🏎️ **The Chassis Bot v1.1.0**\n\n\
+                self.send_message("🏎️ **The Chassis Bot v2.0.0**\n\n\
                     ⚡ *Comandos disponibles:*\n\n\
+                    🏓 `/ping` - Health check completo\n\
                     💰 `/buy <MINT> <SOL>` - Comprar token\n\
                     📊 `/status` - Estado de posiciones\n\
                     💵 `/balance` - Balance de wallet\n\
                     🎯 `/targets` - Tokens monitoreados\n\
+                    🛑 `/hibernate` - Modo hibernación (detener ejecución)\n\
+                    🟢 `/wake` - Salir de hibernación\n\
                     ❓ `/help` - Ver ayuda completa\n\n\
                     _El bot protege tus posiciones 24/7 con Trailing Stop-Loss._").await?;
+            }
+
+            "/ping" => {
+                self.cmd_ping(Arc::clone(&wallet_monitor)).await?;
             }
 
             "/status" => {
@@ -108,19 +131,42 @@ impl CommandHandler {
                 self.cmd_targets(config).await?;
             }
 
+            "/hibernate" => {
+                HIBERNATION_MODE.store(true, Ordering::Relaxed);
+                self.send_message("🛑 **MODO HIBERNACIÓN ACTIVADO**\n\n\
+                    El bot seguirá monitoreando pero NO ejecutará trades.\n\
+                    Usa `/wake` para reactivar.").await?;
+            }
+
+            "/wake" => {
+                HIBERNATION_MODE.store(false, Ordering::Relaxed);
+                self.send_message("🟢 **HIBERNACIÓN DESACTIVADA**\n\n\
+                    El bot ha vuelto al modo operativo normal.").await?;
+            }
+
             "/help" => {
-                self.send_message("📚 **Ayuda de The Chassis**\n\n\
-                    • `/status` - Muestra precio actual, drawdown y distancia al SL de cada token\n\
+                self.send_message("📚 **Ayuda de The Chassis v2.0**\n\n\
+                    • 🏓 `/ping` - Health check: RPC, wallet, uptime\n\
+                    • `/status` - Drawdown y SL de cada token\n\
                     • `/balance` - Balance de SOL en tu wallet\n\
                     • `/targets` - Lista de tokens monitoreados\n\
-                    • `/buy <MINT> <SOL>` - Compra un token (ej: /buy ABC123... 0.05)\n\
-                    • `/pause` - Pausa las alertas (el monitoreo continúa)\n\
-                    • `/resume` - Reactiva las alertas\n\n\
+                    • `/buy <MINT> <SOL>` - Compra un token\n\
+                    • 🚨 `/panic <MINT>` - Venta de emergencia 100%\n\
+                    • 🛑 `/hibernate` - Detener toda ejecución\n\
+                    • 🟢 `/wake` - Reactivar ejecución\n\n\
                     El bot monitorea automáticamente tus tokens 24/7.").await?;
             }
 
             cmd if cmd.starts_with("/buy ") => {
-                self.cmd_buy(cmd).await?;
+                if Self::is_hibernating() {
+                    self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
+                } else {
+                    self.cmd_buy(cmd, Arc::clone(&executor)).await?;
+                }
+            }
+
+            cmd if cmd.starts_with("/panic ") => {
+                self.cmd_panic(cmd, Arc::clone(&executor)).await?;
             }
 
             _ => {
@@ -131,77 +177,126 @@ impl CommandHandler {
         Ok(())
     }
 
+    /// Comando /ping - Health Check institucional
+    async fn cmd_ping(&self, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
+        let uptime = self.start_time.elapsed();
+        let hours = uptime.as_secs() / 3600;
+        let minutes = (uptime.as_secs() % 3600) / 60;
+        let secs = uptime.as_secs() % 60;
+
+        // Check RPC
+        let rpc_status = if let Ok(api_key) = std::env::var("HELIUS_API_KEY") {
+            let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
+            let start = Instant::now();
+            let client = RpcClient::new(rpc_url);
+            match client.get_slot() {
+                Ok(slot) => {
+                    let latency = start.elapsed().as_millis();
+                    let quality = if latency < 200 { "🟢" } else if latency < 500 { "🟡" } else { "🔴" };
+                    format!("{} Helius RPC: {}ms (Slot: {})", quality, latency, slot)
+                }
+                Err(e) => format!("🔴 Helius RPC: ERROR ({})", e),
+            }
+        } else {
+            "🔴 Helius RPC: API KEY no configurada".to_string()
+        };
+
+        // Check Wallet
+        let wallet_status = match wallet_monitor.get_sol_balance() {
+            Ok(balance) => {
+                let emoji = if balance > 0.1 { "🟢" } else if balance > 0.05 { "🟡" } else { "🔴" };
+                format!("{} Wallet: {:.4} SOL", emoji, balance)
+            }
+            Err(e) => format!("🔴 Wallet: ERROR ({})", e),
+        };
+
+        // Hibernation status
+        let hibernate_status = if Self::is_hibernating() {
+            "🛑 HIBERNANDO"
+        } else {
+            "🟢 OPERATIVO"
+        };
+
+        let response = format!(
+            "🏓 **PONG — Health Check**\n\n\
+            ⏱ Uptime: {}h {}m {}s\n\
+            {}\n\
+            {}\n\
+            🤖 Estado: {}\n\
+            📋 Versión: v2.0.0-alpha",
+            hours, minutes, secs,
+            rpc_status,
+            wallet_status,
+            hibernate_status
+        );
+
+        self.send_message(&response).await?;
+        Ok(())
+    }
+
     /// Comando /buy - Ejecuta una compra de token
-    async fn cmd_buy(&self, command: &str) -> Result<()> {
-        // Parsear: /buy <MINT> <AMOUNT>
+    async fn cmd_buy(&self, command: &str, executor: Arc<TradeExecutor>) -> Result<()> {
         let parts: Vec<&str> = command.split_whitespace().collect();
         
         if parts.len() < 3 {
-            self.send_message("❌ **Uso:** `/buy <MINT> <SOL>`\n\nEjemplo: `/buy 7SYuU1Z6EKfp... 0.05`").await?;
+            self.send_message("❌ **Uso:** `/buy <MINT> <SOL>`").await?;
             return Ok(());
         }
 
         let mint = parts[1];
-        let amount: f64 = match parts[2].parse() {
-            Ok(a) => a,
-            Err(_) => {
-                self.send_message("❌ Cantidad inválida. Usa un número (ej: 0.05)").await?;
-                return Ok(());
-            }
-        };
+        let amount: f64 = parts[2].parse().unwrap_or(0.0);
 
-        // Validar cantidad mínima
         if amount < 0.01 {
-            self.send_message("❌ Cantidad mínima: 0.01 SOL").await?;
+            self.send_message("❌ Mínimo: 0.01 SOL").await?;
             return Ok(());
         }
 
-        self.send_message(&format!("🔍 Preparando compra...\n\n💰 {:.4} SOL → {}", amount, &mint[..12])).await?;
+        self.send_message(&format!("🚀 **Iniciando Compra**\nToken: `{}`\nCantidad: `{} SOL`...", mint, amount)).await?;
 
-        // Configurar executor
-        let api_key = std::env::var("HELIUS_API_KEY").unwrap_or_default();
-        let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
-        
-        let config = ExecutorConfig {
-            rpc_url,
-            slippage_bps: 100, // 1%
-            priority_fee: 50_000,
-            dry_run: false,
+        // Cargar keypair temporalmente
+        let kp_opt = if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
+             Some(Keypair::from_base58_string(&pk))
+        } else {
+             None 
         };
-
-        let executor = TradeExecutor::new(config);
-
-        // Cargar keypair
-        let priv_key = match std::env::var("WALLET_PRIVATE_KEY") {
-            Ok(k) => k,
-            Err(_) => {
-                self.send_message("❌ WALLET_PRIVATE_KEY no configurada en .env").await?;
-                return Ok(());
-            }
-        };
-        let keypair = Keypair::from_base58_string(&priv_key);
 
         // Ejecutar compra
-        self.send_message("🚀 Ejecutando swap en Jupiter...").await?;
-        
-        match executor.execute_buy(mint, Some(&keypair), amount).await {
-            Ok(result) => {
+        match executor.execute_buy(mint, kp_opt.as_ref(), amount).await {
+            Ok(res) => {
                 let msg = format!(
-                    "✅ **COMPRA EXITOSA**\n\n\
-                    💰 SOL gastado: {:.4}\n\
-                    💎 Tokens: {:.0}\n\
-                    📊 Precio: ${:.10}\n\
-                    🔗 [Ver en Solscan](https://solscan.io/tx/{})",
-                    result.sol_spent,
-                    result.tokens_received,
-                    result.price_per_token,
-                    result.signature
+                    "✅ **COMPRA EXITOSA**\n\n💰 {:.4} SOL\n💎 {:.2} Tokens\n🔗 [Solscan](https://solscan.io/tx/{})",
+                    res.sol_spent, res.tokens_received, res.signature
                 );
                 self.send_message(&msg).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ Error en la compra: {}", e)).await?;
+                self.send_message(&format!("❌ **Error:** {}", e)).await?;
             }
+        }
+
+        Ok(())
+    }
+
+    /// Comando /panic - Vende TODO inmediatamente
+    async fn cmd_panic(&self, command: &str, executor: Arc<TradeExecutor>) -> Result<()> {
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.len() < 2 {
+            self.send_message("❌ **Uso:** `/panic <MINT>`").await?;
+            return Ok(());
+        }
+        
+        let mint = parts[1];
+        self.send_message(&format!("🚨 **PANIC SELL ACTIVADO**\nVendiendo 100% de `{}`...", mint)).await?;
+
+        let kp_opt = if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
+             Some(Keypair::from_base58_string(&pk))
+        } else {
+             None 
+        };
+
+        match executor.execute_emergency_sell(mint, kp_opt.as_ref(), 100).await {
+            Ok(res) => self.send_message(&format!("✅ **VENTA COMPLETADA**\nTx: `{}`", res.signature)).await?,
+            Err(e) => self.send_message(&format!("❌ **FALLO CRÍTICO:** {}", e)).await?,
         }
 
         Ok(())

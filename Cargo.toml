@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "core/the_chassis",
+    "intelligence",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

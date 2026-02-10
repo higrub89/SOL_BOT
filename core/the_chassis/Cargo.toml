@@ -58,6 +58,10 @@ webbrowser = "0.8" # ⚡ Para abrir Jupiter automáticamente
 teloxide = { version = "0.12", features = ["macros"] } # 📱 Telegram notifications
 clap = { version = "4.0", features = ["derive"] } # 🚀 CLI Argument handling
 
+[[bin]]
+name = "the_chassis_app"
+path = "src/bin/main.rs"
+
 [build-dependencies]
 tonic-build = "0.11"
 
