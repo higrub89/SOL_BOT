@@ -7,6 +7,7 @@ use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
+use crate::validation::FinancialValidator;
 
 /// Cliente para obtener precios de tokens
 pub struct PriceScanner {
@@ -18,7 +19,7 @@ impl PriceScanner {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .unwrap();
+            .expect("Failed to create HTTP client - this should never fail");
         
         Self { client }
     }
@@ -49,10 +50,14 @@ impl PriceScanner {
         });
 
         if let Some(pair) = best_pair {
-            // Extraer valores con defaults seguros
-            let price_usd = pair.price_usd.as_ref()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.0);
+            // Extraer valores con validación estricta
+            let price_usd_str = pair.price_usd.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("DexScreener: price_usd missing"))?;
+            
+            let price_usd = FinancialValidator::parse_price_safe(
+                price_usd_str,
+                "DexScreener price_usd"
+            )?;
                 
             let price_native = pair.price_native.as_ref()
                 .and_then(|s| s.parse::<f64>().ok())
@@ -61,6 +66,13 @@ impl PriceScanner {
             let liquidity_usd = pair.liquidity.as_ref()
                 .and_then(|l| l.usd)
                 .unwrap_or(0.0);
+            
+            // Validar liquidez mínima (protección contra pools con liquidez muy baja)
+            FinancialValidator::validate_liquidity(
+                liquidity_usd,
+                100.0, // Mínimo $100 de liquidez
+                "DexScreener liquidity"
+            )?;
                 
             let volume_24h = pair.volume.as_ref()
                 .and_then(|v| v.h24)

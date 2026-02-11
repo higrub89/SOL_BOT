@@ -27,7 +27,8 @@ tonic-build = "0.11"
 
 # Database - ACID Compliance (The Black Box)
 # Desactivamos default-features para evitar conflictos con drivers no usados (MySQL/Postgres)
-sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-native-tls", "sqlite", "macros"] }
+# sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-native-tls", "sqlite", "macros"] }
+rusqlite = { version = "0.31", features = ["bundled"] } # State persistence (sync SQLite)
 
 # Observability - Telemetría de Hiperlujo
 tracing = "0.1"

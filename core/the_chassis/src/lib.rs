@@ -29,6 +29,8 @@ pub mod telegram_commands;
 pub mod trailing_sl;
 pub mod liquidity_monitor;
 pub mod raydium;
+pub mod state_manager;
+pub mod validation;
 
 // 🏎️ Módulos del Framework Institucional (v2.0)
 pub mod executor_trait;

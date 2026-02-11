@@ -18,6 +18,7 @@ use std::str::FromStr;
 use base64::{Engine as _, engine::general_purpose};
 
 use crate::jupiter::{JupiterClient, SwapResult, BuyResult};
+use crate::validation::FinancialValidator;
 
 /// Configuración del executor
 #[derive(Debug, Clone)]
@@ -103,7 +104,8 @@ impl TradeExecutor {
             return self.simulate_emergency_sell(token_mint, amount_percent).await;
         }
 
-        let keypair = wallet_keypair.unwrap();
+        let keypair = wallet_keypair
+            .ok_or_else(|| anyhow::anyhow!("Keypair requerido para ejecución real"))?;
         let user_pubkey = keypair.pubkey();
 
         println!("🎯 Token:        {}", token_mint);
@@ -168,8 +170,19 @@ impl TradeExecutor {
         println!("🔗 Signature: {}", signature);
         println!("🔗 Solscan:   https://solscan.io/tx/{}\n", signature);
 
-        // 6. Construir resultado
-        let sol_received = quote.out_amount.parse::<f64>().unwrap_or(0.0) / 1_000_000_000.0;
+        // 6. Construir resultado con validación estricta
+        let sol_received = FinancialValidator::parse_price_safe(
+            &quote.out_amount,
+            "Jupiter out_amount"
+        )? / 1_000_000_000.0;
+        
+        // Validar que recibimos algo razonable
+        FinancialValidator::validate_sol_amount(sol_received, "SOL received")?;
+        
+        let price_impact = FinancialValidator::parse_price_safe(
+            &quote.price_impact_pct,
+            "Jupiter price_impact_pct"
+        )?;
         
         let result = SwapResult {
             signature: signature.to_string(),
@@ -179,7 +192,7 @@ impl TradeExecutor {
                 .map(|r| r.swap_info.label.clone())
                 .collect::<Vec<_>>()
                 .join(" → "),
-            price_impact_pct: quote.price_impact_pct.parse().unwrap_or(0.0),
+            price_impact_pct: price_impact,
         };
 
         result.print_summary();
@@ -233,7 +246,10 @@ impl TradeExecutor {
                 ).await;
 
                 if let Ok(quote) = quote_check {
-                    let estimated_out: u64 = quote.out_amount.parse().unwrap_or(0);
+                    let estimated_out = FinancialValidator::parse_amount_safe(
+                        &quote.out_amount,
+                        "Jupiter estimated tokens"
+                    )?;
                     
                     if estimated_out > 0 {
                         // Calcular mínimo aceptable basado en el slippage configurado
@@ -310,12 +326,23 @@ impl TradeExecutor {
         
         self.jupiter.print_quote_summary(&quote);
 
-        let tokens_to_receive = quote.out_amount.parse::<f64>().unwrap_or(0.0);
-        let price_per_token = if tokens_to_receive > 0.0 {
-            amount_sol / tokens_to_receive
-        } else {
-            0.0
-        };
+        let tokens_to_receive = FinancialValidator::parse_price_safe(
+            &quote.out_amount,
+            "Jupiter tokens to receive"
+        )?;
+        
+        // Validar que recibiremos tokens
+        if tokens_to_receive <= 0.0 {
+            anyhow::bail!("Jupiter quote inválido: 0 tokens a recibir");
+        }
+        
+        let price_per_token = amount_sol / tokens_to_receive;
+        
+        // Validar price impact
+        let price_impact = FinancialValidator::parse_price_safe(
+            &quote.price_impact_pct,
+            "Jupiter price impact"
+        )?;
 
         println!("\n🔧 Generando transacción de swap...");
         let swap_response = self.jupiter.get_swap_transaction(
@@ -347,7 +374,7 @@ impl TradeExecutor {
                 .map(|r| r.swap_info.label.clone())
                 .collect::<Vec<_>>()
                 .join(" → "),
-            price_impact_pct: quote.price_impact_pct.parse().unwrap_or(0.0),
+            price_impact_pct: price_impact,
         };
 
         Ok(result)
@@ -382,18 +409,42 @@ impl TradeExecutor {
         
         // Simular obtención de quote real para la simulación
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
-        let quote = self.jupiter.get_quote(
+        
+        let quote_result = self.jupiter.get_quote(
             token_mint,
             SOL_MINT,
             1000000000, // Simular con 1 SOL de valor de token si no sabemos balance
             self.config.slippage_bps,
-        ).await.unwrap_or_default();
+        ).await;
 
-        let output_sol = quote.out_amount.parse::<f64>().unwrap_or(0.0) / 1_000_000_000.0;
+        let (output_sol, route, price_impact) = match quote_result {
+            Ok(quote) => {
+                let sol = FinancialValidator::parse_price_safe(
+                    &quote.out_amount,
+                    "Simulation out_amount"
+                ).unwrap_or(0.0) / 1_000_000_000.0;
+                
+                let route_str = quote.route_plan.iter()
+                    .map(|r| r.swap_info.label.clone())
+                    .collect::<Vec<_>>()
+                    .join(" → ");
+                
+                let impact = FinancialValidator::parse_price_safe(
+                    &quote.price_impact_pct,
+                    "Simulation price impact"
+                ).unwrap_or(0.0);
+                
+                (sol, route_str, impact)
+            },
+            Err(e) => {
+                eprintln!("⚠️  No se pudo obtener quote de Jupiter para simulación: {}", e);
+                (0.0, "Simulation (No quote available)".to_string(), 0.0)
+            }
+        };
 
         println!("⚠️  SIMULACIÓN ACTIVA:");
         println!("   ✓ Quote de Jupiter calculado: {} SOL", output_sol);
-        println!("   ✓ Ruta óptima identificada: {}", quote.route_plan.iter().map(|r| r.swap_info.label.clone()).collect::<Vec<_>>().join(" → "));
+        println!("   ✓ Ruta óptima identificada: {}", route);
         println!("   ✗ Transacción NO enviada a blockchain\n");
         
         // Registrar en log de simulación
@@ -407,8 +458,8 @@ impl TradeExecutor {
             signature: "SIMULATION_ONLY".to_string(),
             input_amount: 1000000000.0,
             output_amount: output_sol,
-            route: "Simulation".to_string(),
-            price_impact_pct: quote.price_impact_pct.parse().unwrap_or(0.0),
+            route,
+            price_impact_pct: price_impact,
         })
     }
 
