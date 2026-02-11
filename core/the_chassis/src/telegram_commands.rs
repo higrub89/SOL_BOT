@@ -7,11 +7,10 @@ use anyhow::Result;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::Instant;
 use crate::emergency::EmergencyMonitor;
-use crate::wallet::WalletMonitor;
+use crate::wallet::{WalletMonitor, load_keypair_from_env};
 use crate::config::AppConfig;
 use crate::executor_v2::TradeExecutor;
 use crate::state_manager::StateManager;
-use solana_sdk::signature::Keypair;
 use solana_client::rpc_client::RpcClient;
 
 /// Flag global de hibernación — cuando true, el bot no ejecuta trades
@@ -45,6 +44,7 @@ impl CommandHandler {
     }
 
     /// Procesa comandos recibidos del usuario
+    /// Procesa comandos recibidos del usuario
     pub async fn process_commands(
         &self,
         emergency_monitor: Arc<Mutex<EmergencyMonitor>>,
@@ -53,8 +53,19 @@ impl CommandHandler {
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
     ) -> Result<()> {
+        println!("🚀 INICIANDO SISTEMA DE TELEGRAM COMMANDS (POLLING MANUAL)...");
+
         if !self.enabled {
+            println!("⚠️ Telegram desactivado (Faltan variables)");
             return Ok(());
+        }
+
+        // Test de Conexión Inicial (GetMe) para verificar token
+        let token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
+        if !token.is_empty() {
+             println!("📝 Token detectado: {}...", &token[..5]);
+             // Podríamos hacer un reqwest::get("getMe") aquí para validar, 
+             // pero el loop de abajo fallará rápido si no hay conexión.
         }
 
         let mut next_offset: i64 = 0;
@@ -73,6 +84,8 @@ impl CommandHandler {
                             .and_then(|m| m.get("text"))
                             .and_then(|t| t.as_str()) 
                         {
+                            println!("📩 CMD RECIBIDO: {}", command); // LOGUEAMOS EL COMANDO
+
                             self.handle_command(
                                 command,
                                 Arc::clone(&emergency_monitor),
@@ -85,7 +98,7 @@ impl CommandHandler {
                     }
                 }
                 Err(e) => {
-                    eprintln!("⚠️  Error obteniendo comandos: {}", e);
+                    eprintln!("⚠️  Error obteniendo comandos (Polling): {}", e);
                 }
             }
 
@@ -276,10 +289,12 @@ impl CommandHandler {
         self.send_message(&format!("🚀 **Iniciando Compra**\nToken: `{}`\nCantidad: `{} SOL`...", mint, amount)).await?;
 
         // Cargar keypair temporalmente
-        let kp_opt = if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
-             Some(Keypair::from_base58_string(&pk))
-        } else {
-             None 
+        let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
+            Ok(kp) => Some(kp),
+            Err(e) => {
+                self.send_message(&format!("⚠️ No se pudo cargar WALLET_PRIVATE_KEY: {}", e)).await?;
+                None
+            }
         };
 
         // Ejecutar compra
@@ -310,10 +325,12 @@ impl CommandHandler {
         let mint = parts[1];
         self.send_message(&format!("🚨 **PANIC SELL ACTIVADO**\nVendiendo 100% de `{}`...", mint)).await?;
 
-        let kp_opt = if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
-             Some(Keypair::from_base58_string(&pk))
-        } else {
-             None 
+        let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
+            Ok(kp) => Some(kp),
+            Err(e) => {
+                self.send_message(&format!("⚠️ No se pudo cargar WALLET_PRIVATE_KEY: {}", e)).await?;
+                None
+            }
         };
 
         match executor.execute_emergency_sell(mint, kp_opt.as_ref(), 100).await {

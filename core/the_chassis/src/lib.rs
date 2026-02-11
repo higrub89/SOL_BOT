@@ -42,7 +42,7 @@ pub mod observability;
 // ----------------------------------------------------------------------------
 
 use config::AppConfig;
-use wallet::WalletMonitor;
+use wallet::{WalletMonitor, load_keypair_from_env};
 use emergency::{EmergencyMonitor, EmergencyConfig, Position};
 use scanner::PriceScanner;
 use executor_v2::{TradeExecutor, ExecutorConfig};
@@ -144,8 +144,7 @@ async fn handle_buy_mode(mint: String, sol: f64, slippage: u16) -> Result<()> {
     
     let executor = TradeExecutor::new(config);
     
-    let priv_key = std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY missing");
-    let keypair = Keypair::from_base58_string(&priv_key);
+    let keypair = load_keypair_from_env("WALLET_PRIVATE_KEY")?;
     
     executor.execute_buy(&mint, Some(&keypair), sol).await?;
     
@@ -163,8 +162,7 @@ async fn handle_auto_buy_mode(mint: String, sol: f64, symbol: Option<String>, ad
     let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY missing");
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     
-    let priv_key = std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY missing");
-    let keypair = Keypair::from_base58_string(&priv_key);
+    let keypair = load_keypair_from_env("WALLET_PRIVATE_KEY")?;
     
     // Crear AutoBuyer
     let buyer = AutoBuyer::new(rpc_url)?;
@@ -348,6 +346,7 @@ async fn run_monitor_mode() -> Result<()> {
     println!("   • Active Positions: {}", stats.active_positions);
     println!("   • Total Trades:     {}", stats.total_trades);
     println!("   • Total PnL:        {:.4} SOL", stats.total_pnl_sol);
+    println!("✅ STATE MANAGER inicializado correctamente");
 
     println!("\n───────────────────────────────────────────────────────────\n");
 
@@ -364,13 +363,14 @@ async fn run_monitor_mode() -> Result<()> {
     
     if app_config.global_settings.auto_execute {
         println!("🔑 Modo Auto-Execute: Cargando Keypair...");
-        if let Ok(pk_bs58) = std::env::var("WALLET_PRIVATE_KEY") {
-            // En esta versión del SDK, from_base58_string devuelve Keypair directamente
-            let kp = Keypair::from_base58_string(&pk_bs58);
-            println!("   • Keypair cargado correctamente para {}", kp.pubkey());
-            wallet_keypair = Some(kp);
-        } else {
-            eprintln!("   • ❌ Error: WALLET_PRIVATE_KEY no encontrado en .env.");
+        match load_keypair_from_env("WALLET_PRIVATE_KEY") {
+            Ok(kp) => {
+                println!("   • Keypair cargado correctamente para {}", kp.pubkey());
+                wallet_keypair = Some(kp);
+            }
+            Err(e) => {
+                eprintln!("   • ❌ Error cargando WALLET_PRIVATE_KEY: {}", e);
+            }
         }
     }
     
@@ -378,9 +378,11 @@ async fn run_monitor_mode() -> Result<()> {
         println!("\n⚠️  ATENCIÓN: Auto-Execute está activado pero el Keypair no pudo ser cargado. El sistema operará en modo DRY-RUN o ALERTA como medida de seguridad.\n");
     }
 
+    println!("📣 Inicializando Telegram Notifier & Command Handler...");
     // 3.5 Telegram Notifier & Command Handler Setup
     let telegram = Arc::new(TelegramNotifier::new());
     let command_handler = Arc::new(CommandHandler::new());
+    println!("✅ Telegram components creados");
     
     // Lanzar el receptor de comandos en segundo plano
     let cmd_handler_clone = Arc::clone(&command_handler);

@@ -464,8 +464,11 @@ impl StateManager {
             [],
             |row| row.get(0),
         )?;
-        
-        let (total_pnl, _) = self.calculate_total_pnl()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(SUM(pnl_sol), 0.0) FROM trades WHERE pnl_sol IS NOT NULL"
+        )?;
+        let total_pnl: f64 = stmt.query_row([], |row| row.get(0))?;
         
         Ok(StateStats {
             active_positions: active_positions as usize,
