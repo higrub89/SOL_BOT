@@ -9,7 +9,8 @@ use std::time::Instant;
 use crate::emergency::EmergencyMonitor;
 use crate::wallet::WalletMonitor;
 use crate::config::AppConfig;
-use crate::executor_v2::{TradeExecutor, ExecutorConfig};
+use crate::executor_v2::TradeExecutor;
+use crate::state_manager::StateManager;
 use solana_sdk::signature::Keypair;
 use solana_client::rpc_client::RpcClient;
 
@@ -50,6 +51,7 @@ impl CommandHandler {
         wallet_monitor: Arc<WalletMonitor>,
         executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
+        state_manager: Arc<StateManager>,
     ) -> Result<()> {
         if !self.enabled {
             return Ok(());
@@ -77,6 +79,7 @@ impl CommandHandler {
                                 Arc::clone(&wallet_monitor),
                                 Arc::clone(&executor),
                                 Arc::clone(&config),
+                                Arc::clone(&state_manager),
                             ).await?;
                         }
                     }
@@ -99,6 +102,7 @@ impl CommandHandler {
         wallet_monitor: Arc<WalletMonitor>,
         executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
+        state_manager: Arc<StateManager>,
     ) -> Result<()> {
         match command.trim() {
             "/start" => {
@@ -106,7 +110,10 @@ impl CommandHandler {
                     ⚡ *Comandos disponibles:*\n\n\
                     🏓 `/ping` - Health check completo\n\
                     💰 `/buy <MINT> <SOL>` - Comprar token\n\
-                    📊 `/status` - Estado de posiciones\n\
+                    📊 `/status` - Estado de posiciones (legacy)\n\
+                    📋 `/positions` - Posiciones activas (DB)\n\
+                    📜 `/history` - Historial de trades\n\
+                    📈 `/stats` - Estadísticas de PnL\n\
                     💵 `/balance` - Balance de wallet\n\
                     🎯 `/targets` - Tokens monitoreados\n\
                     🛑 `/hibernate` - Modo hibernación (detener ejecución)\n\
@@ -131,6 +138,18 @@ impl CommandHandler {
                 self.cmd_targets(config).await?;
             }
 
+            "/positions" => {
+                self.cmd_positions(Arc::clone(&state_manager)).await?;
+            }
+
+            "/history" => {
+                self.cmd_history(Arc::clone(&state_manager)).await?;
+            }
+
+            "/stats" => {
+                self.cmd_stats(Arc::clone(&state_manager)).await?;
+            }
+
             "/hibernate" => {
                 HIBERNATION_MODE.store(true, Ordering::Relaxed);
                 self.send_message("🛑 **MODO HIBERNACIÓN ACTIVADO**\n\n\
@@ -147,10 +166,13 @@ impl CommandHandler {
             "/help" => {
                 self.send_message("📚 **Ayuda de The Chassis v2.0**\n\n\
                     • 🏓 `/ping` - Health check: RPC, wallet, uptime\n\
-                    • `/status` - Drawdown y SL de cada token\n\
-                    • `/balance` - Balance de SOL en tu wallet\n\
-                    • `/targets` - Lista de tokens monitoreados\n\
-                    • `/buy <MINT> <SOL>` - Compra un token\n\
+                    • 📊 `/status` - Drawdown y SL de cada token (legacy)\n\
+                    • 📋 `/positions` - Posiciones activas desde DB\n\
+                    • 📜 `/history` - Últimos 10 trades ejecutados\n\
+                    • 📈 `/stats` - Estadísticas completas de PnL\n\
+                    • 💵 `/balance` - Balance de SOL en tu wallet\n\
+                    • 🎯 `/targets` - Lista de tokens monitoreados\n\
+                    • 💰 `/buy <MINT> <SOL>` - Compra un token\n\
                     • 🚨 `/panic <MINT>` - Venta de emergencia 100%\n\
                     • 🛑 `/hibernate` - Detener toda ejecución\n\
                     • 🟢 `/wake` - Reactivar ejecución\n\n\
@@ -431,6 +453,141 @@ impl CommandHandler {
         });
 
         client.post(&url).json(&payload).send().await?;
+        Ok(())
+    }
+
+    /// Comando /positions - Muestra posiciones activas desde la DB
+    async fn cmd_positions(&self, state_manager: Arc<StateManager>) -> Result<()> {
+        match state_manager.get_active_positions() {
+            Ok(positions) => {
+                if positions.is_empty() {
+                    self.send_message("📋 **POSICIONES ACTIVAS**\n\n⚠️ No hay posiciones activas en la base de datos.").await?;
+                    return Ok(());
+                }
+
+                let mut response = "📋 **POSICIONES ACTIVAS** (DB Persistente)\n\n".to_string();
+
+                for pos in positions {
+                    let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
+                    let status_emoji = if dd > 20.0 { "🟢" } else if dd > 0.0 { "🟡" } else { "🔴" };
+                    let tokens_held = pos.amount_sol / pos.entry_price;
+                    let current_value_sol = tokens_held * pos.current_price;
+                    let pnl = current_value_sol - pos.amount_sol;
+
+                    response.push_str(&format!(
+                        "{} **{}**\n\
+                        └─ Entrada: ${:.8} ({:.4} SOL)\n\
+                        └─ Actual: ${:.8}\n\
+                        └─ Tokens: {:.2}\n\
+                        └─ Drawdown: {}{:.2}%\n\
+                        └─ PnL: {}{:.4} SOL\n\
+                        └─ SL: {:.1}%{}\n\n",
+                        status_emoji,
+                        pos.symbol,
+                        pos.entry_price,
+                        pos.amount_sol,
+                        pos.current_price,
+                        tokens_held,
+                        if dd > 0.0 { "+" } else { "" },
+                        dd,
+                        if pnl > 0.0 { "+" } else { "" },
+                        pnl,
+                        pos.stop_loss_percent,
+                        if pos.trailing_enabled { " (Trailing)" } else { "" }
+                    ));
+                }
+
+                self.send_message(&response).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ Error obteniendo posiciones: {}", e)).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Comando /history - Muestra historial de trades (últimos 10)
+    async fn cmd_history(&self, state_manager: Arc<StateManager>) -> Result<()> {
+        match state_manager.get_trade_history(10) {
+            Ok(trades) => {
+                if trades.is_empty() {
+                    self.send_message("📜 **HISTORIAL DE TRADES**\n\n⚠️ No hay trades registrados todavía.").await?;
+                    return Ok(());
+                }
+
+                let mut response = "📜 **HISTORIAL DE TRADES** (Últimos 10)\n\n".to_string();
+
+                for trade in trades {
+                    let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
+                    let pnl_percent = trade.pnl_percent.unwrap_or(0.0);
+                    
+                    let pnl_emoji = if pnl_sol > 0.0 { "🟢" } else { "🔴" };
+                    let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
+                        .map(|dt| dt.format("%m/%d %H:%M").to_string())
+                        .unwrap_or_else(|| "N/A".to_string());
+
+                    response.push_str(&format!(
+                        "{} **{}** ({})\n\
+                        └─ Tipo: {}\n\
+                        └─ Precio: ${:.8}\n\
+                        └─ PnL: {}{:.4} SOL ({}{:.2}%)\n\
+                        └─ Tx: `{}`\n\n",
+                        pnl_emoji,
+                        trade.symbol,
+                        timestamp,
+                        trade.trade_type,
+                        trade.price,
+                        if pnl_sol > 0.0 { "+" } else { "" },
+                        pnl_sol,
+                        if pnl_percent > 0.0 { "+" } else { "" },
+                        pnl_percent,
+                        &trade.signature[..8]
+                    ));
+                }
+
+                self.send_message(&response).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ Error obteniendo historial: {}", e)).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Comando /stats - Muestra estadísticas completas
+    async fn cmd_stats(&self, state_manager: Arc<StateManager>) -> Result<()> {
+        match state_manager.get_stats() {
+            Ok(stats) => {
+                let avg_pnl = if stats.total_trades > 0 {
+                    stats.total_pnl_sol / stats.total_trades as f64
+                } else {
+                    0.0
+                };
+
+                let status_emoji = if stats.total_pnl_sol > 0.0 { "🟢" } else if stats.total_pnl_sol == 0.0 { "🟡" } else { "🔴" };
+
+                let response = format!(
+                    "📈 **ESTADÍSTICAS COMPLETAS**\n\n\
+                    {} **PnL Total:** {}{:.4} SOL\n\
+                    📊 **Trades Ejecutados:** {}\n\
+                    📋 **Posiciones Activas:** {}\n\
+                    📉 **Promedio/Trade:** {}{:.4} SOL\n\n\
+                    _Datos desde la inicialización de la base de datos._",
+                    status_emoji,
+                    if stats.total_pnl_sol > 0.0 { "+" } else { "" },
+                    stats.total_pnl_sol,
+                    stats.total_trades,
+                    stats.active_positions,
+                    if avg_pnl > 0.0 { "+" } else { "" },
+                    avg_pnl
+                );
+
+                self.send_message(&response).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ Error obteniendo estadísticas: {}", e)).await?;
+            }
+        }
         Ok(())
     }
 }

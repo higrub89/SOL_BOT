@@ -2,7 +2,7 @@
 //! 
 //! Monitorea cambios dramáticos en liquidez y volumen para detectar señales de peligro
 
-use anyhow::Result;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

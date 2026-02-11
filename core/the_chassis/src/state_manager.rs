@@ -191,7 +191,7 @@ impl StateManager {
                 position.trailing_highest_price,
                 position.trailing_current_sl,
                 position.active as i32,
-                position.created_at.unwrap_or(now),
+                position.created_at,
                 now,
             ],
         )?;

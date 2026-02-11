@@ -29,6 +29,7 @@ pub mod telegram_commands;
 pub mod trailing_sl;
 pub mod liquidity_monitor;
 pub mod raydium;
+pub mod auto_buyer;
 pub mod state_manager;
 pub mod validation;
 
@@ -49,6 +50,7 @@ use telegram::TelegramNotifier;
 use telegram_commands::CommandHandler;
 use trailing_sl::TrailingStopLoss;
 use liquidity_monitor::{LiquidityMonitor, LiquiditySnapshot};
+use state_manager::{StateManager, PositionState, TradeRecord};
 
 /// Argumentos de línea de comandos para The Chassis
 #[derive(Parser)]
@@ -61,7 +63,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Ejecuta una compra inmediata de un token
+    /// Ejecuta una compra inmediata de un token (via Jupiter - legacy)
     Buy {
         /// Mint address del token
         #[arg(short, long)]
@@ -74,6 +76,24 @@ pub enum Commands {
         /// Slippage en bps (100 = 1.0%)
         #[arg(long, default_value_t = 100)]
         slippage: u16,
+    },
+    /// Compra automática inteligente (Raydium directo + fallback Jupiter)
+    AutoBuy {
+        /// Mint address del token
+        #[arg(short, long)]
+        mint: String,
+        
+        /// Cantidad de SOL a invertir
+        #[arg(short, long, default_value_t = 0.025)]
+        sol: f64,
+        
+        /// Símbolo del token (opcional)
+        #[arg(long)]
+        symbol: Option<String>,
+        
+        /// Añadir automáticamente al monitoreo
+        #[arg(long, default_value_t = true)]
+        monitor: bool,
     },
     /// Escanea la red en tiempo real (Sensor de Pump.fun)
     Scan,
@@ -94,6 +114,9 @@ pub async fn run() -> Result<()> {
     match cli.command {
         Some(Commands::Buy { mint, sol, slippage }) => {
             handle_buy_mode(mint, sol, slippage).await?;
+        }
+        Some(Commands::AutoBuy { mint, sol, symbol, monitor }) => {
+            handle_auto_buy_mode(mint, sol, symbol, monitor).await?;
         }
         Some(Commands::Scan) => {
             handle_scan_mode().await?;
@@ -125,6 +148,68 @@ async fn handle_buy_mode(mint: String, sol: f64, slippage: u16) -> Result<()> {
     let keypair = Keypair::from_base58_string(&priv_key);
     
     executor.execute_buy(&mint, Some(&keypair), sol).await?;
+    
+    Ok(())
+}
+
+async fn handle_auto_buy_mode(mint: String, sol: f64, symbol: Option<String>, add_to_monitor: bool) -> Result<()> {
+    use auto_buyer::{AutoBuyer, AutoBuyConfig};
+    
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║      🤖 AUTO-BUY INTELIGENTE - Raydium Directo           ║");
+    println!("╚════════════════════════════════════════════════════════════╝\n");
+    
+    // Configurar
+    let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY missing");
+    let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
+    
+    let priv_key = std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY missing");
+    let keypair = Keypair::from_base58_string(&priv_key);
+    
+    // Crear AutoBuyer
+    let buyer = AutoBuyer::new(rpc_url)?;
+    
+    // Configurar compra
+    let config = AutoBuyConfig {
+        token_mint: mint.clone(),
+        symbol,
+        amount_sol: sol,
+        slippage_bps: 300, // 3% default
+        add_to_monitoring: add_to_monitor,
+        stop_loss_percent: -60.0,
+        trailing_enabled: true,
+    };
+    
+    // Ejecutar
+    match buyer.buy(&config, &keypair).await {
+        Ok(result) => {
+            println!("\n╔════════════════════════════════════════════════════════════╗");
+            println!("║                  ✅ COMPRA EXITOSA ✅                      ║");
+            println!("╚════════════════════════════════════════════════════════════╝\n");
+            println!("📊 Resumen:");
+            println!("   • Token:          {}", result.token_mint);
+            println!("   • Inversión:      {:.4} SOL", result.amount_sol);
+            println!("   • Tokens:         {:.2}", result.tokens_received);
+            println!("   • Precio:         ${:.8}", result.effective_price);
+            println!("   • Ruta:           {}", result.route);
+            println!("   • Signature:      {}", result.signature);
+            println!("\n🔗 Ver TX: https://solscan.io/tx/{}", result.signature);
+            
+            if add_to_monitor {
+                println!("\n✅ Token añadido al monitoreo automático");
+                println!("⚠️  Reinicia el bot para activar el monitoreo:");
+                println!("   docker-compose restart");
+            }
+        },
+        Err(e) => {
+            eprintln!("\n❌ Error en compra automática: {}", e);
+            eprintln!("\n💡 Sugerencias:");
+            eprintln!("   1. Verifica que el pool existe en Raydium");
+            eprintln!("   2. Usa DexScreener para confirmar el mint: {}", mint);
+            eprintln!("   3. Verifica tu balance SOL");
+            return Err(e);
+        }
+    }
     
     Ok(())
 }
@@ -221,6 +306,51 @@ async fn run_monitor_mode() -> Result<()> {
 
     println!("\n───────────────────────────────────────────────────────────\n");
 
+    // 2.5 State Manager - Persistent Storage
+    println!("💾 STATE MANAGER (Persistence Layer):");
+    let state_manager = Arc::new(StateManager::new("trading_state.db")?);
+    
+    // Migrate active positions from targets.json to StateManager
+    for target in &app_config.targets {
+        if !target.active { continue; }
+        
+        // Check if position already exists in DB
+        if let Ok(Some(_existing)) = state_manager.get_position(&target.mint) {
+            println!("   • Position {} already in DB, skipping migration", target.symbol);
+            continue;
+        }
+        
+        // Create new persistent position
+        let position = PositionState {
+            id: None,
+            token_mint: target.mint.clone(),
+            symbol: target.symbol.clone(),
+            entry_price: target.entry_price,
+            current_price: target.entry_price,
+            amount_sol: target.amount_sol,
+            stop_loss_percent: target.stop_loss_percent,
+            trailing_enabled: target.trailing_enabled,
+            trailing_distance_percent: 25.0, // Default value
+            trailing_activation_threshold: 100.0, // Default value
+            trailing_highest_price: Some(target.entry_price),
+            trailing_current_sl: Some(target.stop_loss_percent),
+            created_at: chrono::Utc::now().timestamp(),
+            updated_at: chrono::Utc::now().timestamp(),
+            active: true,
+        };
+        
+        state_manager.upsert_position(&position)?;
+        println!("   • Migrated: {} @ ${:.8} ({} SOL)", target.symbol, target.entry_price, target.amount_sol);
+    }
+    
+    // Show stats
+    let stats = state_manager.get_stats()?;
+    println!("   • Active Positions: {}", stats.active_positions);
+    println!("   • Total Trades:     {}", stats.total_trades);
+    println!("   • Total PnL:        {:.4} SOL", stats.total_pnl_sol);
+
+    println!("\n───────────────────────────────────────────────────────────\n");
+
     // 3. Executor & Telegram Setup
     println!("⚡ EXECUTOR STATUS: V2 (Auto-Sell Ready)");
     let executor_config = ExecutorConfig::new(
@@ -258,6 +388,7 @@ async fn run_monitor_mode() -> Result<()> {
     let cmd_wallet_monitor = Arc::clone(&wallet_monitor);
     let cmd_config = Arc::new(app_config.clone());
     let cmd_executor = Arc::clone(&executor);
+    let cmd_state_manager = Arc::clone(&state_manager);
     
     tokio::spawn(async move {
         println!("📱 Telegram Command Handler: ACTIVADO");
@@ -265,7 +396,8 @@ async fn run_monitor_mode() -> Result<()> {
             cmd_emergency_monitor,
             cmd_wallet_monitor,
             cmd_executor,
-            cmd_config
+            cmd_config,
+            cmd_state_manager
         ).await;
     });
     
@@ -346,6 +478,11 @@ async fn run_monitor_mode() -> Result<()> {
                     
                     let mut monitor = monitor_clone.lock().unwrap();
                     monitor.update_position(&target.symbol, price.price_usd, current_value);
+
+                    // Update persistent state
+                    if let Err(e) = state_manager.update_position_price(&target.mint, price.price_usd) {
+                        eprintln!("⚠️ Error updating persistent state for {}: {}", target.symbol, e);
+                    }
                     
                     if let Some(pos) = monitor.get_position(&target.symbol) {
                         let dd = pos.drawdown_percent();
@@ -354,6 +491,10 @@ async fn run_monitor_mode() -> Result<()> {
                         
                         // Trailing SL status
                         let tsl_info = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
+                             // Update Trailing SL in DB
+                            if let Err(e) = state_manager.update_trailing_sl(&target.mint, tsl.peak_price, tsl.current_sl_percent) {
+                                eprintln!("⚠️ Error updating trailing SL persistence: {}", e);
+                            }
                             format!(" | TSL: {}", tsl.status_string())
                         } else {
                             String::new()
@@ -380,12 +521,16 @@ async fn run_monitor_mode() -> Result<()> {
                             // Verificar hibernación antes de ejecutar
                             if telegram_commands::CommandHandler::is_hibernating() {
                                 println!("🛑 Bot en HIBERNACIÓN — no se ejecuta auto-sell.");
+                                let _ = telegram_clone.send_message(
+                                    &format!("🛑 SL alcanzado para {} ({:.2}%), pero el bot está en hibernación.", target.symbol, dd),
+                                    true
+                                ).await;
                             } else if app_config.global_settings.auto_execute {
                                 println!("⚡ AUTO-EXECUTING EMERGENCY SELL...");
                                 
                                 let sell_result = executor_clone.execute_emergency_sell(
                                     &target.mint,
-                                    wallet_keypair.as_ref(),
+                                    wallet_keypair.as_ref(), // Keypair es opcional en execute_emergency_sell
                                     100,
                                 ).await;
 
@@ -396,6 +541,30 @@ async fn run_monitor_mode() -> Result<()> {
                                             &format!("✅ Venta automática de {} completada.\nSignature: {}", target.symbol, swap_result.signature),
                                             true
                                         ).await;
+
+                                        // PERSIST TRADES AND CLOSE POSITION
+                                        let trade_record = TradeRecord {
+                                            id: None,
+                                            signature: swap_result.signature.clone(),
+                                            token_mint: target.mint.clone(),
+                                            symbol: target.symbol.clone(),
+                                            trade_type: "EMERGENCY_SELL".to_string(),
+                                            amount_sol: swap_result.output_amount,
+                                            tokens_amount: target.amount_sol / target.entry_price,
+                                            price: price.price_usd,
+                                            pnl_sol: Some(swap_result.output_amount - target.amount_sol),
+                                            pnl_percent: Some(((swap_result.output_amount - target.amount_sol) / target.amount_sol) * 100.0),
+                                            route: "Jupiter".to_string(),
+                                            price_impact_pct: 0.0,
+                                            timestamp: Utc::now().timestamp(),
+                                        };
+                                        
+                                        if let Err(e) = state_manager.record_trade(&trade_record) {
+                                            eprintln!("❌ Error recording trade to DB: {}", e);
+                                        }
+                                        if let Err(e) = state_manager.close_position(&target.mint) {
+                                            eprintln!("❌ Error closing position in DB: {}", e);
+                                        }
                                     }
                                     Err(e) => {
                                         eprintln!("❌ Error en auto-sell: {}", e);
@@ -437,25 +606,7 @@ async fn run_monitor_mode() -> Result<()> {
                             let _ = telegram_clone.send_message(&msg, true).await;
                         }
                     }
-                    let current_sl = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
-                        tsl.current_sl_percent
-                    } else {
-                        target.stop_loss_percent
-                    };
 
-                    let drawdown = ((price.price_usd - target.entry_price) / target.entry_price) * 100.0;
-                    
-                    if drawdown <= current_sl {
-                        let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
-                        let _ = telegram_clone.send_stop_loss_alert(
-                            &target.symbol,
-                            price.price_usd,
-                            target.entry_price,
-                            drawdown,
-                            current_sl,
-                            &url
-                        ).await;
-                    }
                 }
                 Err(e) => {
                     eprintln!("⚠️  Error obteniendo precio de {}: {}", target.symbol, e);

@@ -28,7 +28,8 @@ rsync -avz --progress --delete -e "ssh -i $IDENTITY_FILE" \
   --exclude '.git' \
   --exclude '.env' \
   --exclude '.env.example' \
-  --exclude 'logs/*.log' \
+  --exclude 'logs/' \
+  --exclude 'trading_state.db' \
   --exclude 'bot_trading_pack.zip' \
   --exclude '.DS_Store' \
   --exclude 'node_modules' \

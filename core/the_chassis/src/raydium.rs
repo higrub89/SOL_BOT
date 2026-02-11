@@ -25,7 +25,7 @@ use std::collections::HashMap;
 
 const RAYDIUM_V4_PROGRAM_ID: &str = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
 const SERUM_PROGRAM_ID: &str = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
-const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+
 
 // Swap instruction discriminator
 const SWAP_BASE_IN_DISCRIMINATOR: u8 = 9;
@@ -99,7 +99,7 @@ pub struct PoolKeys {
 }
 
 /// Cache de pools cargado desde JSON
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct PoolsCache {
     version: String,
     pools: Vec<PoolInfo>,
@@ -186,13 +186,201 @@ impl RaydiumClient {
 
     /// Busca un pool en chain usando getProgramAccounts (LENTO - solo para pools nuevos)
     fn discover_pool_on_chain(&self, base_mint: &str, quote_mint: &str) -> Result<PoolInfo> {
-        // TODO: Implementar getProgramAccounts con filtros
-        // Por ahora, retornamos error hasta que implementemos la búsqueda completa
-        anyhow::bail!(
-            "Pool {}/{} no encontrado en cache. \n\
-            Para pools nuevos, usa DexScreener API o agrega manualmente a pools_cache.json",
-            base_mint, quote_mint
-        )
+        use solana_client::rpc_filter::{RpcFilterType, Memcmp, MemcmpEncodedBytes};
+        use solana_client::rpc_config::{RpcProgramAccountsConfig, RpcAccountInfoConfig};
+        use solana_account_decoder::UiAccountEncoding;
+        
+        println!("🔍 Buscando pool on-chain para {}/{}", &base_mint[..8], &quote_mint[..8]);
+        
+        let base_mint_pubkey = Pubkey::from_str(base_mint)?;
+        let quote_mint_pubkey = Pubkey::from_str(quote_mint)?;
+        
+        // Filtros para buscar pools de Raydium con estos mints específicos
+        // Estructura del account de Raydium AMM v4:
+        // - Offset 400: coin_mint (base)
+        // - Offset 432: pc_mint (quote)
+        let filters = vec![
+            RpcFilterType::Memcmp(Memcmp::new(
+                400,
+                MemcmpEncodedBytes::Base58(base_mint_pubkey.to_string()),
+            )),
+            RpcFilterType::Memcmp(Memcmp::new(
+                432,
+                MemcmpEncodedBytes::Base58(quote_mint_pubkey.to_string()),
+            )),
+        ];
+        
+        let config = RpcProgramAccountsConfig {
+            filters: Some(filters),
+            account_config: RpcAccountInfoConfig {
+                encoding: Some(UiAccountEncoding::Base64),
+                commitment: Some(CommitmentConfig::confirmed()),
+                ..Default::default()
+            },
+            with_context: Some(false),
+        };
+        
+        println!("📡 Consultando RPC (esto puede tardar 5-10s)...");
+        let accounts = self.rpc_client.get_program_accounts_with_config(
+            &self.program_id,
+            config,
+        )?;
+        
+        if accounts.is_empty() {
+            // Intentar con los mints invertidos
+            println!("⚠️  No se encontró pool. Intentando con mints invertidos...");
+            let filters_reversed = vec![
+                RpcFilterType::Memcmp(Memcmp::new(
+                    400,
+                    MemcmpEncodedBytes::Base58(quote_mint_pubkey.to_string()),
+                )),
+                RpcFilterType::Memcmp(Memcmp::new(
+                    432,
+                    MemcmpEncodedBytes::Base58(base_mint_pubkey.to_string()),
+                )),
+            ];
+            
+            let config_reversed = RpcProgramAccountsConfig {
+                filters: Some(filters_reversed),
+                account_config: RpcAccountInfoConfig {
+                    encoding: Some(UiAccountEncoding::Base64),
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    ..Default::default()
+                },
+                with_context: Some(false),
+            };
+            
+            let accounts_reversed = self.rpc_client.get_program_accounts_with_config(
+                &self.program_id,
+                config_reversed,
+            )?;
+            
+            if accounts_reversed.is_empty() {
+                anyhow::bail!(
+                    "❌ Pool no encontrado on-chain para {}/{}\n\
+                     Posibles causas:\n\
+                     1. El pool no existe en Raydium (usa Jupiter como fallback)\n\
+                     2. El pool está en otro DEX\n\
+                     3. Verifica los mints en Solscan",
+                    base_mint, quote_mint
+                );
+            }
+            
+            // Parsear el primer pool encontrado (invertido)
+            return self.parse_pool_account(&accounts_reversed[0].0, &accounts_reversed[0].1, true);
+        }
+        
+        // Parsear el primer pool encontrado
+        println!("✅ Pool encontrado on-chain!");
+        self.parse_pool_account(&accounts[0].0, &accounts[0].1, false)
+    }
+    
+    /// Parsea un account de pool de Raydium y extrae toda la información necesaria
+    fn parse_pool_account(&self, pubkey: &Pubkey, account_data: &solana_sdk::account::Account, reversed: bool) -> Result<PoolInfo> {
+        let data = &account_data.data;
+        
+        if data.len() < 752 {
+            anyhow::bail!("Account data demasiado corto para ser un pool de Raydium");
+        }
+        
+        // Función auxiliar para leer un Pubkey desde un offset
+        fn read_pubkey(data: &[u8], offset: usize) -> Result<Pubkey> {
+            if offset + 32 > data.len() {
+                anyhow::bail!("Offset fuera de rango");
+            }
+            Ok(Pubkey::new_from_array(
+                data[offset..offset + 32].try_into().unwrap()
+            ))
+        }
+        
+        // Extraer campos del pool según el layout de Raydium AMM v4
+        // Referencia: https://github.com/raydium-io/raydium-sdk
+        let amm_id = pubkey.to_string();
+        let amm_authority = read_pubkey(data, 16)?.to_string();
+        let amm_open_orders = read_pubkey(data, 48)?.to_string();
+        let lp_mint = read_pubkey(data, 368)?.to_string();
+        let coin_mint = read_pubkey(data, 400)?.to_string();
+        let pc_mint = read_pubkey(data, 432)?.to_string();
+        let coin_vault = read_pubkey(data, 464)?.to_string();
+        let pc_vault = read_pubkey(data, 496)?.to_string();
+        let serum_market = read_pubkey(data, 176)?.to_string();
+        
+        // Para las cuentas de Serum, necesitamos consultarlas del market
+        println!("🔍 Consultando detalles del Serum Market...");
+        let serum_market_pubkey = Pubkey::from_str(&serum_market)?;
+        let serum_account = self.rpc_client.get_account(&serum_market_pubkey)?;
+        let serum_data = &serum_account.data;
+        
+        // Extraer cuentas de Serum desde el market account
+        let serum_bids = read_pubkey(serum_data, 85 + 32 * 3)?.to_string();
+        let serum_asks = read_pubkey(serum_data, 85 + 32 * 4)?.to_string();
+        let serum_event_queue = read_pubkey(serum_data, 85 + 32 * 5)?.to_string();
+        let serum_coin_vault = read_pubkey(serum_data, 85)?.to_string();
+        let serum_pc_vault = read_pubkey(serum_data, 85 + 32)?.to_string();
+        let serum_vault_signer = read_pubkey(serum_data, 85 + 32 * 6)?.to_string();
+        
+        let (base_mint, quote_mint, name) = if reversed {
+            (pc_mint.clone(), coin_mint.clone(), format!("DISCOVERED/{}", &coin_mint[..6]))
+        } else {
+            (coin_mint.clone(), pc_mint.clone(), format!("DISCOVERED/{}", &coin_mint[..6]))
+        };
+        
+        let pool_info = PoolInfo {
+            name,
+            base_mint,
+            quote_mint,
+            amm_id,
+            amm_authority,
+            amm_open_orders,
+            coin_vault,
+            pc_vault,
+            lp_mint,
+            serum_market,
+            serum_bids,
+            serum_asks,
+            serum_event_queue,
+            serum_coin_vault,
+            serum_pc_vault,
+            serum_vault_signer,
+        };
+        
+        // Guardar automáticamente en cache para futuras referencias
+        println!("💾 Guardando pool descubierto en cache...");
+        if let Err(e) = self.save_pool_to_cache(&pool_info) {
+            eprintln!("⚠️  No se pudo guardar en cache: {}", e);
+        }
+        
+        Ok(pool_info)
+    }
+    
+    /// Guarda un pool descubierto en el archivo de cache
+    fn save_pool_to_cache(&self, pool: &PoolInfo) -> Result<()> {
+        let cache_path = "pools_cache.json";
+        
+        // Leer cache existente o crear uno nuevo
+        let mut cache: PoolsCache = if std::path::Path::new(cache_path).exists() {
+            let content = fs::read_to_string(cache_path)?;
+            serde_json::from_str(&content)?
+        } else {
+            PoolsCache {
+                version: "1.0".to_string(),
+                pools: Vec::new(),
+            }
+        };
+        
+        // Agregar pool si no existe
+        let key = format!("{}-{}", pool.base_mint, pool.quote_mint);
+        if !cache.pools.iter().any(|p| format!("{}-{}", p.base_mint, p.quote_mint) == key) {
+            cache.pools.push(pool.clone());
+            
+            // Guardar
+            let json = serde_json::to_string_pretty(&cache)?;
+            fs::write(cache_path, json)?;
+            
+            println!("✅ Pool guardado en cache: {}", pool.name);
+        }
+        
+        Ok(())
     }
 
     /// Construye una instrucción de Swap con todas las cuentas requeridas

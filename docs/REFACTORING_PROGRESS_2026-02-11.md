@@ -207,7 +207,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 - [x] Manejo de errores robusto
 - [x] Validación de datos financieros
 - [x] Persistencia de estado
-- [ ] Integración en loop principal (siguiente sesión)
+- [x] Integración en loop principal (COMPLETADO)
 - [ ] Testing en producción con dry-run
 
 ---

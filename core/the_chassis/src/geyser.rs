@@ -3,7 +3,7 @@
 //! Cliente para recibir streaming de Account Updates desde Solana.
 //! Esto nos da ventaja de 100-200ms sobre HTTP JSON-RPC.
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 

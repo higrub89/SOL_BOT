@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use solana_sdk::{pubkey::Pubkey, signature::{Keypair, Signature}};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use serde::{Deserialize, Serialize};
 
 /// Quote de un swap (cotización)

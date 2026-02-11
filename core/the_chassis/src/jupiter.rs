@@ -11,13 +11,15 @@ use reqwest::Client;
 pub struct JupiterClient {
     client: Client,
     base_url: String,
+    api_key: Option<String>,
 }
 
 impl JupiterClient {
     pub fn new() -> Self {
         Self {
             client: Client::new(),
-            base_url: "https://quote-api.jup.ag/v6".to_string(),
+            base_url: "https://api.jup.ag".to_string(),
+            api_key: std::env::var("JUPITER_API_KEY").ok(),
         }
     }
 
@@ -29,13 +31,19 @@ impl JupiterClient {
         amount: u64,
         slippage_bps: u16, // Basis points (100 = 1%)
     ) -> Result<QuoteResponse> {
+        let api_key = self
+            .api_key
+            .as_ref()
+            .context("JUPITER_API_KEY no configurada en el entorno")?;
+
         let url = format!(
-            "{}/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
+            "{}/swap/v1/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
             self.base_url, input_mint, output_mint, amount, slippage_bps
         );
 
         let response = self.client
             .get(&url)
+            .header("x-api-key", api_key)
             .send()
             .await
             .context("Error al obtener quote de Jupiter")?;
@@ -60,7 +68,12 @@ impl JupiterClient {
         user_public_key: &str,
         wrap_unwrap_sol: bool,
     ) -> Result<SwapTransactionResponse> {
-        let url = format!("{}/swap", self.base_url);
+        let api_key = self
+            .api_key
+            .as_ref()
+            .context("JUPITER_API_KEY no configurada en el entorno")?;
+
+        let url = format!("{}/swap/v1/swap", self.base_url);
 
         let request = SwapRequest {
             quote_response: quote.clone(),
@@ -72,6 +85,8 @@ impl JupiterClient {
 
         let response = self.client
             .post(&url)
+            .header("Content-Type", "application/json")
+            .header("x-api-key", api_key)
             .json(&request)
             .send()
             .await
@@ -100,6 +115,44 @@ impl JupiterClient {
         }
 
         out_amount / in_amount
+    }
+
+    /// Obtiene el precio actual de un token en USDC usando Jupiter Price API
+    pub async fn get_price(&self, mint: &str) -> Result<f64> {
+        let api_key = self
+            .api_key
+            .as_ref()
+            .context("JUPITER_API_KEY no configurada en el entorno")?;
+
+        let url = format!("https://api.jup.ag/price/v2?ids={}", mint);
+        
+        let response = self.client
+            .get(&url)
+            .header("x-api-key", api_key)
+            .send()
+            .await
+            .context("Error al obtener precio de Jupiter")?;
+            
+        if !response.status().is_success() {
+            anyhow::bail!("Jupiter Price API error: {}", response.status());
+        }
+        
+        // Parsear respuesta compleja: {"data": {"<MINT>": {"id": "...", "mintSymbol": "...", "vsToken": "...", "vsTokenSymbol": "...", "price": 1.23}}}
+        let json: serde_json::Value = response.json().await?;
+        
+        if let Some(data) = json.get("data") {
+            if let Some(token_data) = data.get(mint) {
+                if let Some(price) = token_data.get("price") {
+                    if let Some(price_f64) = price.as_f64() {
+                        return Ok(price_f64);
+                    }
+                }
+            }
+        }
+        
+        // Si no está en data, a veces devuelve directamente el objeto si es un solo ID (dependiendo de la versión API)
+        // Intentar fallback
+        anyhow::bail!("No se pudo parsear el precio de la respuesta de Jupiter")
     }
 
     /// Muestra información detallada del quote
@@ -152,8 +205,14 @@ pub struct SwapInfo {
     pub output_mint: String,
     pub in_amount: String,
     pub out_amount: String,
-    pub fee_amount: String,
-    pub fee_mint: String,
+    /// Nuevo campo en Metis API; opcional para compatibilidad
+    #[serde(default)]
+    pub out_amount_after_slippage: Option<String>,
+    /// Campos de fee pueden no venir en todas las rutas
+    #[serde(default)]
+    pub fee_amount: Option<String>,
+    #[serde(default)]
+    pub fee_mint: Option<String>,
 }
 
 /// Request para obtener transacción de swap
@@ -230,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn test_jupiter_client_creation() {
         let client = JupiterClient::new();
-        assert_eq!(client.base_url, "https://quote-api.jup.ag/v6");
+        assert_eq!(client.base_url, "https://api.jup.ag");
     }
 
     #[tokio::test]

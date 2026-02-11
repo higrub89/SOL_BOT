@@ -9,7 +9,6 @@ use solana_sdk::{
     signature::{Keypair, Signer, Signature},
     transaction::VersionedTransaction,
     commitment_config::CommitmentConfig,
-    message::Message,
     program_pack::Pack,
 };
 use solana_client::rpc_client::RpcClient;
@@ -159,7 +158,7 @@ impl TradeExecutor {
             .decode(&swap_response.swap_transaction)
             .context("Error decodificando transacción base64")?;
         
-        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
+        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
         // 5. Enviar transacción

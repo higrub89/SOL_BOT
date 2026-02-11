@@ -1,6 +1,6 @@
 //! Módulo de medición de latencia
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub struct LatencyTracker {
     samples: Vec<Duration>,

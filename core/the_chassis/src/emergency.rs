@@ -3,7 +3,7 @@
 //! Sistema de stop-loss y panic sell para protección de capital.
 //! Usa Jito Bundles para garantizar ejecución ultra-rápida.
 
-use anyhow::Result;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Configuración de las condiciones de emergencia

@@ -9,7 +9,6 @@
 
 use anyhow::Result;
 use crate::jupiter::JupiterClient;
-use std::process::Command;
 
 pub struct SimpleExecutor {
     pub jupiter: JupiterClient,
@@ -26,7 +25,7 @@ impl SimpleExecutor {
     pub async fn execute_emergency_sell_url(
         &self,
         token_mint: &str,
-        wallet_pubkey: &str, // Para referencia futura si queremos usar API directe
+        _wallet_pubkey: &str, // Para referencia futura si queremos usar API directe
         amount_tokens: u64,  // Cantidad exacta en unidades atómicas (lamports)
         symbol: &str,
     ) -> Result<String> {
