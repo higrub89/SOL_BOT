@@ -12,14 +12,10 @@ services:
     # Mapear puerto si usaramos dashboard web en el futuro
     # ports:
     #   - "3000:3000"
+    env_file:
+      - .env
     environment:
       - RUST_LOG=info
-      # INYECTAR VARIABLES EN EL SERVIDOR (NO COMMITTEAR ESTO)
-      - HELIUS_API_KEY=${HELIUS_API_KEY}
-      - WALLET_ADDRESS=${WALLET_ADDRESS}
-      - WALLET_PRIVATE_KEY=${WALLET_PRIVATE_KEY}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     volumes:
       # Persistencia de logs
       - ./logs:/app/logs
