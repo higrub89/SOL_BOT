@@ -545,3 +545,4 @@ mod tests {
         assert_eq!(min_out, 995_000);
     }
 }
+pub struct RaydiumExecutor;

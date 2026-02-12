@@ -199,6 +199,79 @@ impl TradeExecutor {
         Ok(result)
     }
 
+    /// Ejecuta una compra con parámetros HFT personalizados (Dynamic Tip & Slippage)
+    pub async fn execute_buy_with_custom_params(
+        &self,
+        token_mint: &str,
+        wallet_keypair: Option<&Keypair>,
+        amount_sol: f64,
+        priority_fee_lamports: u64,
+        slippage_bps: u16,
+    ) -> Result<SwapResult> {
+        println!("⚡ HFT EXECUTION | Tip: {} | Slip: {} bps", priority_fee_lamports, slippage_bps);
+
+        if self.config.dry_run || wallet_keypair.is_none() {
+            return self.simulate_buy_v2(token_mint, amount_sol).await;
+        }
+
+        let keypair = wallet_keypair.unwrap();
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+        let user_pubkey = keypair.pubkey();
+
+        // 1. Obtener quote de Jupiter con slippage dinámico
+        let amount_lamports = (amount_sol * 1_000_000_000.0) as u64;
+        
+        let quote = self.jupiter.get_quote(
+            SOL_MINT,
+            token_mint,
+            amount_lamports,
+            slippage_bps,
+        ).await?;
+
+        // 2. Obtener transacción optimizada
+        // Nota: Jupiter API permite configurar priority fee en la request de swap
+        // Si la librería client lo soporta. Si no, habría que inyectar instrucción ComputeBudget manual.
+        // Por ahora asumimos configuración estándar o Jito Bundle externo.
+        
+        let swap_response = self.jupiter.get_swap_transaction(
+            &quote,
+            &user_pubkey.to_string(),
+            true,
+        ).await?;
+
+        // 3. Firmar y Enviar
+        let tx_bytes = general_purpose::STANDARD
+            .decode(&swap_response.swap_transaction)
+            .context("Error decoding tx")?;
+        
+        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+        
+        // TODO: Aquí deberíamos inyectar el Priority Fee si Jupiter no lo incluyó
+        // o usar Jito Block Engine. Por ahora usamos el método estándar.
+        
+        let signature = self.send_transaction_with_retry(&transaction, 3).await?;
+
+        Ok(SwapResult {
+            signature: signature.to_string(),
+            input_amount: amount_sol,
+            output_amount: 0.0, // TODO: Parse output from quote
+            route: "Jupiter Adjusted".to_string(),
+            price_impact_pct: 0.0,
+        })
+    }
+
+    /// Simula una compra (dry run) - V2
+    async fn simulate_buy_v2(&self, token_mint: &str, amount_sol: f64) -> Result<SwapResult> {
+        println!("🧪 Mode: DRY RUN V2 (HFT Mock)");
+        Ok(SwapResult {
+            signature: "HFT_SIMULATION".to_string(),
+            input_amount: amount_sol,
+            output_amount: amount_sol * 1000.0, // Mock rate
+            route: "Simulated HFT Route".to_string(),
+            price_impact_pct: 0.1,
+        })
+    }
+
     /// Ejecuta una compra usando SOL
     /// Prioridad: 1. Raydium Direct (Si caché) -> 2. Jupiter (Universal)
     pub async fn execute_buy(

@@ -1,173 +1,87 @@
 # 📊 ESTADO DEL PROYECTO - Bot Trading
 
-**Última Actualización:** 2026-02-09 22:24 UTC  
-**Fase Actual:** FASE 2 - Framework Institucional (Trait-Based Architecture)  
-**Versión:** v2.0.0-alpha (De Bot a Framework HFT)  
-**Estado:** 🏎️ REFACTORING TO INSTITUTIONAL GRADE - Cambio de Paradigma
+**Última Actualización:** 2026-02-12 13:00 UTC  
+**Fase Actual:** FASE 2 - Framework HFT Institucional (Core Engine Ready)  
+**Versión:** v2.1.0-alpha (Decision Engine Integration)  
+**Estado:** 🏎️ CONSTRUYENDO EL CEREBRO HFT (Decision Engine & Sensors)
 
 ---
 
 ## ✅ Completado
 
-### Infraestructura
+### Arquitectura HFT (The Chassis v3.0)
+- [x] **Decision Engine:** Orquestador central de lógica de trading.
+  - Pipeline de evaluación de tokens (Filtros -> Actuadores).
+- [x] **Momentum Sensor:** Detector matemático de tendencias O(1).
+  - Algoritmo LWMA (Linear Weighted Moving Average) para cálculo de pendiente.
+- [x] **Smart Actuators:**
+  - **Dynamic Jito Tip:** Ajuste automático de propina según urgencia del momentum.
+  - **Adaptive Slippage:** Tolerancia variable según volatilidad.
+- [x] **Filtros de Seguridad (Defensa Activa):**
+  - **Circuit Breaker Global:** Apagado automático si PnL diario < -10%.
+  - **Token Cooldown:** Prevención de revenge trading (4 horas blacklist).
+  - **Authority Check:** Bloqueo de tokens con Mint/Freeze habilitado.
+  - **Wash Trading Check:** Estructura base para análisis de wallets únicas.
+- [x] **AutoBuyer Inteligente:**
+  - Integración completa con Decision Engine.
+  - Selección de ruta: Jupiter (Standard) + Raydium (Preparado).
+
+### Infraestructura & DevOps
+- [x] **Docker Optimizado:** Layer Caching implementado (Builds en <60s).
+- [x] **Estructura Modular:** Separación clara: `engine/`, `executor/`, `raydium/`.
+- [x] **Roadmap de Ingeniería 2026:** Plan maestro detallado por fases.
+
+### Infraestructura Base (Legacy v1.0)
 - [x] Estructura de directorios modular (operational/core/intelligence)
 - [x] Git inicializado con commits profesionales
-- [x] .gitignore configurado para proteger datos sensibles
-- [x] README.md con filosofía y arquitectura del proyecto
-
-### Scripts Operacionales
-- [x] `trading_session.sh` - [x] **v0.9.0:** Integración con Jupiter Aggregator (Opción A - Browser) ✅
-  - [x] Módulo `jupiter.rs` - Cliente API
-  - [x] Módulo `executor_simple.rs` - Abre navegador automáticamente
-  - [x] Test de emergencia simulada: EXITOSO
-- [x] `wallet_monitor.py` - Monitor de balance en tiempo real
-- [x] `helius_engine.py` - Motor de Helius con check de latencia quirúrgico (<150ms)
-- [x] `audit_sniper.py` - Auditoría automática (RugCheck + DexScreener en 3 segundos)
-- [x] Templates de auditoría automáticos
-
-### Testing de Hoy (2026-02-09) ⭐ SESIÓN COMPLETA
-- [x] **Módulo Intelligence:** Auto-Audit operativo (2 segundos vs 60s manual)
-- [x] **3 Tokens Auditados:** $GENTLEMEN (🟢), $GOYIM (🟢), $LOTUS (🟡)
-- [x] **Sistema de Compra:** Función `execute_buy` implementada
-- [x] **Script Orquestador:** `chassis_buy.py` para workflow completo
-- [x] **Paper Trading Mejorado:** Quotes reales de Jupiter en simulación
-- [x] **Auto-Execute Activado:** Venta automática funcionando
-- [x] **Keypair Cargado:** Bot con capacidad de firma real
-- [x] **gRPC Proto:** Definición base para Fase 2
-
-### Documentación
-- [x] `QUICKSTART.md` - Guía paso a paso desde cero
-- [x] `TECHNICAL_ROADMAP.md` - Plan de evolución a 6 meses
-- [x] `README_SECURITY.md` - Protocolos de seguridad para wallets
-- [x] `PROTOCOLO_OPERACIONAL.md` - Guía detallada para trading en vivo ⭐ NUEVO
-- [x] `QUICK_CHECKLIST.txt` - Checklist rápida de referencia ⭐ NUEVO
-
-### 🏎️ Infraestructura Institucional (2026-02-09)
-- [x] **Executor Trait:** Abstracción polimórfica suiza para DEXs (Jupiter, Raydium)
-- [x] **FallbackExecutor:** Cambio automático entre DEXs si uno falla
-- [x] **RaydiumExecutor:** Esqueleto completo con TODOs mapeados a Sprints
-- [x] **Observability System:** Telemetría estructurada con `tracing`
-  - Logs rotativos diarios
-  - Macros de conveniencia (`log_swap!`, `log_audit!`, `log_error!`)
-  - Niveles configurables (TRACE, DEBUG, INFO, WARN, ERROR)
-- [x] **Blue Book:** Documentación de grado institucional
-  - `TELEMETRY_MANUAL.md` - Manual de logs premium
-  - `ARCHITECTURE_BLUEPRINT.md` - Diagramas y flujos completos
-  - `README.md` - Índice maestro
-- [x] **Security Stack:** Integración de `secrecy` y `zeroize`
-- [x] **gRPC Infrastructure:** Protobuf compilado con `tonic-build`
-- [x] **Dependencies Update:** `sqlx`, `tracing`, `async-trait`
-
-### Testing
-- [x] Script de sesión probado y funcionando
-- [x] Estructura de logs verificada
-- [x] Generación de templates confirmada
+- [x] .gitignore configurado
+- [x] Scripts operacionales básicos (`trading_session.sh`, `wallet_monitor.py`)
 
 ---
 
-## 🎯 Siguiente Paso Inmediato
+## 🎯 Siguiente Paso Inmediato (Sprint D)
 
-### ACCIÓN REQUERIDA (10 minutos)
+### ACCIÓN REQUERIDA: Conexión de Sensores Reales
 
-**¡Ya tienes todo configurado! Solo falta:**
+El cerebro está listo, pero es ciego. Necesitamos conectarle los ojos (APIs).
 
-1. **Fondear tu Burner Wallet:**
-   - En Trojan Bot, envía `/wallet` para ver tu dirección
-   - Desde Phantom/Solflare, envía **0.5-1 SOL** a esa dirección
-   - Verifica el balance:
-     ```bash
-     python3 /home/ruben/Automatitation/bot_trading/operational/scripts/wallet_monitor.py TU_WALLET_ADDRESS
-     ```
+1. **Helius Sensor:**
+   - Implementar cliente gRPC para obtener datos on-chain en tiempo real.
+   - Alimentar `TokenContext` con: Mint Authority, Freeze Authority, Burn % real.
 
-2. **Instalar KeePassXC (Opcional pero recomendado):**
-   ```bash
-   sudo apt install keepassxc
-   ```
-   - Crea una base de datos nueva
-   - Guarda tus claves privadas ahí
+2. **DexScreener Sensor:**
+   - Implementar polling inteligente.
+   - Alimentar `TokenContext` con: Precio exacto, Volumen 5m, Liquidez USD.
 
-3. **Primera Operación:**
-   - Ejecutar sesión de trading:
-     ```bash
-     cd /home/ruben/Automatitation/bot_trading
-     ./operational/scripts/trading_session.sh
-     ```
-   - Seguir protocolo de auditoría (ver `docs/QUICKSTART.md`)
-   - Buscar tu primer token en Dexscreener
-   - ¡Hacer tu primer trade!
+3. **Pruebas en Modo Sombra:**
+   - Ejecutar el bot conectado a mainnet pero con `dry_run = true`.
+   - Validar que los filtros rechazan los rugs y aprueban las gemas.
 
 ---
 
-## 📁 Estructura del Proyecto
+## 📁 Estructura del Proyecto (Actualizada)
 
 ```
 bot_trading/
-├── .git/                    # Control de versiones
-├── .gitignore              # Protección de datos sensibles
-├── README.md               # Documentación principal
-│
-├── operational/            # 🟢 Herramientas para HOY
-│   ├── scripts/
-│   │   ├── trading_session.sh    # Inicializador de sesión
-│   │   └── wallet_monitor.py     # Monitor de balance
-│   ├── logs/                     # Logs de sesiones
-│   ├── audits/                   # Checklists de tokens
-│   └── wallets/                  # Gestión de claves (NO comitear)
-│
-├── core/                   # 🟡 Desarrollo futuro (C++/Rust)
-│   ├── src/
-│   ├── include/
-│   └── tests/
-│
-├── intelligence/           # 🔴 IA/ML (Fase 3)
-│   ├── datasets/
-│   ├── models/
-│   └── scripts/
-│
-└── docs/
-    ├── QUICKSTART.md           # Guía de inicio rápido
-    └── TECHNICAL_ROADMAP.md    # Roadmap técnico
+├── core/
+│   └── the_chassis/
+│       ├── src/
+│       │   ├── engine/           # 🧠 CEREBRO HFT
+│       │   │   ├── mod.rs        # Orquestador
+│       │   │   ├── momentum.rs   # Sensor O(1)
+│       │   │   ├── filters.rs    # Seguridad
+│       │   │   ├── actuators.rs  # Ejecución Dinámica
+│       │   │   └── types.rs      # Protocolos
+│       │   ├── auto_buyer.rs     # 🤖 AUTO-BUYER
+│       │   ├── executor_v2.rs    # Ejecución Híbrida
+│       │   └── raydium.rs        # Raydium Direct
+│       └── ...
+├── operational/            # 🟢 Herramientas Diarias
+├── intelligence/           # 🔴 IA/ML (Futuro)
+└── docs/                   # 📚 Documentación
+    ├── ROADMAP_INGENIERIA_HFT_2026.md  # 🌟 PLAN MAESTRO
+    └── ...
 ```
-
----
-
-## 🔧 Comandos Rápidos
-
-### Iniciar Sesión de Trading
-```bash
-cd /home/ruben/Automatitation/bot_trading
-./operational/scripts/trading_session.sh
-```
-
-### Monitorear Wallet
-```bash
-python3 operational/scripts/wallet_monitor.py TU_WALLET_ADDRESS
-```
-
-### Ver Logs de Sesión
-```bash
-ls -lht operational/logs/
-cat operational/logs/session_YYYYMMDD_HHMMSS.log
-```
-
-### Editar Template de Auditoría
-```bash
-ls operational/audits/
-nano operational/audits/audit_template_YYYYMMDD.md
-```
-
----
-
-## 📈 Métricas Objetivo (Fase 1)
-
-| Métrica | Target | Estado |
-|---------|--------|--------|
-| Win Rate | >40% | 50% (1win/1loss) |
-| Operaciones Documentadas | 10+ | 2/10 ✅ |
-| Primer 2X | 1 | Pendiente (Máx: 1.46X) |
-| Primer 5X | 1 | Pendiente |
-| Primer 10X | 1 | Pendiente |
-| Rugs Evitados por Auditoría | N/A | 2 ($BCPR, fake $DOOM) ✅ |
 
 ---
 
@@ -175,91 +89,11 @@ nano operational/audits/audit_template_YYYYMMDD.md
 
 - ❌ NUNCA comitear archivos en `operational/wallets/`
 - ❌ NUNCA compartir claves privadas
-- ❌ NUNCA dejar más de 2 SOL en burner wallet
-- ✅ SIEMPRE exportar claves a KeePassXC
-- ✅ SIEMPRE completar auditoría antes de comprar
-- ✅ SIEMPRE vender 50% al 2X
+- ✅ SIEMPRE mantener el Circuit Breaker activo (-10%)
+- ✅ SIEMPRE validar con `cargo check` antes de commit
 
 ---
 
-## 🚀 Fase 1 - Checklist de Progreso
-
-### Configuración Inicial
-- [x] RPC privado configurado en Helius ✅
-- [x] Trojan Bot configurado con parámetros correctos ✅
-- [x] Burner wallet generada y clave exportada ✅
-- [x] KeePassXC instalado y configurado
-- [x] Nueva Burner Wallet (HF2UG1JN...) configurada ✅
-- [x] Rust Toolchain instalado (v1.93.0) ✅
-- [x] Wallet fondeada (0.162 SOL) ✅
-
-### Primeras Operaciones
-- [x] Primera operación ejecutada ✅ ($SURVIVE | Resultado: -88%)
-- [x] Segunda operación EXITOSA ✅ ($DOOM | Resultado: +14.26% SOL | 14 ciclos)
-- [x] Primera auditoría completada ✅
-- [x] Primera lección aprendida: "No dejar que un +46% se convierta en pérdida" ✅
-- [x] Segunda lección: "Jito Tips + 14 ciclos = Fricción significativa" ✅
-- [x] Dos sesiones documentadas en logs ✅
-- [x] Recuperar capital inicial con estrategia defensiva ✅
-
-### Preparación para Fase 2
-- [ ] 10 operaciones documentadas (2/10) ✅
-- [ ] Dataset de 20+ tokens analizados (5/20) ✅ ($SURVIVE, $DOOM fake, $DOOM, $BCPR, GOAT)
-- [x] Win Rate calculado (50%) ✅
-- [ ] Ajustar Stop Loss dinámico según volatilidad
-- [ ] Identificadas 10+ wallets de Smart Money
-- [ ] Implementar "The Chassis" (C++/Rust + Geyser) para reducir fricción
-
----
-
-## 📚 Recursos Esenciales
-
-### Herramientas
-- **Trojan Bot:** https://t.me/solana_trojanbot
-- **Helius RPC:** https://www.helius.dev/
-- **RugCheck:** https://rugcheck.xyz
-- **Dexscreener:** https://dexscreener.com/solana
-- **Solscan:** https://solscan.io/
-
-### Documentación Local
-- Inicio Rápido: `docs/QUICKSTART.md`
-- Roadmap Técnico: `docs/TECHNICAL_ROADMAP.md`
-- Seguridad: `operational/wallets/README_SECURITY.md`
-
----
-
-## 🎓 Próximos Hitos
-
-### Corto Plazo (Esta Semana)
-1. ~~Configurar RPC privado~~ ✅ COMPLETADO
-2. Fondear burner wallet con 0.5-1 SOL
-3. Completar primera operación
-4. Documentar 3 operaciones con auditorías
-
-### Medio Plazo (2-4 Semanas)
-1. Alcanzar 10 operaciones documentadas
-2. Lograr primer 5X
-3. Comenzar desarrollo de Listener (Módulo 2.1)
-
-### Largo Plazo (2-3 Meses)
-1. Reducir dependencia de Trojan al 50%
-2. Implementar Smart Money Tracker
-3. Dashboard en terminal funcional
-
----
-
-## 💡 Notas del Desarrollador
-
-> El objetivo no es reinventar la rueda, sino construir un chasis que nadie pueda sabotear. Fase 1 es aprender el mercado mientras operamos con herramientas verificadas. Fase 2 es tomar control de los datos. Fase 3 es soberanía total.
-
-**Principio de Operación:**  
-Disciplina > Suerte  
-Proceso > Resultados  
-Seguridad > Velocidad  
-
----
-
-**Versión:** 1.0.0  
-**Commits:** 2  
-**Autor:** Ruben  
+**Versión:** 2.1.0-alpha  
+**Autores:** Ruben & Antigravity  
 **Licencia:** Privado

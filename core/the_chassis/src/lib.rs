@@ -34,6 +34,7 @@ pub mod state_manager;
 pub mod validation;
 
 // 🏎️ Módulos del Framework Institucional (v2.0)
+pub mod engine;
 pub mod executor_trait;
 pub mod observability;
 
@@ -437,14 +438,39 @@ async fn run_monitor_mode() -> Result<()> {
     for target in &active_targets {
         if target.active {
             if target.trailing_enabled {
+                let mut tsl = TrailingStopLoss::new(
+                    target.entry_price,
+                    target.stop_loss_percent,
+                    target.trailing_distance_percent,
+                    target.trailing_activation_threshold,
+                );
+
+                // 💧 Hydrate TSL from StateManager (DB)
+                match state_manager.get_position(&target.mint) {
+                    Ok(Some(saved_pos)) => {
+                        if let Some(peak) = saved_pos.trailing_highest_price {
+                            if peak > tsl.peak_price {
+                                tsl.peak_price = peak;
+                            }
+                        }
+                        
+                        if let Some(curr_sl) = saved_pos.trailing_current_sl {
+                            // If we have a stored SL better than initial, restore it
+                            if curr_sl > tsl.current_sl_percent {
+                                tsl.current_sl_percent = curr_sl;
+                                tsl.enabled = true; // Force enable if we have a better SL
+                                println!("   💧 TSL Restored for {}: SL={:.2}% | Peak=${:.4}", 
+                                    target.symbol, curr_sl, tsl.peak_price);
+                            }
+                        }
+                    },
+                    Ok(None) => {}, // No saved state, use fresh TSL
+                    Err(e) => eprintln!("⚠️ Failed to hydrate TSL for {}: {}", target.symbol, e),
+                }
+
                 trailing_monitors.insert(
                     target.symbol.clone(),
-                    TrailingStopLoss::new(
-                        target.entry_price,
-                        target.stop_loss_percent,
-                        target.trailing_distance_percent,
-                        target.trailing_activation_threshold,
-                    )
+                    tsl
                 );
             }
             liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
