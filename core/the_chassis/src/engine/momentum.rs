@@ -22,12 +22,6 @@ pub struct DataPoint {
 pub struct MomentumSensor {
     buffer: VecDeque<DataPoint>,
     capacity: usize,
-    /// Suma ponderada actual (para cálculo O(1))
-    weighted_sum: f64,
-    /// Suma de pesos actual
-    weight_sum: f64,
-    /// Suma simple de valores
-    simple_sum: f64,
 }
 
 impl MomentumSensor {
@@ -36,9 +30,6 @@ impl MomentumSensor {
         Self {
             buffer: VecDeque::with_capacity(capacity),
             capacity,
-            weighted_sum: 0.0,
-            weight_sum: 0.0,
-            simple_sum: 0.0,
         }
     }
 
@@ -49,7 +40,7 @@ impl MomentumSensor {
 
         // Si el buffer está lleno, quitar el más antiguo
         if self.buffer.len() == self.capacity {
-            if let Some(old) = self.buffer.pop_front() {
+            if let Some(_old) = self.buffer.pop_front() {
                 // Ajustar sumas al eliminar el punto antiguo
                 // Nota: LWMA incremental es complejo de mantener perfecto al quitar el inicio,
                 // así que recalculamos O(N) que para N=12 es despreciable (~50ns)
@@ -136,9 +127,9 @@ mod tests {
         // En este test unitario básico, solo verificamos que no haga panic y dé positivo
         
         sensor.update(1.0);
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(50));
         sensor.update(1.1);
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(50));
         sensor.update(1.2);
         
         let s = sensor.slope();
@@ -150,9 +141,9 @@ mod tests {
         let mut sensor = MomentumSensor::new(5);
         
         sensor.update(1.0);
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(50));
         sensor.update(0.9);
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(50));
         sensor.update(0.8);
         
         let s = sensor.slope();

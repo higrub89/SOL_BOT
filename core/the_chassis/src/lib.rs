@@ -35,8 +35,10 @@ pub mod validation;
 
 // 🏎️ Módulos del Framework Institucional (v2.0)
 pub mod engine;
+pub mod sensors;
 pub mod executor_trait;
 pub mod observability;
+pub mod generated;
 
 // ----------------------------------------------------------------------------
 // IMPORTS INTERNOS

@@ -261,7 +261,7 @@ impl TradeExecutor {
     }
 
     /// Simula una compra (dry run) - V2
-    async fn simulate_buy_v2(&self, token_mint: &str, amount_sol: f64) -> Result<SwapResult> {
+    async fn simulate_buy_v2(&self, _token_mint: &str, amount_sol: f64) -> Result<SwapResult> {
         println!("🧪 Mode: DRY RUN V2 (HFT Mock)");
         Ok(SwapResult {
             signature: "HFT_SIMULATION".to_string(),
