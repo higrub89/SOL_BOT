@@ -1,4 +1,4 @@
-# Excluir solo archivos de build y temporales
+# Build and Temp files
 target/
 .git/
 .gitignore
@@ -9,3 +9,11 @@ node_modules/
 bot_trading_pack.zip
 scratch/
 docs/
+
+# Config files (mounted as volumes at runtime)
+targets.json
+core/the_chassis/targets.json
+core/the_chassis/pools_cache.json
+trading_state.db
+.env
+.env.example
