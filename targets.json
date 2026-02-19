@@ -1,0 +1,54 @@
+{
+  "global_settings": {
+    "min_sol_balance": 0.05,
+    "jito_tip_lamports": 5000,
+    "monitor_interval_sec": 30,
+    "auto_execute": false
+  },
+  "targets": [
+    {
+      "symbol": "UNKNOWN-1",
+      "mint": "8p2ptfk4Bj6HzVKYr48yz4z5SMTPycSFtm1ZSLUjdbeg",
+      "amount_sol": 0.025,
+      "entry_price": 0.1,
+      "stop_loss_percent": -60.0,
+      "panic_sell_price": 0.01,
+      "active": false,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 25.0,
+      "trailing_activation_threshold": 100.0
+    },
+    {
+      "symbol": "MEMDEX",
+      "mint": "83iBDw3ZpxqJ3pEzrbttr9fGA57tttehDAxoFyR1moon",
+      "amount_sol": 0.025,
+      "entry_price": 0.0035,
+      "stop_loss_percent": -60.0,
+      "panic_sell_price": 0.001,
+      "active": true,
+      "pool_account": "7cjgE6PwoNqfXjayUvUDE7TCS2GmPNnP1jCT29jT3JVJ",
+      "coin_vault": "GZKf3w4bUx8KyZMErnvs5KMcKuqWr49vRkApFWJwXuM8",
+      "pc_vault": "9Y1gEiLY8JoHV2pr8B5yxujc1C1XRyVN7ViTi5mHdcu9",
+      "token_decimals": 9,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 25.0,
+      "trailing_activation_threshold": 100.0
+    },
+    {
+      "symbol": "NANAKO",
+      "mint": "5Dh8VPk1Nub8rm1nseoKKqZLE4sSweF3PytVtTogve3F",
+      "entry_price": 0.00012,
+      "amount_sol": 0.025,
+      "stop_loss_percent": -40.0,
+      "panic_sell_price": 0.00005,
+      "active": true,
+      "pool_account": "C6yL4rfjpaubsJssqEuz3DwnvuLf8mBVuKPA5WLqxd4P",
+      "coin_vault": "Gbj5aRGUxGnC55rK3Jg3gG6Tr7YLUw4R6zAJbZU9Kc3P",
+      "pc_vault": "G3g3oxAo3wT4Q2rMv4dgAjJ3Y85au2H6HsjJf4Yhwxzh",
+      "token_decimals": 9,
+      "trailing_enabled": true,
+      "trailing_distance_percent": 20.0,
+      "trailing_activation_threshold": 50.0
+    }
+  ]
+}
