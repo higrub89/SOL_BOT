@@ -86,9 +86,15 @@ pub fn init_observability(config: ObservabilityConfig) -> anyhow::Result<()> {
         "chassis.log",
     );
 
-    // Filtro de niveles
+    // Filtro de niveles — silenciar logs ruidosos de dependencias
     let env_filter = EnvFilter::from_default_env()
-        .add_directive(config.log_level.into());
+        .add_directive(config.log_level.into())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("reqwest=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap())
+        .add_directive("tonic=warn".parse().unwrap())
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap());
 
     if config.json_format {
         // === MODO JSON (Producción) ===

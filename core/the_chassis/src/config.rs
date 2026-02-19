@@ -22,6 +22,18 @@ pub struct TargetConfig {
     pub panic_sell_price: f64,
     pub active: bool,
     
+    // Pool account para Geyser streaming (opcional)
+    #[serde(default)]
+    pub pool_account: Option<String>,
+    
+    // Vault accounts para cálculo de precio on-chain (Raydium V4)
+    #[serde(default)]
+    pub coin_vault: Option<String>,
+    #[serde(default)]
+    pub pc_vault: Option<String>,
+    #[serde(default = "default_token_decimals")]
+    pub token_decimals: u8,
+    
     // Trailing Stop-Loss (opcional)
     #[serde(default)]
     pub trailing_enabled: bool,
@@ -33,6 +45,7 @@ pub struct TargetConfig {
 
 fn default_trailing_distance() -> f64 { 30.0 }
 fn default_trailing_activation() -> f64 { 50.0 }
+fn default_token_decimals() -> u8 { 6 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GlobalSettings {

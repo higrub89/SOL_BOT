@@ -15,21 +15,6 @@ use crate::generated::geyser::{
     SubscribeRequest,
     SubscribeRequestFilterAccounts,
 };
-use bytemuck::{Pod, Zeroable};
-
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-#[repr(C)]
-struct SplTokenAmount {
-    mint: [u8; 32],
-    owner: [u8; 32],
-    amount: u64,
-    delegate: [u8; 36], // Option<Pubkey> (4 + 32)
-    state: u8,
-    is_native: [u8; 12], // Option<u64> (4 + 8)
-    delegated_amount: u64,
-    close_authority: [u8; 36], // Option<Pubkey> (4 + 32)
-}
-
 /// Helper para obtener amount de un SPL Token Account data
 pub fn parse_spl_token_amount(data: &[u8]) -> Option<u64> {
     if data.len() < 165 { // Tamaño mínimo de SPL Token Account
