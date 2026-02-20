@@ -52,15 +52,17 @@ impl TelegramNotifier {
         }
         
         let message = format!(
-            "🚨 *ALERTA DE STOP-LOSS* 🚨\n\n\
-            🪙 Token: *{}*\n\
-            📉 Precio Actual: ${:.8}\n\
-            📊 Precio Entrada: ${:.8}\n\
-            📉 Drawdown: *{:.2}%*\n\
-            🛑 Límite SL: {:.1}%\n\n\
-            ⚡ *ACCIÓN REQUERIDA*\n\
-            👉 [Abrir Jupiter para vender]({})\n\n\
-            ⏰ {}",
+            "<b>🚨 EMERGENCY PROTOCOL ACTIVATED</b>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <b>⬢ Token:</b> <code>{}</code>\n\
+            <b>⬡ Current Price:</b> <code>${:.8}</code>\n\
+            <b>⬡ Entry Price:</b> <code>${:.8}</code>\n\
+            <b>📉 Drawdown:</b> <b>{:.2}%</b>\n\
+            <b>🛑 SL Limit:</b> {:.1}%\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            ⚡ <b>MANUAL ACTION REQUIRED</b>\n\
+            <a href='{}'>[ 💎 EXECUTE SELL VIA JUPITER ]</a>\n\n\
+            <i>🕰 {}</i>",
             symbol,
             current_price,
             entry_price,
@@ -85,11 +87,13 @@ impl TelegramNotifier {
         }
         
         let message = format!(
-            "✅ *VENTA AUTOMÁTICA EJECUTADA*\n\n\
-            🪙 Token: *{}*\n\
-            💰 Precio: ${:.8}\n\
-            💵 Cantidad: ~{:.4} SOL\n\n\
-            ⏰ {}",
+            "<b>⚜️ AUTO-SELL EXECUTED</b>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <b>⬢ Token:</b> <code>{}</code>\n\
+            <b>💎 Transact Price:</b> <code>${:.8}</code>\n\
+            <b>💵 Salvaged:</b> <code>~{:.4} SOL</code>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <i>🕰 {}</i>",
             symbol,
             price,
             amount_sol,
@@ -109,7 +113,11 @@ impl TelegramNotifier {
         }
         
         let formatted = format!(
-            "ℹ️ *Estado del Sistema*\n\n{}\n\n⏰ {}",
+            "<b>ℹ️ SYSTEM UPDATE</b>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            {}\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <i>🕰 {}</i>",
             message,
             chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
         );
@@ -127,7 +135,11 @@ impl TelegramNotifier {
         }
         
         let message = format!(
-            "❌ *ERROR CRÍTICO*\n\n{}\n\n⏰ {}",
+            "<b>❌ CRITICAL SYSTEM FAILURE</b>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <code>{}</code>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <i>🕰 {}</i>",
             error,
             chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
         );
@@ -136,7 +148,7 @@ impl TelegramNotifier {
     }
     
     /// Método interno para enviar mensajes
-    pub async fn send_message(&self, text: &str, markdown: bool) -> Result<()> {
+    pub async fn send_message(&self, text: &str, html: bool) -> Result<()> {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",
             self.bot_token
@@ -147,8 +159,8 @@ impl TelegramNotifier {
             "text": text,
         });
         
-        if markdown {
-            payload["parse_mode"] = json!("Markdown");
+        if html {
+            payload["parse_mode"] = json!("HTML");
         }
         
         let client = reqwest::Client::new();

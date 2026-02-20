@@ -35,20 +35,20 @@
       "trailing_activation_threshold": 100.0
     },
     {
-      "symbol": "NANAKO",
-      "mint": "5Dh8VPk1Nub8rm1nseoKKqZLE4sSweF3PytVtTogve3F",
-      "entry_price": 0.00012,
+      "symbol": "PUNCH",
+      "mint": "Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
+      "entry_price": 0.4759,
       "amount_sol": 0.025,
-      "stop_loss_percent": -40.0,
-      "panic_sell_price": 0.00005,
+      "stop_loss_percent": -60.0,
+      "panic_sell_price": 0.0001,
       "active": true,
-      "pool_account": "C6yL4rfjpaubsJssqEuz3DwnvuLf8mBVuKPA5WLqxd4P",
-      "coin_vault": "Gbj5aRGUxGnC55rK3Jg3gG6Tr7YLUw4R6zAJbZU9Kc3P",
-      "pc_vault": "G3g3oxAo3wT4Q2rMv4dgAjJ3Y85au2H6HsjJf4Yhwxzh",
-      "token_decimals": 9,
+      "pool_account": "8WwcNqdZjCY5Pt7AkhupAFknV2txca9sq6YBkGzLbvdt",
+      "coin_vault": "CTweAnaHqDxevH2k9H9SmTRC3DEVhb3DkXDxVHiEW6kW",
+      "pc_vault": "CBdvRhWn5uUGVjnaEvfqrPLu7e5CzDS2V74k56oi9Zkd",
+      "token_decimals": 6,
       "trailing_enabled": true,
-      "trailing_distance_percent": 20.0,
-      "trailing_activation_threshold": 50.0
+      "trailing_distance_percent": 25.0,
+      "trailing_activation_threshold": 100.0
     }
   ]
 }

@@ -16,17 +16,19 @@ pub struct DynamicTipCalculator {
 impl DynamicTipCalculator {
     pub fn new() -> Self {
         Self {
-            base_tip_lamports: 100_000, // 0.0001 SOL base
-            max_tip_lamports: 5_000_000, // 0.005 SOL max cap
-            slope_multiplier: 1_000_000.0, // Escala la pendiente a lamports
+            // Free Tier / Bootstrapping adjustments: 
+            // We use higher base tips to compensate for WS latency vs gRPC bots
+            base_tip_lamports: 200_000, // 0.0002 SOL base (increased from 0.0001)
+            max_tip_lamports: 10_000_000, // 0.01 SOL max cap (increased to secure block execution)
+            slope_multiplier: 2_000_000.0, // Escala más agresiva
         }
     }
 
     /// Calcula el tip óptimo basado en momentum y etapa
     pub fn calculate_tip(&self, momentum_slope: f64, stage: MaturityStage) -> u64 {
         let urgency_factor = match stage {
-            MaturityStage::EarlyHighRisk => 1.5, // 50% extra en fase temprana
-            MaturityStage::MomentumCore => 1.2,  // 20% extra en core
+            MaturityStage::EarlyHighRisk => 2.0, // 100% extra en fase temprana
+            MaturityStage::MomentumCore => 1.5,  // 50% extra en core
             MaturityStage::LateReversal => 1.0,  // Base en late game
         };
 
@@ -47,17 +49,18 @@ impl DynamicTipCalculator {
 /// Calculadora de Slippage Adaptativo
 /// Abre el margen de error si hay alta volatilidad (momentum fuerte)
 pub struct AdaptiveSlippageCalculator {
-    base_bps: u16,     // 200 bps = 2%
-    max_bps: u16,      // 1500 bps = 15%
+    base_bps: u16,     // 300 bps = 3%
+    max_bps: u16,      // 2000 bps = 20%
     slope_factor: f64, // Factor de escalado
 }
 
 impl AdaptiveSlippageCalculator {
     pub fn new() -> Self {
         Self {
-            base_bps: 200,      // 2% base
-            max_bps: 1500,      // 15% max (seguridad)
-            slope_factor: 2000.0, // 0.1 slope -> +200 bps (+2%)
+            // Ajustado para Free Tier: más slippage asume datos menos frescos (latencia WS)
+            base_bps: 300,      // 3% base (incrementado desde 2%)
+            max_bps: 2000,      // 20% max (seguridad incrementada para no fallar tx)
+            slope_factor: 2500.0, // 0.1 slope -> +250 bps (+2.5%)
         }
     }
 
@@ -90,13 +93,13 @@ mod tests {
         let calc = DynamicTipCalculator::new();
         
         // Caso 1: Sin momentum (Base)
-        assert_eq!(calc.calculate_tip(0.0, MaturityStage::MomentumCore), 100_000);
+        assert_eq!(calc.calculate_tip(0.0, MaturityStage::MomentumCore), 200_000);
 
         // Caso 2: High Momentum (Slope 0.5) en Early Stage
-        // Base (100k) + (0.5 * 1M * 1.5) = 100k + 750k = 850k
+        // Base (200k) + (0.5 * 2M * 2.0) = 200k + 2000k = 2.2M
         let tip = calc.calculate_tip(0.5, MaturityStage::EarlyHighRisk);
-        assert!(tip >= 850_000);
-        assert!(tip <= 5_000_000); // Respetar cap
+        assert!(tip >= 2_200_000);
+        assert!(tip <= 10_000_000); // Respetar cap
     }
 
     #[test]
@@ -104,11 +107,11 @@ mod tests {
         let calc = AdaptiveSlippageCalculator::new();
 
         // Caso 1: Normal
-        assert_eq!(calc.calculate_slippage(0.0, MaturityStage::LateReversal), 200);
+        assert_eq!(calc.calculate_slippage(0.0, MaturityStage::LateReversal), 300);
 
         // Caso 2: PUMP violento (Slope 1.0)
-        // Base (200) + (1.0 * 2000) = 2200 -> Cap at 1500
+        // Base (300) + (1.0 * 2500) = 2800 -> Cap at 2000
         let slippage = calc.calculate_slippage(1.0, MaturityStage::MomentumCore);
-        assert_eq!(slippage, 1500);
+        assert_eq!(slippage, 2000);
     }
 }

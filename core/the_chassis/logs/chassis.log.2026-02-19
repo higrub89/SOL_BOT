@@ -1,0 +1,250 @@
+2026-02-19T19:20:00.759848Z  INFO ThreadId(01) the_chassis::observability: 150: ✅ Observability system initialized
+2026-02-19T19:20:00.759913Z  INFO ThreadId(01) the_chassis::observability: 151: 📁 Log directory: logs
+2026-02-19T19:20:00.759967Z  INFO ThreadId(01) the_chassis::observability: 152: 📊 Log level: Level(Debug)
+2026-02-19T19:20:00.760021Z  INFO ThreadId(01) the_chassis::observability: 153: 📋 Format: Text (Development)
+2026-02-19T19:20:00.827410Z DEBUG ThreadId(01) reqwest::connect: 449: starting new connection: https://mainnet.helius-rpc.com/
+2026-02-19T19:20:00.827673Z DEBUG ThreadId(10) hyper::client::connect::dns: 122: resolving host="mainnet.helius-rpc.com"
+2026-02-19T19:20:00.845585Z DEBUG ThreadId(01) hyper::client::connect::http: 542: connecting to 172.64.151.87:443
+2026-02-19T19:20:00.852768Z DEBUG ThreadId(01) hyper::client::connect::http: 545: connected to 172.64.151.87:443
+2026-02-19T19:20:00.867649Z DEBUG ThreadId(01) hyper::proto::h1::io: 352: flushed 284 bytes
+2026-02-19T19:20:01.056803Z DEBUG ThreadId(01) hyper::proto::h1::io: 211: parsed 19 headers
+2026-02-19T19:20:01.056885Z DEBUG ThreadId(01) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:01.056965Z DEBUG ThreadId(01) hyper::proto::h1::decode: 372: incoming chunked header: 0x67 (103 bytes)
+2026-02-19T19:20:01.057695Z DEBUG ThreadId(01) reqwest::connect: 449: starting new connection: https://mainnet.helius-rpc.com/
+2026-02-19T19:20:01.057853Z DEBUG ThreadId(10) hyper::client::connect::dns: 122: resolving host="mainnet.helius-rpc.com"
+2026-02-19T19:20:01.057918Z DEBUG ThreadId(01) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:01.058112Z DEBUG ThreadId(01) hyper::client::pool: 254: reuse idle connection for ("https", mainnet.helius-rpc.com)
+2026-02-19T19:20:01.058309Z DEBUG ThreadId(01) hyper::proto::h1::io: 352: flushed 356 bytes
+2026-02-19T19:20:01.058394Z DEBUG ThreadId(01) hyper::client::connect::http: 542: connecting to 104.18.36.169:443
+2026-02-19T19:20:01.065704Z DEBUG ThreadId(01) hyper::client::connect::http: 545: connected to 104.18.36.169:443
+2026-02-19T19:20:01.076980Z DEBUG ThreadId(01) hyper::client::pool: 380: pooling idle connection for ("https", mainnet.helius-rpc.com)
+2026-02-19T19:20:01.119571Z DEBUG ThreadId(01) hyper::proto::h1::io: 211: parsed 19 headers
+2026-02-19T19:20:01.119642Z DEBUG ThreadId(01) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:01.119693Z DEBUG ThreadId(01) hyper::proto::h1::decode: 372: incoming chunked header: 0x74 (116 bytes)
+2026-02-19T19:20:01.407175Z DEBUG ThreadId(09) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:01.407269Z DEBUG ThreadId(01) reqwest::connect: 449: starting new connection: https://mainnet.helius-rpc.com/
+2026-02-19T19:20:01.407438Z DEBUG ThreadId(11) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:01.407488Z DEBUG ThreadId(12) hyper::client::connect::dns: 122: resolving host="mainnet.helius-rpc.com"
+2026-02-19T19:20:01.408172Z DEBUG ThreadId(01) hyper::client::connect::http: 542: connecting to 104.18.36.169:443
+2026-02-19T19:20:01.416479Z DEBUG ThreadId(01) hyper::client::connect::http: 545: connected to 104.18.36.169:443
+2026-02-19T19:20:01.417626Z DEBUG ThreadId(09) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:01.437025Z DEBUG ThreadId(01) hyper::proto::h1::io: 352: flushed 284 bytes
+2026-02-19T19:20:01.463284Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:01.519174Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:01.553255Z DEBUG ThreadId(01) hyper::proto::h1::io: 211: parsed 19 headers
+2026-02-19T19:20:01.553357Z DEBUG ThreadId(01) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:01.553457Z DEBUG ThreadId(01) hyper::proto::h1::decode: 372: incoming chunked header: 0x67 (103 bytes)
+2026-02-19T19:20:01.554105Z DEBUG ThreadId(01) reqwest::connect: 449: starting new connection: https://mainnet.helius-rpc.com/
+2026-02-19T19:20:01.554247Z DEBUG ThreadId(12) hyper::client::connect::dns: 122: resolving host="mainnet.helius-rpc.com"
+2026-02-19T19:20:01.554312Z DEBUG ThreadId(01) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:01.554483Z DEBUG ThreadId(01) hyper::client::pool: 254: reuse idle connection for ("https", mainnet.helius-rpc.com)
+2026-02-19T19:20:01.554675Z DEBUG ThreadId(01) hyper::proto::h1::io: 352: flushed 305 bytes
+2026-02-19T19:20:01.554747Z DEBUG ThreadId(01) hyper::client::connect::http: 542: connecting to 172.64.151.87:443
+2026-02-19T19:20:01.561717Z DEBUG ThreadId(01) hyper::client::connect::http: 545: connected to 172.64.151.87:443
+2026-02-19T19:20:01.566068Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:01.566177Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:01.566242Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:01.566412Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:01.574885Z DEBUG ThreadId(01) hyper::client::pool: 380: pooling idle connection for ("https", mainnet.helius-rpc.com)
+2026-02-19T19:20:01.619839Z DEBUG ThreadId(01) hyper::proto::h1::io: 211: parsed 19 headers
+2026-02-19T19:20:01.620073Z DEBUG ThreadId(01) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:01.620232Z DEBUG ThreadId(01) hyper::proto::h1::decode: 372: incoming chunked header: 0x3F (63 bytes)
+2026-02-19T19:20:01.621806Z DEBUG ThreadId(05) hyper::client::pool: 254: reuse idle connection for ("https", mainnet.helius-rpc.com)
+2026-02-19T19:20:01.622043Z DEBUG ThreadId(05) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:01.622242Z DEBUG ThreadId(05) hyper::proto::h1::io: 352: flushed 356 bytes
+2026-02-19T19:20:01.622305Z DEBUG ThreadId(05) hyper::client::pool: 380: pooling idle connection for ("https", mainnet.helius-rpc.com)
+2026-02-19T19:20:01.714319Z DEBUG ThreadId(02) reqwest::connect: 449: starting new connection: https://api.dexscreener.com/
+2026-02-19T19:20:01.714623Z DEBUG ThreadId(13) hyper::client::connect::dns: 122: resolving host="api.dexscreener.com"
+2026-02-19T19:20:01.722076Z DEBUG ThreadId(05) hyper::proto::h1::io: 211: parsed 19 headers
+2026-02-19T19:20:01.722191Z DEBUG ThreadId(05) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:01.722259Z DEBUG ThreadId(05) hyper::proto::h1::decode: 372: incoming chunked header: 0x74 (116 bytes)
+2026-02-19T19:20:01.730616Z DEBUG ThreadId(02) hyper::client::connect::http: 542: connecting to 104.18.38.143:443
+2026-02-19T19:20:01.737005Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 104.18.38.143:443
+2026-02-19T19:20:01.754400Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:01.790113Z DEBUG ThreadId(05) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:01.790243Z DEBUG ThreadId(13) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:01.790787Z DEBUG ThreadId(02) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:01.832363Z DEBUG ThreadId(11) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:01.879132Z DEBUG ThreadId(11) hyper::proto::h1::io: 352: flushed 450 bytes
+2026-02-19T19:20:01.957093Z DEBUG ThreadId(11) hyper::proto::h1::io: 211: parsed 17 headers
+2026-02-19T19:20:01.957180Z DEBUG ThreadId(11) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:01.957224Z DEBUG ThreadId(11) hyper::proto::h1::decode: 372: incoming chunked header: 0x3A (58 bytes)
+2026-02-19T19:20:01.957660Z DEBUG ThreadId(11) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:01.957783Z DEBUG ThreadId(11) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:01.989212Z DEBUG ThreadId(08) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:01.989292Z DEBUG ThreadId(08) hyper::proto::h1::conn: 224: incoming body is content-length (511 bytes)
+2026-02-19T19:20:01.989356Z DEBUG ThreadId(08) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:01.989495Z DEBUG ThreadId(08) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:02.259184Z DEBUG ThreadId(11) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:02.259423Z DEBUG ThreadId(11) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:02.592420Z DEBUG ThreadId(11) hyper::proto::h1::io: 211: parsed 16 headers
+2026-02-19T19:20:02.592495Z DEBUG ThreadId(11) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:02.592557Z DEBUG ThreadId(11) hyper::proto::h1::decode: 372: incoming chunked header: 0x5D8 (1496 bytes)
+2026-02-19T19:20:02.593025Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:02.593171Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:03.624643Z DEBUG ThreadId(11) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:03.624795Z DEBUG ThreadId(05) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:03.625671Z DEBUG ThreadId(11) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:03.666375Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:03.709040Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:03.749168Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:03.749255Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:03.749319Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:03.749481Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:05.809163Z DEBUG ThreadId(08) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:05.809321Z DEBUG ThreadId(13) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:05.809999Z DEBUG ThreadId(08) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:05.847072Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:05.886413Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:05.922142Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:05.922209Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:05.922277Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:05.922403Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:07.894988Z DEBUG ThreadId(11) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:07.895267Z DEBUG ThreadId(11) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:07.987051Z DEBUG ThreadId(11) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:07.987208Z DEBUG ThreadId(05) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:07.987339Z DEBUG ThreadId(11) hyper::proto::h1::io: 211: parsed 18 headers
+2026-02-19T19:20:07.987384Z DEBUG ThreadId(11) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:07.987436Z DEBUG ThreadId(11) hyper::proto::h1::decode: 372: incoming chunked header: 0x3A (58 bytes)
+2026-02-19T19:20:07.987641Z DEBUG ThreadId(02) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:07.987799Z DEBUG ThreadId(11) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:07.987907Z DEBUG ThreadId(11) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:08.024332Z DEBUG ThreadId(08) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:08.064598Z DEBUG ThreadId(08) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:08.102063Z DEBUG ThreadId(08) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:08.102158Z DEBUG ThreadId(08) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:08.102215Z DEBUG ThreadId(08) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:08.102356Z DEBUG ThreadId(08) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:08.289108Z DEBUG ThreadId(06) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:08.289394Z DEBUG ThreadId(06) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:08.315491Z DEBUG ThreadId(06) hyper::proto::h1::io: 211: parsed 17 headers
+2026-02-19T19:20:08.315563Z DEBUG ThreadId(06) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:08.315624Z DEBUG ThreadId(06) hyper::proto::h1::decode: 372: incoming chunked header: 0x5D8 (1496 bytes)
+2026-02-19T19:20:08.316113Z DEBUG ThreadId(08) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:08.316286Z DEBUG ThreadId(08) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:10.162924Z DEBUG ThreadId(11) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:10.163071Z DEBUG ThreadId(13) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:10.163637Z DEBUG ThreadId(11) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:10.233667Z DEBUG ThreadId(11) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:10.274765Z DEBUG ThreadId(11) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:10.314072Z DEBUG ThreadId(11) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:10.314156Z DEBUG ThreadId(11) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:10.314193Z DEBUG ThreadId(11) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:10.314292Z DEBUG ThreadId(11) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:12.374875Z DEBUG ThreadId(08) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:12.375074Z DEBUG ThreadId(05) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:12.375539Z DEBUG ThreadId(08) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:12.413455Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:12.453942Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:12.492083Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:12.492144Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:12.492208Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:12.492299Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:13.618191Z DEBUG ThreadId(08) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:13.618525Z DEBUG ThreadId(08) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:13.640858Z DEBUG ThreadId(08) hyper::proto::h1::io: 211: parsed 18 headers
+2026-02-19T19:20:13.640937Z DEBUG ThreadId(08) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:13.640994Z DEBUG ThreadId(08) hyper::proto::h1::decode: 372: incoming chunked header: 0x3A (58 bytes)
+2026-02-19T19:20:13.641452Z DEBUG ThreadId(08) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:13.641674Z DEBUG ThreadId(08) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:13.942325Z DEBUG ThreadId(11) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:13.942628Z DEBUG ThreadId(11) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:13.969594Z DEBUG ThreadId(11) hyper::proto::h1::io: 211: parsed 17 headers
+2026-02-19T19:20:13.969662Z DEBUG ThreadId(11) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:13.969717Z DEBUG ThreadId(11) hyper::proto::h1::decode: 372: incoming chunked header: 0x5D8 (1496 bytes)
+2026-02-19T19:20:13.970142Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:13.970254Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:14.552777Z DEBUG ThreadId(06) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:14.552974Z DEBUG ThreadId(13) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:14.553452Z DEBUG ThreadId(06) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:14.597103Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:14.642004Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:14.685555Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:14.685652Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:14.685719Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:14.685934Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:16.745467Z DEBUG ThreadId(08) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:16.745601Z DEBUG ThreadId(05) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:16.746176Z DEBUG ThreadId(08) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:16.786259Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:16.828940Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:16.869006Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:16.869072Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:16.869133Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:16.869277Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:18.931727Z DEBUG ThreadId(06) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:18.931896Z DEBUG ThreadId(13) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:18.932423Z DEBUG ThreadId(06) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:18.972713Z DEBUG ThreadId(02) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:19.014184Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:19.272727Z DEBUG ThreadId(02) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:19.272958Z DEBUG ThreadId(02) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:19.298767Z DEBUG ThreadId(02) hyper::proto::h1::io: 211: parsed 18 headers
+2026-02-19T19:20:19.298833Z DEBUG ThreadId(02) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:19.298881Z DEBUG ThreadId(02) hyper::proto::h1::decode: 372: incoming chunked header: 0x3A (58 bytes)
+2026-02-19T19:20:19.299203Z DEBUG ThreadId(02) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:19.299285Z DEBUG ThreadId(02) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:19.600152Z DEBUG ThreadId(08) hyper::client::pool: 254: reuse idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:19.600421Z DEBUG ThreadId(08) hyper::proto::h1::io: 352: flushed 156 bytes
+2026-02-19T19:20:19.720851Z DEBUG ThreadId(08) hyper::proto::h1::io: 211: parsed 17 headers
+2026-02-19T19:20:19.720918Z DEBUG ThreadId(08) hyper::proto::h1::conn: 224: incoming body is chunked encoding
+2026-02-19T19:20:19.720972Z DEBUG ThreadId(08) hyper::proto::h1::decode: 372: incoming chunked header: 0x5D8 (1496 bytes)
+2026-02-19T19:20:19.721378Z DEBUG ThreadId(06) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:19.721484Z DEBUG ThreadId(06) hyper::client::pool: 380: pooling idle connection for ("https", api.dexscreener.com)
+2026-02-19T19:20:21.638065Z DEBUG ThreadId(08) hyper::proto::h1::io: 211: parsed 8 headers
+2026-02-19T19:20:21.638129Z DEBUG ThreadId(08) hyper::proto::h1::conn: 224: incoming body is content-length (143 bytes)
+2026-02-19T19:20:21.638217Z DEBUG ThreadId(08) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:21.638338Z DEBUG ThreadId(08) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:20:23.697691Z DEBUG ThreadId(02) reqwest::connect: 449: starting new connection: https://api.telegram.org/
+2026-02-19T19:20:23.697903Z DEBUG ThreadId(05) hyper::client::connect::dns: 122: resolving host="api.telegram.org"
+2026-02-19T19:20:23.698588Z DEBUG ThreadId(02) hyper::client::connect::http: 542: connecting to 149.154.166.110:443
+2026-02-19T19:20:23.740621Z DEBUG ThreadId(08) hyper::client::connect::http: 545: connected to 149.154.166.110:443
+2026-02-19T19:20:23.784569Z DEBUG ThreadId(08) hyper::proto::h1::io: 352: flushed 161 bytes
+2026-02-19T19:20:23.834295Z DEBUG ThreadId(08) hyper::proto::h1::io: 211: parsed 9 headers
+2026-02-19T19:20:23.834360Z DEBUG ThreadId(08) hyper::proto::h1::conn: 224: incoming body is content-length (23 bytes)
+2026-02-19T19:20:23.834412Z DEBUG ThreadId(08) hyper::proto::h1::conn: 300: incoming body completed
+2026-02-19T19:20:23.834517Z DEBUG ThreadId(08) hyper::client::pool: 380: pooling idle connection for ("https", api.telegram.org)
+2026-02-19T19:22:50.678272Z  INFO ThreadId(01) the_chassis::observability: 156: ✅ Observability system initialized
+2026-02-19T19:22:50.678348Z  INFO ThreadId(01) the_chassis::observability: 157: 📁 Log directory: logs
+2026-02-19T19:22:50.678381Z  INFO ThreadId(01) the_chassis::observability: 158: 📊 Log level: Level(Debug)
+2026-02-19T19:22:50.678405Z  INFO ThreadId(01) the_chassis::observability: 159: 📋 Format: Text (Development)
+2026-02-19T19:26:07.901822Z  INFO ThreadId(01) the_chassis::observability: 156: ✅ Observability system initialized
+2026-02-19T19:26:07.901891Z  INFO ThreadId(01) the_chassis::observability: 157: 📁 Log directory: logs
+2026-02-19T19:26:07.901917Z  INFO ThreadId(01) the_chassis::observability: 158: 📊 Log level: Level(Debug)
+2026-02-19T19:26:07.901961Z  INFO ThreadId(01) the_chassis::observability: 159: 📋 Format: Text (Development)
+2026-02-19T19:45:51.736116Z  INFO ThreadId(01) the_chassis::observability: 156: ✅ Observability system initialized
+2026-02-19T19:45:51.736184Z  INFO ThreadId(01) the_chassis::observability: 157: 📁 Log directory: logs
+2026-02-19T19:45:51.736207Z  INFO ThreadId(01) the_chassis::observability: 158: 📊 Log level: Level(Debug)
+2026-02-19T19:45:51.736229Z  INFO ThreadId(01) the_chassis::observability: 159: 📋 Format: Text (Development)
+2026-02-19T19:45:53.071817Z DEBUG ThreadId(12) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T19:51:50.026341Z  INFO ThreadId(01) the_chassis::observability: 156: ✅ Observability system initialized
+2026-02-19T19:51:50.026481Z  INFO ThreadId(01) the_chassis::observability: 157: 📁 Log directory: logs
+2026-02-19T19:51:50.026502Z  INFO ThreadId(01) the_chassis::observability: 158: 📊 Log level: Level(Debug)
+2026-02-19T19:51:50.026520Z  INFO ThreadId(01) the_chassis::observability: 159: 📋 Format: Text (Development)
+2026-02-19T19:51:51.436894Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T19:56:54.033273Z DEBUG ThreadId(08) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:01:56.729106Z DEBUG ThreadId(03) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:07:12.850736Z  INFO ThreadId(01) the_chassis::observability: 156: ✅ Observability system initialized
+2026-02-19T20:07:12.850814Z  INFO ThreadId(01) the_chassis::observability: 157: 📁 Log directory: logs
+2026-02-19T20:07:12.850840Z  INFO ThreadId(01) the_chassis::observability: 158: 📊 Log level: Level(Debug)
+2026-02-19T20:07:12.850862Z  INFO ThreadId(01) the_chassis::observability: 159: 📋 Format: Text (Development)
+2026-02-19T20:07:14.087028Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:12:16.764445Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:17:19.255651Z DEBUG ThreadId(08) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:22:22.054211Z DEBUG ThreadId(08) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:27:24.750238Z DEBUG ThreadId(11) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:32:27.346808Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:37:29.848024Z DEBUG ThreadId(13) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:42:32.541202Z DEBUG ThreadId(08) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:47:35.443973Z DEBUG ThreadId(02) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:52:38.141643Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T20:57:40.706895Z DEBUG ThreadId(11) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:02:43.388213Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:07:46.129708Z DEBUG ThreadId(11) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:12:48.820865Z DEBUG ThreadId(11) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:17:51.431814Z DEBUG ThreadId(09) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:22:54.079793Z DEBUG ThreadId(08) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:27:57.116039Z DEBUG ThreadId(162) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:32:59.827265Z DEBUG ThreadId(11) tungstenite::handshake::client: 95: Client handshake done.
+2026-02-19T21:38:02.575123Z DEBUG ThreadId(182) tungstenite::handshake::client: 95: Client handshake done.

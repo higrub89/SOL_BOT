@@ -119,20 +119,25 @@ impl CommandHandler {
     ) -> Result<()> {
         match command.trim() {
             "/start" => {
-                self.send_message("🏎️ **The Chassis Bot v2.0.0**\n\n\
-                    ⚡ *Comandos disponibles:*\n\n\
-                    🏓 `/ping` - Health check completo\n\
-                    💰 `/buy <MINT> <SOL>` - Comprar token\n\
-                    📊 `/status` - Estado de posiciones (legacy)\n\
-                    📋 `/positions` - Posiciones activas (DB)\n\
-                    📜 `/history` - Historial de trades\n\
-                    📈 `/stats` - Estadísticas de PnL\n\
-                    💵 `/balance` - Balance de wallet\n\
-                    🎯 `/targets` - Tokens monitoreados\n\
-                    🛑 `/hibernate` - Modo hibernación (detener ejecución)\n\
-                    🟢 `/wake` - Salir de hibernación\n\
-                    ❓ `/help` - Ver ayuda completa\n\n\
-                    _El bot protege tus posiciones 24/7 con Trailing Stop-Loss._").await?;
+                self.send_message("<b>⚜️ THE CHASSIS v2.0.0 ⚜️</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
+                    <i>Select an operation command:</i>\n\n\
+                    ⬡ <b>SYSTEM COMMANDS</b>\n\
+                    /ping - Diagnostics & Uptime\n\
+                    /balance - Vault Balance\n\n\
+                    ⬡ <b>TRADING COMMANDS</b>\n\
+                    <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code> - Execute Snipe\n\
+                    <code>/panic &lt;MINT&gt;</code> - Emergency Liquidation\n\n\
+                    ⬡ <b>MONITORING</b>\n\
+                    /positions - Live Ledger\n\
+                    /targets - Configured Assets\n\
+                    /history - Recent Execution Log\n\
+                    /stats - Performance Analytics\n\n\
+                    ⬡ <b>CONTROL</b>\n\
+                    /hibernate - Halt Execution\n\
+                    /wake - Resume Operations\n\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <i>Aegis Protocol Active — 24/7 Monitoring</i>").await?;
             }
 
             "/ping" => {
@@ -165,31 +170,35 @@ impl CommandHandler {
 
             "/hibernate" => {
                 HIBERNATION_MODE.store(true, Ordering::Relaxed);
-                self.send_message("🛑 **MODO HIBERNACIÓN ACTIVADO**\n\n\
-                    El bot seguirá monitoreando pero NO ejecutará trades.\n\
-                    Usa `/wake` para reactivar.").await?;
+                self.send_message("<b>🛑 SYSTEM HALTED: HIBERNATION</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    Execution engine suspended.\n\
+                    Monitoring continues passively.\n\n\
+                    <i>Use /wake to resume operations.</i>").await?;
             }
 
             "/wake" => {
                 HIBERNATION_MODE.store(false, Ordering::Relaxed);
-                self.send_message("🟢 **HIBERNACIÓN DESACTIVADA**\n\n\
-                    El bot ha vuelto al modo operativo normal.").await?;
+                self.send_message("<b>🟢 SYSTEM ONLINE: ENGAGED</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    Execution engine resumed.\n\
+                    All safety protocols active.").await?;
             }
 
             "/help" => {
-                self.send_message("📚 **Ayuda de The Chassis v2.0**\n\n\
-                    • 🏓 `/ping` - Health check: RPC, wallet, uptime\n\
-                    • 📊 `/status` - Drawdown y SL de cada token (legacy)\n\
-                    • 📋 `/positions` - Posiciones activas desde DB\n\
-                    • 📜 `/history` - Últimos 10 trades ejecutados\n\
-                    • 📈 `/stats` - Estadísticas completas de PnL\n\
-                    • 💵 `/balance` - Balance de SOL en tu wallet\n\
-                    • 🎯 `/targets` - Lista de tokens monitoreados\n\
-                    • 💰 `/buy <MINT> <SOL>` - Compra un token\n\
-                    • 🚨 `/panic <MINT>` - Venta de emergencia 100%\n\
-                    • 🛑 `/hibernate` - Detener toda ejecución\n\
-                    • 🟢 `/wake` - Reactivar ejecución\n\n\
-                    El bot monitorea automáticamente tus tokens 24/7.").await?;
+                self.send_message("<b>📚 PROTOCOL MANUAL</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    ⬡ /ping - System Health & RPC Latency\n\
+                    ⬡ /positions - Live Active Positions (DB)\n\
+                    ⬡ /history - Ledger of Last 10 Trades\n\
+                    ⬡ /stats - Comprehensive PnL Analytics\n\
+                    ⬡ /balance - SOL Balance in Hot Wallet\n\
+                    ⬡ /targets - Tracked Asset Configuration\n\
+                    ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code> - Precision Entry\n\
+                    ⬡ <code>/panic &lt;MINT&gt;</code> - Sell 100% Immediately\n\
+                    ⬡ /hibernate - Suspend ALL Trading\n\
+                    ⬡ /wake - Re-enable Trading\n\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
             }
 
             cmd if cmd.starts_with("/buy ") => {
@@ -247,18 +256,20 @@ impl CommandHandler {
 
         // Hibernation status
         let hibernate_status = if Self::is_hibernating() {
-            "🛑 HIBERNANDO"
+            "🛑 <b>SUSPENDED</b>"
         } else {
-            "🟢 OPERATIVO"
+            "🟢 <b>ENGAGED</b>"
         };
 
         let response = format!(
-            "🏓 **PONG — Health Check**\n\n\
-            ⏱ Uptime: {}h {}m {}s\n\
+            "<b>🏓 SYSTEM DIAGNOSTICS</b>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <b>⬢ Uptime:</b> <code>{}h {}m {}s</code>\n\
             {}\n\
             {}\n\
-            🤖 Estado: {}\n\
-            📋 Versión: v2.0.0-alpha",
+            <b>⬢ Status:</b> {}\n\
+            <b>⬢ Engine:</b> <code>v2.0.0-alpha</code>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
             hours, minutes, secs,
             rpc_status,
             wallet_status,
@@ -274,7 +285,7 @@ impl CommandHandler {
         let parts: Vec<&str> = command.split_whitespace().collect();
         
         if parts.len() < 3 {
-            self.send_message("❌ **Uso:** `/buy <MINT> <SOL>`").await?;
+            self.send_message("❌ <b>Syntax Error:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>").await?;
             return Ok(());
         }
 
@@ -282,17 +293,17 @@ impl CommandHandler {
         let amount: f64 = parts[2].parse().unwrap_or(0.0);
 
         if amount < 0.01 {
-            self.send_message("❌ Mínimo: 0.01 SOL").await?;
+            self.send_message("❌ <b>Error:</b> Minimum allocation is 0.01 SOL").await?;
             return Ok(());
         }
 
-        self.send_message(&format!("🚀 **Iniciando Compra**\nToken: `{}`\nCantidad: `{} SOL`...", mint, amount)).await?;
+        self.send_message(&format!("<b>🚀 TACTICAL ENTRY INITIATED</b>\n<b>⬢ Asset:</b> <code>{}</code>\n<b>⬢ Allocation:</b> <code>{} SOL</code>\n<i>Executing payload...</i>", mint, amount)).await?;
 
         // Cargar keypair temporalmente
         let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
             Ok(kp) => Some(kp),
             Err(e) => {
-                self.send_message(&format!("⚠️ No se pudo cargar WALLET_PRIVATE_KEY: {}", e)).await?;
+                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e)).await?;
                 None
             }
         };
@@ -301,13 +312,18 @@ impl CommandHandler {
         match executor.execute_buy(mint, kp_opt.as_ref(), amount).await {
             Ok(res) => {
                 let msg = format!(
-                    "✅ **COMPRA EXITOSA**\n\n💰 {:.4} SOL\n💎 {:.2} Tokens\n🔗 [Solscan](https://solscan.io/tx/{})",
+                    "<b>✅ ACQUISITION SUCCESSFUL</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <b>⬡ Cost:</b> <code>{:.4} SOL</code>\n\
+                    <b>⬡ Yield:</b> <code>{:.2} Tokens</code>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <a href='https://solscan.io/tx/{}'>[ 🔗 VIEW ON SOLSCAN ]</a>",
                     res.sol_spent, res.tokens_received, res.signature
                 );
                 self.send_message(&msg).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ **Error:** {}", e)).await?;
+                self.send_message(&format!("❌ <b>Execution Failure:</b> {}", e)).await?;
             }
         }
 
@@ -318,24 +334,24 @@ impl CommandHandler {
     async fn cmd_panic(&self, command: &str, executor: Arc<TradeExecutor>) -> Result<()> {
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.len() < 2 {
-            self.send_message("❌ **Uso:** `/panic <MINT>`").await?;
+            self.send_message("❌ <b>Syntax Error:</b> <code>/panic &lt;MINT&gt;</code>").await?;
             return Ok(());
         }
         
         let mint = parts[1];
-        self.send_message(&format!("🚨 **PANIC SELL ACTIVADO**\nVendiendo 100% de `{}`...", mint)).await?;
+        self.send_message(&format!("<b>🚨 EMERGENCY LIQUIDATION</b>\nLiquidating 100% of <code>{}</code> via Jito...", mint)).await?;
 
         let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
             Ok(kp) => Some(kp),
             Err(e) => {
-                self.send_message(&format!("⚠️ No se pudo cargar WALLET_PRIVATE_KEY: {}", e)).await?;
+                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e)).await?;
                 None
             }
         };
 
         match executor.execute_emergency_sell(mint, kp_opt.as_ref(), 100).await {
-            Ok(res) => self.send_message(&format!("✅ **VENTA COMPLETADA**\nTx: `{}`", res.signature)).await?,
-            Err(e) => self.send_message(&format!("❌ **FALLO CRÍTICO:** {}", e)).await?,
+            Ok(res) => self.send_message(&format!("<b>✅ LIQUIDATION COMPLETE</b>\n<b>⬢ Tx:</b> <code>{}</code>", res.signature)).await?,
+            Err(e) => self.send_message(&format!("❌ <b>CRITICAL FAILURE:</b> {}", e)).await?,
         }
 
         Ok(())
@@ -349,22 +365,22 @@ impl CommandHandler {
         };
 
         if positions.is_empty() {
-            self.send_message("⚠️ No hay posiciones activas").await?;
+            self.send_message("<b>⚠️ NO ACTIVE POSITIONS (LEGACY)</b>").await?;
             return Ok(());
         }
 
-        let mut response = "📊 **STATUS DE POSICIONES**\n\n".to_string();
+        let mut response = "<b>📊 LIVE TRACKING (LEGACY)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n".to_string();
 
         for pos in positions {
             let dd = pos.drawdown_percent();
             let status_emoji = if dd > 0.0 { "🟢" } else if dd > -20.0 { "🟡" } else { "🔴" };
             
             response.push_str(&format!(
-                "{} **{}**\n\
-                └─ Precio: ${:.8}\n\
-                └─ Entrada: ${:.8}\n\
-                └─ Drawdown: {}{:.2}%\n\
-                └─ Valor: {:.4} SOL\n\n",
+                "{} <b>{}</b>\n\
+                <b>⬡ Price:</b> <code>${:.8}</code>\n\
+                <b>⬡ Entry:</b> <code>${:.8}</code>\n\
+                <b>⬡ Drawdown:</b> <b>{}{:.2}%</b>\n\
+                <b>⬡ Value:</b> <code>{:.4} SOL</code>\n\n",
                 status_emoji,
                 pos.token_mint,
                 pos.current_price,
@@ -384,16 +400,16 @@ impl CommandHandler {
         match wallet_monitor.get_sol_balance() {
             Ok(balance) => {
                 let message = format!(
-                    "💰 **BALANCE DE WALLET**\n\n\
-                    SOL: {:.4}\n\
-                    USD (aprox): ${:.2}",
-                    balance,
-                    balance * 100.0 // Aproximación, precio de SOL real requeriría otra API
+                    "<b>🏦 VAULT BALANCE</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <b>⬡ SOL:</b> <code>{:.4} SOL</code>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
+                    balance
                 );
                 self.send_message(&message).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ Error obteniendo balance: {}", e)).await?;
+                self.send_message(&format!("❌ <b>Vault Error:</b> {}", e)).await?;
             }
         }
         Ok(())
@@ -401,15 +417,15 @@ impl CommandHandler {
 
     /// Comando /targets - Muestra la lista de tokens monitoreados
     async fn cmd_targets(&self, config: Arc<AppConfig>) -> Result<()> {
-        let mut response = "🎯 **TARGETS CONFIGURADOS**\n\n".to_string();
+        let mut response = "<b>🎯 SECURED TARGETS</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
         for target in &config.targets {
-            let status = if target.active { "✅ Activo" } else { "⏸️ Pausado" };
+            let status = if target.active { "✅ ACTIVE" } else { "⏸ INACTIVE" };
             response.push_str(&format!(
-                "**{}** ({})\n\
-                └─ SL: {:.1}%\n\
-                └─ Inversión: {:.4} SOL\n\
-                └─ Estado: {}\n\n",
+                "<b>⬢ {}</b> <code>({})</code>\n\
+                <b>⬡ Stop-Loss:</b> <code>{:.1}%</code>\n\
+                <b>⬡ Allocation:</b> <code>{:.4} SOL</code>\n\
+                <b>⬡ Status:</b> {}\n\n",
                 target.symbol,
                 &target.mint[..8],
                 target.stop_loss_percent,
@@ -419,10 +435,11 @@ impl CommandHandler {
         }
 
         response.push_str(&format!(
-            "**Configuración Global:**\n\
-            └─ Auto-Execute: {}\n\
-            └─ Intervalo: {}s",
-            if config.global_settings.auto_execute { "🔴 ON" } else { "🟡 OFF" },
+            "<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <b>⚙️ GLOBAL PREFERENCES</b>\n\
+            <b>⬡ Auto-Execute:</b> {}\n\
+            <b>⬡ Scan Interval:</b> <code>{}s</code>",
+            if config.global_settings.auto_execute { "🔴 ARMED" } else { "🟡 DRY-RUN" },
             config.global_settings.monitor_interval_sec
         ));
 
@@ -455,7 +472,7 @@ impl CommandHandler {
         }
     }
 
-    /// Envía un mensaje
+    /// Envía un mensaje en HTML
     async fn send_message(&self, text: &str) -> Result<()> {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",
@@ -466,7 +483,7 @@ impl CommandHandler {
         let payload = serde_json::json!({
             "chat_id": self.chat_id,
             "text": text,
-            "parse_mode": "Markdown"
+            "parse_mode": "HTML"
         });
 
         client.post(&url).json(&payload).send().await?;
@@ -478,11 +495,11 @@ impl CommandHandler {
         match state_manager.get_active_positions() {
             Ok(positions) => {
                 if positions.is_empty() {
-                    self.send_message("📋 **POSICIONES ACTIVAS**\n\n⚠️ No hay posiciones activas en la base de datos.").await?;
+                    self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\nNo active allocations detected.").await?;
                     return Ok(());
                 }
 
-                let mut response = "📋 **POSICIONES ACTIVAS** (DB Persistente)\n\n".to_string();
+                let mut response = "<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n".to_string();
 
                 for pos in positions {
                     let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
@@ -492,13 +509,13 @@ impl CommandHandler {
                     let pnl = current_value_sol - pos.amount_sol;
 
                     response.push_str(&format!(
-                        "{} **{}**\n\
-                        └─ Entrada: ${:.8} ({:.4} SOL)\n\
-                        └─ Actual: ${:.8}\n\
-                        └─ Tokens: {:.2}\n\
-                        └─ Drawdown: {}{:.2}%\n\
-                        └─ PnL: {}{:.4} SOL\n\
-                        └─ SL: {:.1}%{}\n\n",
+                        "{} <b>{}</b>\n\
+                        <b>⬡ Entry:</b> <code>${:.8}</code> <i>({:.4} SOL)</i>\n\
+                        <b>⬡ Current:</b> <code>${:.8}</code>\n\
+                        <b>⬡ Yield:</b> <code>{:.2} Tokens</code>\n\
+                        <b>⬡ Drawdown:</b> <b>{}{:.2}%</b>\n\
+                        <b>⬡ PnL:</b> <b>{}{:.4} SOL</b>\n\
+                        <b>⬡ SL:</b> <code>{:.1}%{}</code>\n\n",
                         status_emoji,
                         pos.symbol,
                         pos.entry_price,
@@ -510,14 +527,14 @@ impl CommandHandler {
                         if pnl > 0.0 { "+" } else { "" },
                         pnl,
                         pos.stop_loss_percent,
-                        if pos.trailing_enabled { " (Trailing)" } else { "" }
+                        if pos.trailing_enabled { " <i>(Trailing)</i>" } else { "" }
                     ));
                 }
 
                 self.send_message(&response).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ Error obteniendo posiciones: {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
             }
         }
         Ok(())
@@ -528,11 +545,11 @@ impl CommandHandler {
         match state_manager.get_trade_history(10) {
             Ok(trades) => {
                 if trades.is_empty() {
-                    self.send_message("📜 **HISTORIAL DE TRADES**\n\n⚠️ No hay trades registrados todavía.").await?;
+                    self.send_message("<b>📜 TRADE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\nNo operations recorded.").await?;
                     return Ok(());
                 }
 
-                let mut response = "📜 **HISTORIAL DE TRADES** (Últimos 10)\n\n".to_string();
+                let mut response = "<b>📜 RECENT EXECUTIONS (T-10)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
                 for trade in trades {
                     let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
@@ -544,11 +561,11 @@ impl CommandHandler {
                         .unwrap_or_else(|| "N/A".to_string());
 
                     response.push_str(&format!(
-                        "{} **{}** ({})\n\
-                        └─ Tipo: {}\n\
-                        └─ Precio: ${:.8}\n\
-                        └─ PnL: {}{:.4} SOL ({}{:.2}%)\n\
-                        └─ Tx: `{}`\n\n",
+                        "{} <b>{}</b> <i>({})</i>\n\
+                        <b>⬡ Type:</b> {}\n\
+                        <b>⬡ Price:</b> <code>${:.8}</code>\n\
+                        <b>⬡ PnL:</b> <b>{}{:.4} SOL</b> <i>({}{:.2}%)</i>\n\
+                        <b>⬡ Tx:</b> <code>{}</code>\n\n",
                         pnl_emoji,
                         trade.symbol,
                         timestamp,
@@ -565,7 +582,7 @@ impl CommandHandler {
                 self.send_message(&response).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ Error obteniendo historial: {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
             }
         }
         Ok(())
@@ -584,12 +601,14 @@ impl CommandHandler {
                 let status_emoji = if stats.total_pnl_sol > 0.0 { "🟢" } else if stats.total_pnl_sol == 0.0 { "🟡" } else { "🔴" };
 
                 let response = format!(
-                    "📈 **ESTADÍSTICAS COMPLETAS**\n\n\
-                    {} **PnL Total:** {}{:.4} SOL\n\
-                    📊 **Trades Ejecutados:** {}\n\
-                    📋 **Posiciones Activas:** {}\n\
-                    📉 **Promedio/Trade:** {}{:.4} SOL\n\n\
-                    _Datos desde la inicialización de la base de datos._",
+                    "<b>📈 PERFORMANCE ANALYTICS</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    {} <b>Total PnL:</b> <b>{}{:.4} SOL</b>\n\
+                    <b>⬡ Executions:</b> <code>{}</code>\n\
+                    <b>⬡ Active Positions:</b> <code>{}</code>\n\
+                    <b>⬡ Avg Yield/Trade:</b> <code>{}{:.4} SOL</code>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <i>Source: Persistent Ledger</i>",
                     status_emoji,
                     if stats.total_pnl_sol > 0.0 { "+" } else { "" },
                     stats.total_pnl_sol,
@@ -602,7 +621,7 @@ impl CommandHandler {
                 self.send_message(&response).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ Error obteniendo estadísticas: {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
             }
         }
         Ok(())
