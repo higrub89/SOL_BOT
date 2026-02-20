@@ -135,33 +135,36 @@ impl LiquidityAlert {
         match self {
             LiquidityAlert::LiquidityDrop { from_usd, to_usd, percent } => {
                 format!(
-                    "⚠️ **ALERTA DE LIQUIDEZ - {}**\n\n\
-                    💧 Caída de liquidez: -{:.2}%\n\
-                    └─ Antes: ${:.0}\n\
-                    └─ Ahora: ${:.0}\n\n\
-                    🔍 Esto puede indicar ventas grandes o retiro de LP.",
+                    "<b>⚠️ ALERTA DE LIQUIDEZ — {}</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <b>⬡ Caída de liquidez:</b> <b>-{:.2}%</b>\n\
+                    <b>⬡ Antes:</b> <code>${:.0}</code>\n\
+                    <b>⬡ Ahora:</b> <code>${:.0}</code>\n\n\
+                    <i>🔍 Esto puede indicar ventas grandes o retiro de LP.</i>",
                     token_symbol, percent, from_usd, to_usd
                 )
             }
 
             LiquidityAlert::VolumeSuspicious { current, average, multiplier } => {
                 format!(
-                    "📊 **VOLUMEN ANORMAL - {}**\n\n\
-                    🚨 Spike de volumen: {:.1}x del promedio\n\
-                    └─ Actual 24h: ${:.0}\n\
-                    └─ Promedio: ${:.0}\n\n\
-                    ⚠️ Puede indicar actividad de ballenas o dump inminente.",
+                    "<b>📊 VOLUMEN ANORMAL — {}</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <b>⬡ Spike de volumen:</b> <b>{:.1}x</b> del promedio\n\
+                    <b>⬡ Actual 24h:</b> <code>${:.0}</code>\n\
+                    <b>⬡ Promedio:</b> <code>${:.0}</code>\n\n\
+                    <i>⚠️ Puede indicar actividad de ballenas o dump inminente.</i>",
                     token_symbol, multiplier, current, average
                 )
             }
 
             LiquidityAlert::RugPullWarning { price_drop, liquidity_drop } => {
                 format!(
-                    "🚨🚨 **ADVERTENCIA DE RUG PULL - {}** 🚨🚨\n\n\
-                    ❌ Precio: -{:.1}%\n\
-                    ❌ Liquidez: -{:.1}%\n\n\
-                    ⚡ **ACCIÓN INMEDIATA RECOMENDADA**\n\
-                    Considera salir de la posición ahora.",
+                    "<b>🚨🚨 ADVERTENCIA DE RUG PULL — {} 🚨🚨</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <b>❌ Precio:</b> <b>-{:.1}%</b>\n\
+                    <b>❌ Liquidez:</b> <b>-{:.1}%</b>\n\n\
+                    <b>⚡ ACCIÓN INMEDIATA RECOMENDADA</b>\n\
+                    <i>Considera salir de la posición ahora.</i>",
                     token_symbol, price_drop, liquidity_drop
                 )
             }

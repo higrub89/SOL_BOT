@@ -537,7 +537,7 @@ async fn run_monitor_mode() -> Result<()> {
                     eprintln!("\n🛑 HIBERNACIÓN AUTOMÁTICA: Balance ({:.4} SOL) < Mínimo ({:.4} SOL)",
                         current_balance, hibernate_min_balance);
                     let _ = hibernate_telegram.send_message(
-                        &format!("🛑 **HIBERNACIÓN AUTOMÁTICA**\n\nBalance: {:.4} SOL < Mínimo: {:.4} SOL\n\nEl bot ha detenido toda ejecución para proteger tus fondos.\nUsa `/wake` después de fondear la wallet.",
+                        &format!("<b>🛑 HIBERNACIÓN AUTOMÁTICA</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n<b>⬡ Balance:</b> <code>{:.4} SOL</code>\n<b>⬡ Mínimo:</b> <code>{:.4} SOL</code>\n\nEl bot ha detenido toda ejecución para proteger tus fondos.\nUsa /wake después de fondear la wallet.",
                             current_balance, hibernate_min_balance),
                         true
                     ).await;
