@@ -10,20 +10,20 @@ use std::env;
 use std::str::FromStr;
 
 pub struct WalletMonitor {
-    client: RpcClient,
+    rpc_url: String,
     pubkey: Pubkey,
 }
 
 impl WalletMonitor {
     pub fn new(rpc_url: String, wallet_addr: &str) -> Result<Self> {
-        let client = RpcClient::new(rpc_url);
         let pubkey = Pubkey::from_str(wallet_addr)?;
-        Ok(Self { client, pubkey })
+        Ok(Self { rpc_url, pubkey })
     }
 
     /// Obtiene el balance de SOL en tiempo real
     pub fn get_sol_balance(&self) -> Result<f64> {
-        let lamports = self.client.get_balance(&self.pubkey)?;
+        let client = RpcClient::new(&self.rpc_url);
+        let lamports = client.get_balance(&self.pubkey)?;
         Ok(lamports as f64 / 1_000_000_000.0)
     }
 
@@ -31,10 +31,11 @@ impl WalletMonitor {
     /// Para simplificar esta versión, usamos directamente el mint pubkey
     pub fn get_token_balance(&self, mint_addr: &str) -> Result<f64> {
         let mint_pubkey = Pubkey::from_str(mint_addr)?;
+        let client = RpcClient::new(&self.rpc_url);
         
         // En esta versión simplificada, intentamos obtener el balance directamente.
         // En una versión final por gRPC, recibiríamos account updates.
-        match self.client.get_token_account_balance(&mint_pubkey) {
+        match client.get_token_account_balance(&mint_pubkey) {
             Ok(balance) => Ok(balance.ui_amount.unwrap_or(0.0)),
             Err(_) => Ok(0.0),
         }
