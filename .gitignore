@@ -79,3 +79,9 @@ package-lock.json
 .cache/
 *.bak
 *.tmp
+
+bot.pid
+*.db
+pools_cache.json
+result.json
+logs/

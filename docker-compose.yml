@@ -9,9 +9,6 @@ services:
     image: the_chassis:production
     container_name: solana_trading_bot
     restart: unless-stopped
-    # Mapear puerto si usaramos dashboard web en el futuro
-    # ports:
-    #   - "3000:3000"
     env_file:
       - .env
     environment:
@@ -19,16 +16,14 @@ services:
     volumes:
       # Persistencia de logs
       - ./logs:/app/logs
-      # Archivos de configuración dinámicos (para poder editarlos sin reiniciar)
-      - ./core/the_chassis/targets.json:/app/targets.json
-      - ./core/the_chassis/pools_cache.json:/app/pools_cache.json
+      # Config dinámica — edita targets.json y reinicia para aplicar cambios
+      - ./targets.json:/app/targets.json
+      # Base de datos de estado persistente (posiciones, historial, PnL)
+      - ./trading_state.db:/app/trading_state.db
+      # Cache de pools de Raydium
+      - ./pools_cache.json:/app/pools_cache.json
     deploy:
       resources:
         limits:
           cpus: '1.50'
           memory: 2048M
-
-  # 🚀 (Opcional) Redis para caché compartido futuro
-  # redis:
-  #   image: redis:alpine
-  #   restart: always

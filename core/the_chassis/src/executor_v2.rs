@@ -153,17 +153,26 @@ impl TradeExecutor {
         ).await?;
 
         // 4. Deserializar transacción
-        println!("🔐 Firmando transacción...");
+        println!("🔐 Firmando transacción con keypair...");
         let tx_bytes = general_purpose::STANDARD
             .decode(&swap_response.swap_transaction)
             .context("Error decodificando transacción base64")?;
         
-        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
+        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
+        // ✅ CRITICAL FIX: Jupiter devuelve la tx sin la firma del usuario.
+        // Obtenemos un blockhash fresco y firmamos con nuestro keypair antes de broadcast.
+        let recent_blockhash = self.rpc_client
+            .get_latest_blockhash()
+            .context("Error obteniendo blockhash reciente")?;
+        transaction.message.set_recent_blockhash(recent_blockhash);
+        let signed_tx = VersionedTransaction::try_new(transaction.message, &[keypair])
+            .context("Error firmando transacción con keypair")?;
+
         // 5. Enviar transacción
-        println!("📡 Broadcasting transacción a Solan...");
-        let signature = self.send_transaction_with_retry(&transaction, 3).await?;
+        println!("📡 Broadcasting transacción a Solana...");
+        let signature = self.send_transaction_with_retry(&signed_tx, 3).await?;
 
         println!("✅ Transacción confirmada!\n");
         println!("🔗 Signature: {}", signature);
@@ -244,17 +253,23 @@ impl TradeExecutor {
             .decode(&swap_response.swap_transaction)
             .context("Error decoding tx")?;
         
-        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
         
-        // TODO: Aquí deberíamos inyectar el Priority Fee si Jupiter no lo incluyó
-        // o usar Jito Block Engine. Por ahora usamos el método estándar.
+        // ✅ CRITICAL FIX: Jupiter devuelve la tx sin la firma del usuario.
+        // Debemos obtener el blockhash reciente y firmar con nuestro keypair.
+        let recent_blockhash = self.rpc_client
+            .get_latest_blockhash()
+            .context("Error obteniendo blockhash reciente")?;
+        transaction.message.set_recent_blockhash(recent_blockhash);
+        let signed_tx = VersionedTransaction::try_new(transaction.message, &[keypair])
+            .context("Error firmando transacción con keypair")?;
         
-        let signature = self.send_transaction_with_retry(&transaction, 3).await?;
+        let signature = self.send_transaction_with_retry(&signed_tx, 3).await?;
 
         Ok(SwapResult {
             signature: signature.to_string(),
             input_amount: amount_sol,
-            output_amount: 0.0, // TODO: Parse output from quote
+            output_amount: 0.0,
             route: "Jupiter Adjusted".to_string(),
             price_impact_pct: 0.0,
         })
@@ -423,16 +438,25 @@ impl TradeExecutor {
             true,
         ).await?;
 
-        println!("🔐 Firmando transacción...");
+        println!("🔐 Firmando transacción con keypair...");
         let tx_bytes = general_purpose::STANDARD
             .decode(&swap_response.swap_transaction)
             .context("Error decodificando transacción base64")?;
         
-        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
+        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
+        // ✅ CRITICAL FIX: Jupiter devuelve la tx sin la firma del usuario.
+        // Obtenemos un blockhash fresco y firmamos con nuestro keypair.
+        let recent_blockhash = self.rpc_client
+            .get_latest_blockhash()
+            .context("Error obteniendo blockhash reciente")?;
+        transaction.message.set_recent_blockhash(recent_blockhash);
+        let signed_tx = VersionedTransaction::try_new(transaction.message, &[keypair])
+            .context("Error firmando transacción con keypair")?;
+
         println!("📡 Broadcasting transacción a Solana...");
-        let signature = self.send_transaction_with_retry(&transaction, 3).await?;
+        let signature = self.send_transaction_with_retry(&signed_tx, 3).await?;
 
         println!("✅ Compra confirmada!\n");
         println!("🔗 Signature: {}", signature);
