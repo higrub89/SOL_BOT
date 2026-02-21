@@ -4,7 +4,7 @@
 #  Controla el bot en background (persiste aunque cierres Termius)
 # ═══════════════════════════════════════════════════════════════
 
-BOT_DIR="/home/ruben/Automatitation/bot_trading"
+BOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BINARY="$BOT_DIR/target/release/the_chassis_app"
 LOG="$BOT_DIR/logs/bot.log"
 PID_FILE="$BOT_DIR/bot.pid"

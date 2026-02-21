@@ -4,7 +4,7 @@
 #  Versión: 1.1.0-luxury | Auto-Buy & Auto-Sell Ready
 # ═══════════════════════════════════════════════════════════════
 
-CHASSIS_DIR="/home/ruben/Automatitation/bot_trading/core/the_chassis"
+CHASSIS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/core/the_chassis"
 
 # Colores
 GREEN='\033[0;32m'
