@@ -605,7 +605,13 @@ async fn run_monitor_mode() -> Result<()> {
     //  LOOP PRINCIPAL — Consume del PriceFeed en tiempo real
     // ══════════════════════════════════════════════════════════
     println!("🏎️  Loop principal activo. Esperando datos de precio...\n");
-    
+
+    // HashSet para evitar intentar vender el mismo token múltiples veces en el mismo ciclo de vida
+    // Previene el bucle infinito de alertas cuando la venta falla
+    let mut sell_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // HashSet para evitar spamear alertas de hibernación + SL cada tick
+    let mut sl_alerted: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     while let Some(price_update) = price_rx.recv().await {
         // Buscar el target correspondiente a este update
         let target = match target_map.get(&price_update.token_mint) {
@@ -761,72 +767,96 @@ async fn run_monitor_mode() -> Result<()> {
                 println!("║                  🚨 EMERGENCY ALERT! 🚨                   ║");
                 println!("║         SL ACTIVADO: {} @ {:.2}% (Limit: {:.1}%)          ║", target.symbol, dd, effective_sl_percent);
                 println!("╚════════════════════════════════════════════════════════════╝\n");
-                
+
                 if telegram_commands::CommandHandler::is_hibernating() {
-                    println!("🛑 Bot en HIBERNACIÓN — no se ejecuta auto-sell.");
-                    let _ = telegram_clone.send_message(
-                        &format!("🛑 SL alcanzado para {} ({:.2}%), pero el bot está en hibernación.", target.symbol, dd),
-                        true
-                    ).await;
+                    // Solo alertar UNA vez por token para no spamear
+                    if !sl_alerted.contains(&target.mint) {
+                        sl_alerted.insert(target.mint.clone());
+                        println!("🛑 Bot en HIBERNACIÓN — no se ejecuta auto-sell para {}.", target.symbol);
+                        let _ = telegram_clone.send_message(
+                            &format!("🛑 <b>SL alcanzado para {}</b> ({:.2}%), pero el bot está en hibernación.\nVende manualmente en: <a href='https://jup.ag/swap/{}-SOL'>Jupiter</a>", target.symbol, dd, target.mint),
+                            true
+                        ).await;
+                    }
                 } else if app_config.global_settings.auto_execute {
-                    println!("⚡ AUTO-EXECUTING EMERGENCY SELL...");
-                    
-                    let sell_result = executor_clone.execute_emergency_sell(
-                        &target.mint,
-                        wallet_keypair.as_ref(),
-                        100,
-                    ).await;
+                    // Solo intentar la venta UNA vez para no spamear en caso de fallo
+                    if !sell_attempted.contains(&target.mint) {
+                        sell_attempted.insert(target.mint.clone());
+                        println!("⚡ AUTO-EXECUTING EMERGENCY SELL para {}...", target.symbol);
 
-                    match sell_result {
-                        Ok(swap_result) => {
-                            println!("✅ Venta automática completada: {}", swap_result.signature);
-                            let _ = telegram_clone.send_message(
-                                &format!("✅ Venta automática de {} completada.\nSignature: {}", target.symbol, swap_result.signature),
-                                true
-                            ).await;
+                        let sell_result = executor_clone.execute_emergency_sell(
+                            &target.mint,
+                            wallet_keypair.as_ref(),
+                            100,
+                        ).await;
 
-                            let trade_record = TradeRecord {
-                                id: None,
-                                signature: swap_result.signature.clone(),
-                                token_mint: target.mint.clone(),
-                                symbol: target.symbol.clone(),
-                                trade_type: "EMERGENCY_SELL".to_string(),
-                                amount_sol: swap_result.output_amount,
-                                tokens_amount: target.amount_sol / target.entry_price,
-                                price: price_update.price_usd,
-                                pnl_sol: Some(swap_result.output_amount - target.amount_sol),
-                                pnl_percent: Some(((swap_result.output_amount - target.amount_sol) / target.amount_sol) * 100.0),
-                                route: "Jupiter".to_string(),
-                                price_impact_pct: 0.0,
-                                timestamp: Utc::now().timestamp(),
-                            };
-                            
-                            if let Err(e) = state_manager.record_trade(&trade_record) {
-                                eprintln!("❌ Error recording trade to DB: {}", e);
+                        match sell_result {
+                            Ok(swap_result) => {
+                                println!("✅ Venta automática completada: {}", swap_result.signature);
+                                let _ = telegram_clone.send_message(
+                                    &format!("✅ Venta automática de {} completada.\nSignature: {}", target.symbol, swap_result.signature),
+                                    true
+                                ).await;
+
+                                let trade_record = TradeRecord {
+                                    id: None,
+                                    signature: swap_result.signature.clone(),
+                                    token_mint: target.mint.clone(),
+                                    symbol: target.symbol.clone(),
+                                    trade_type: "EMERGENCY_SELL".to_string(),
+                                    amount_sol: swap_result.output_amount,
+                                    tokens_amount: target.amount_sol / target.entry_price,
+                                    price: price_update.price_usd,
+                                    pnl_sol: Some(swap_result.output_amount - target.amount_sol),
+                                    pnl_percent: Some(((swap_result.output_amount - target.amount_sol) / target.amount_sol) * 100.0),
+                                    route: "Jupiter".to_string(),
+                                    price_impact_pct: 0.0,
+                                    timestamp: Utc::now().timestamp(),
+                                };
+
+                                if let Err(e) = state_manager.record_trade(&trade_record) {
+                                    eprintln!("❌ Error recording trade to DB: {}", e);
+                                }
+                                if let Err(e) = state_manager.close_position(&target.mint) {
+                                    eprintln!("❌ Error closing position in DB: {}", e);
+                                }
                             }
-                            if let Err(e) = state_manager.close_position(&target.mint) {
-                                eprintln!("❌ Error closing position in DB: {}", e);
+                            Err(e) => {
+                                eprintln!("❌ Error en auto-sell para {}: {}", target.symbol, e);
+                                println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
+
+                                // Cerrar la posición en DB para no seguir intentando
+                                let _ = state_manager.close_position(&target.mint);
+
+                                let _ = telegram_clone.send_error_alert(
+                                    &format!(
+                                        "❌ <b>Error en auto-sell para {}:</b> {}\n\n\
+                                        ⚠️ Posición marcada como CERRADA en DB.\n\
+                                        Vende manualmente: <a href='https://jup.ag/swap/{}-SOL'>Jupiter</a>",
+                                        target.symbol, e, target.mint
+                                    )
+                                ).await;
                             }
                         }
-                        Err(e) => {
-                            eprintln!("❌ Error en auto-sell: {}", e);
-                            println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
-                            let _ = telegram_clone.send_error_alert(
-                                &format!("❌ Error en auto-sell para {}: {}. SE REQUIERE ACCIÓN MANUAL.", target.symbol, e)
-                            ).await;
-                        }
+                    } else {
+                        // Ya se intentó — solo loguear localmente, no spamear Telegram
+                        println!("⚠️  [{}] SL en -{}% pero ya se intentó sell. Esperando cierre del loop.", target.symbol, dd.abs());
                     }
                 } else {
-                    println!("⚠️  ACCIÓN MANUAL REQUERIDA (Auto-Execute desactivado)");
-                    let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
-                    let _ = telegram_clone.send_stop_loss_alert(
-                        &target.symbol,
-                        pos.current_price,
-                        pos.entry_price,
-                        dd,
-                        effective_sl_percent,
-                        &url
-                    ).await;
+                    // Solo alertar UNA vez (sin auto-execute)
+                    if !sl_alerted.contains(&target.mint) {
+                        sl_alerted.insert(target.mint.clone());
+                        println!("⚠️  ACCIÓN MANUAL REQUERIDA (Auto-Execute desactivado)");
+                        let url = format!("https://jup.ag/swap/{}-SOL", target.mint);
+                        let _ = telegram_clone.send_stop_loss_alert(
+                            &target.symbol,
+                            pos.current_price,
+                            pos.entry_price,
+                            dd,
+                            effective_sl_percent,
+                            &url
+                        ).await;
+                    }
                 }
             }
         }
