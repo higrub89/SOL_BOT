@@ -13,7 +13,7 @@
       "amount_sol": 0.025,
       "stop_loss_percent": -60.0,
       "panic_sell_price": 0.0001,
-      "active": true,
+      "active": false,
       "pool_account": "43MaVQURDHpE6wEorus7MKMFVgTB8vYaxpphGuiNsgPV",
       "coin_vault": "FjPaAg1dj3HsQi6TM2arMzCNTkwcpwpcidBnPsEFi7Jt",
       "pc_vault": "65i6WnYw3AX8DHP8SaYjyQFAHNuyum3vT9v3sFz172Cr",
