@@ -2,7 +2,7 @@ name: 🚀 Deploy Bot to GCP
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
     paths:
       # Solo se activa si cambian archivos relevantes
       - 'core/**'
