@@ -109,7 +109,7 @@ jobs:
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
             # Construir y reiniciar con Docker Compose
-            sudo docker compose build --no-cache bot
+            sudo docker compose build bot
 
             echo "🔄 Reiniciando contenedor..."
             sudo docker compose down
