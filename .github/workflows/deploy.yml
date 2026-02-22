@@ -96,6 +96,7 @@ jobs:
           host: ${{ secrets.GCP_SERVER_IP }}
           username: ${{ secrets.GCP_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
+          timeout: 30m
           script: |
             set -e
             cd ~/bot_trading
@@ -119,7 +120,7 @@ jobs:
             sleep 10
 
             echo "📋 Logs de inicio:"
-            docker compose logs --tail=30
+            sudo docker compose logs --tail=30
 
             echo ""
             echo "✅ Deploy completado con éxito!"
