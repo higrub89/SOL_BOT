@@ -1,0 +1,155 @@
+name: 🚀 Deploy Bot to GCP
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      # Solo se activa si cambian archivos relevantes
+      - 'core/**'
+      - 'targets.json'
+      - 'docker-compose.yml'
+      - 'Dockerfile'
+      - '.github/workflows/deploy.yml'
+  # Permite lanzar el deploy manualmente desde GitHub
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Motivo del deploy manual'
+        required: false
+        default: 'Deploy manual'
+
+jobs:
+  # ──────────────────────────────────────────────
+  # JOB 1: Verificación del Código (CI)
+  # ──────────────────────────────────────────────
+  verify:
+    name: ✅ Verificar Código Rust
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🦀 Instalar Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: 📦 Cache de dependencias Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 🔧 Instalar dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev libssl-dev pkg-config
+
+      - name: 🔍 Verificar compilación (cargo check)
+        run: cargo check --workspace --release
+
+      - name: 📋 Lints (cargo clippy)
+        run: cargo clippy --workspace -- -D warnings
+        continue-on-error: true  # Warnings no bloquean el deploy
+
+  # ──────────────────────────────────────────────
+  # JOB 2: Deploy al Servidor GCP
+  # ──────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy a GCP
+    runs-on: ubuntu-latest
+    needs: verify  # Solo deploya si el código está verificado
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configurar clave SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.GCP_SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: 📤 Sincronizar código al servidor
+        run: |
+          rsync -avz \
+            --exclude='.git' \
+            --exclude='target/' \
+            --exclude='logs/' \
+            --exclude='trading_state.db' \
+            --exclude='.env' \
+            --exclude='*.bak' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.GCP_USER }}@${{ secrets.GCP_SERVER_IP }}:~/bot_trading/
+
+      - name: 🔄 Reiniciar el bot en el servidor
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GCP_SERVER_IP }}
+          username: ${{ secrets.GCP_USER }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/bot_trading
+
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🏎️  THE CHASSIS — Deploy Automático"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📅 Fecha: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "📝 Commit: ${{ github.sha }}"
+            echo "👤 Autor:  ${{ github.actor }}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            # Construir y reiniciar con Docker Compose
+            echo "🐳 Reconstruyendo imagen Docker..."
+            docker compose build --no-cache bot
+
+            echo "🔄 Reiniciando contenedor..."
+            docker compose down
+            docker compose up -d
+
+            echo "⏳ Esperando que el bot arranque (10s)..."
+            sleep 10
+
+            echo "📋 Logs de inicio:"
+            docker compose logs --tail=30
+
+            echo ""
+            echo "✅ Deploy completado con éxito!"
+
+      - name: 📱 Notificar en Telegram
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="✅"
+            MSG="Deploy exitoso"
+          else
+            EMOJI="❌"
+            MSG="Deploy FALLIDO"
+          fi
+
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="<b>${EMOJI} THE CHASSIS — ${MSG}</b>
+          <b>━━━━━━━━━━━━━━━━━━━━━━</b>
+          <b>⬡ Commit:</b> <code>${SHORT_SHA}</code>
+          <b>⬡ Mensaje:</b> ${COMMIT_MSG}
+          <b>⬡ Autor:</b> ${{ github.actor }}
+          <b>⬡ Servidor:</b> GCP (${{ secrets.GCP_SERVER_IP }})
+
+          <i>🤖 Bot actualizado y corriendo 24/7</i>"

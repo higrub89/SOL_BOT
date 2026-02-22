@@ -42,7 +42,10 @@ pub async fn ws_price_loop(
 
     // ── Construir vault tracking ──
     let vault_pairs: Vec<VaultPair> = tokens.iter()
-        .filter(|t| t.coin_vault.is_some() && t.pc_vault.is_some())
+        .filter(|t| {
+            t.coin_vault.as_ref().map_or(false, |v| v.len() >= 8) && 
+            t.pc_vault.as_ref().map_or(false, |v| v.len() >= 8)
+        })
         .map(|t| VaultPair {
             token_mint: t.mint.clone(),
             symbol: t.symbol.clone(),
@@ -77,8 +80,10 @@ pub async fn ws_price_loop(
 
     println!("   🔌 WebSocket vault accounts: {}", all_vault_addresses.len());
     for pair in &vault_pairs {
+        let coin_display = if pair.coin_vault.len() >= 8 { &pair.coin_vault[..8] } else { &pair.coin_vault };
+        let pc_display = if pair.pc_vault.len() >= 8 { &pair.pc_vault[..8] } else { &pair.pc_vault };
         println!("      └─ {} | coin: {}... | pc: {}...", 
-            pair.symbol, &pair.coin_vault[..8], &pair.pc_vault[..8]);
+            pair.symbol, coin_display, pc_display);
     }
 
     // Vault tracker thread-safe
