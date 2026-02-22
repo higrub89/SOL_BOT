@@ -612,6 +612,9 @@ async fn run_monitor_mode() -> Result<()> {
     // HashSet para evitar spamear alertas de hibernación + SL cada tick
     let mut sl_alerted: std::collections::HashSet<String> = std::collections::HashSet::new();
 
+    // HashMap para limitar el ruido en consola: (Token -> Última vez que se imprimió log)
+    let mut last_log_time: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+
     while let Some(price_update) = price_rx.recv().await {
         // Buscar el target correspondiente a este update
         let target = match target_map.get(&price_update.token_mint) {
@@ -687,17 +690,25 @@ async fn run_monitor_mode() -> Result<()> {
                 format!("TP: {:.1}% (${:.6})", tp_target_percent, tp_price)
             };
 
-            println!("┌────────────────────────────────────────────────────────┐");
-            println!("│ {} {} Status {:>30} │", status_emoji, target.symbol, source_tag);
-            println!("├────────────────────────────────────────────────────────┤");
-            println!("│   Price:    ${:.8}                         │", pos.current_price);
-            println!("│   PnL:      {:.2}%                                  │", current_gain_percent);
-            println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", effective_sl_percent, dist_to_sl);
-            if !tsl_info.is_empty() {
-                println!("│   {:<53}│", tsl_info.trim());
+            // Limit LOG spam: solo imprimir la tarjeta una vez cada 15 segundos por token
+            let now = chrono::Utc::now().timestamp();
+            let last_printed = *last_log_time.get(&target.mint).unwrap_or(&0);
+            
+            if now - last_printed >= 15 {
+                println!("┌────────────────────────────────────────────────────────┐");
+                println!("│ {} {} Status {:>30} │", status_emoji, target.symbol, source_tag);
+                println!("├────────────────────────────────────────────────────────┤");
+                println!("│   Price:    ${:.8}                         │", pos.current_price);
+                println!("│   PnL:      {:.2}%                                  │", current_gain_percent);
+                println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", effective_sl_percent, dist_to_sl);
+                if !tsl_info.is_empty() {
+                    println!("│   {:<53}│", tsl_info.trim());
+                }
+                println!("│   {:<53}│", tp_status);
+                println!("└────────────────────────────────────────────────────────┘");
+                
+                last_log_time.insert(target.mint.clone(), now);
             }
-            println!("│   {:<53}│", tp_status);
-            println!("└────────────────────────────────────────────────────────┘");
 
             // ── Lógica de Take Profit ──
             if !tp_triggered && current_gain_percent >= tp_target_percent {
