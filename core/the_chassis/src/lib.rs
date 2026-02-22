@@ -584,7 +584,19 @@ async fn run_monitor_mode() -> Result<()> {
         
         if let Some(pos) = position_data {
             let dd = pos.drawdown_percent();
-            let dist_to_sl = dd - target.stop_loss_percent;
+            
+            // Determinar el Stop-Loss Efectivo (el máximo entre el SL inicial y el TSL si está activo)
+            let effective_sl_percent = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
+                if tsl.current_sl_percent > target.stop_loss_percent {
+                    tsl.current_sl_percent
+                } else {
+                    target.stop_loss_percent
+                }
+            } else {
+                target.stop_loss_percent
+            };
+            
+            let dist_to_sl = dd - effective_sl_percent;
             let status_emoji = if dist_to_sl > 10.0 { "🟢" } else if dist_to_sl > 5.0 { "🟡" } else { "🔴" };
             let source_tag = format!("[{}]", price_update.source);
             
@@ -603,17 +615,17 @@ async fn run_monitor_mode() -> Result<()> {
             println!("├────────────────────────────────────────────────────────┤");
             println!("│   Price:    ${:.8}                         │", pos.current_price);
             println!("│   Drawdown: {:.2}%                                  │", dd);
-            println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", target.stop_loss_percent, dist_to_sl);
+            println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", effective_sl_percent, dist_to_sl);
             if !tsl_info.is_empty() {
                 println!("│   {:<53}│", tsl_info.trim());
             }
             println!("└────────────────────────────────────────────────────────┘");
 
-            // ── Lógica de Emergencia (Stop-Loss + Auto-Sell) ──
-            if dd <= target.stop_loss_percent {
+            // ── Lógica de Emergencia (Stop-Loss + Auto-Sell + TSL) ──
+            if dd <= effective_sl_percent {
                 println!("\n╔════════════════════════════════════════════════════════════╗");
                 println!("║                  🚨 EMERGENCY ALERT! 🚨                   ║");
-                println!("║         SL ACTIVADO: {} @ {:.2}% (Limit: {:.1}%)          ║", target.symbol, dd, target.stop_loss_percent);
+                println!("║         SL ACTIVADO: {} @ {:.2}% (Limit: {:.1}%)          ║", target.symbol, dd, effective_sl_percent);
                 println!("╚════════════════════════════════════════════════════════════╝\n");
                 
                 if telegram_commands::CommandHandler::is_hibernating() {
@@ -678,7 +690,7 @@ async fn run_monitor_mode() -> Result<()> {
                         pos.current_price,
                         pos.entry_price,
                         dd,
-                        target.stop_loss_percent,
+                        effective_sl_percent,
                         &url
                     ).await;
                 }
