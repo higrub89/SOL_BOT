@@ -340,6 +340,9 @@ async fn run_monitor_mode() -> Result<()> {
             trailing_activation_threshold: 100.0, // Default value
             trailing_highest_price: Some(target.entry_price),
             trailing_current_sl: Some(target.stop_loss_percent),
+            tp_percent: None,
+            tp_amount_percent: None,
+            tp_triggered: false,
             created_at: chrono::Utc::now().timestamp(),
             updated_at: chrono::Utc::now().timestamp(),
             active: true,
@@ -516,9 +519,9 @@ async fn run_monitor_mode() -> Result<()> {
                     stop_loss_percent: pos.stop_loss_percent,
                     panic_sell_price: 0.0,
                     active: true,
-                    pool_account: "".to_string(),
-                    coin_vault: "".to_string(),
-                    pc_vault: "".to_string(),
+                    pool_account: Some(String::new()),
+                    coin_vault: Some(String::new()),
+                    pc_vault: Some(String::new()),
                     token_decimals: 6,
                     trailing_enabled: pos.trailing_enabled,
                     trailing_distance_percent: pos.trailing_distance_percent,
@@ -662,15 +665,16 @@ async fn run_monitor_mode() -> Result<()> {
             };
 
             // 💰 TAKE PROFIT LOGIC 💰
-            // Hydrate TP settings from DB if not in target config
-            // (Assumed target.tp_percent doesn't exist yet, fetch from pos)
-            let tp_target_percent = pos.tp_percent.unwrap_or(100.0); // Default 100% gain
-            let tp_amount_percent = pos.tp_amount_percent.unwrap_or(50.0); // Sell half
-            let tp_triggered = pos.tp_triggered;
-            
+            // Read TP settings from StateManager DB (single source of truth)
+            let db_pos_opt = state_manager.get_position(&target.mint).ok().flatten();
+            let tp_target_percent = db_pos_opt.as_ref().and_then(|p| p.tp_percent).unwrap_or(100.0);
+            let tp_amount_percent = db_pos_opt.as_ref().and_then(|p| p.tp_amount_percent).unwrap_or(50.0);
+            let tp_triggered = db_pos_opt.as_ref().map(|p| p.tp_triggered).unwrap_or(false);
+            let db_amount_sol = db_pos_opt.as_ref().map(|p| p.amount_sol).unwrap_or(target.amount_sol);
+
             let current_gain_percent = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
             let tp_price = pos.entry_price * (1.0 + tp_target_percent / 100.0);
-            
+
             let tp_status = if tp_triggered {
                 "✅ TP HIT".to_string()
             } else {
@@ -695,20 +699,19 @@ async fn run_monitor_mode() -> Result<()> {
                  println!("║                  💰 TAKE PROFIT TRIGGERED! 💰             ║");
                  println!("║         Gain: {:.2}% >= Target {:.1}%                     ║", current_gain_percent, tp_target_percent);
                  println!("╚════════════════════════════════════════════════════════════╝\n");
-                 
+
                  if telegram_commands::CommandHandler::is_hibernating() {
-                     // Log warning
+                     // Log warning - bot suspended
                  } else if app_config.global_settings.auto_execute {
                      println!("⚡ AUTO-EXECUTING TAKE PROFIT ({}%)...", tp_amount_percent);
-                     // Ejecutar venta parcial
                      let sell_amount_pct = tp_amount_percent as u8;
-                     
+
                      let sell_result = executor_clone.execute_emergency_sell(
                         &target.mint,
                         wallet_keypair.as_ref(),
                         sell_amount_pct,
                     ).await;
-                    
+
                     match sell_result {
                         Ok(swap_result) => {
                              println!("✅ TP Parcial completado: {}", swap_result.signature);
@@ -716,29 +719,30 @@ async fn run_monitor_mode() -> Result<()> {
                                 &format!("💰 <b>TAKE PROFIT HIT</b> for {}!\n\
                                           <b>⬡ Gain:</b> {:.2}%\n\
                                           <b>⬡ Sold:</b> {}%\n\
-                                          <b>⬡ Tx:</b> {}", 
+                                          <b>⬡ Tx:</b> {}",
                                           target.symbol, current_gain_percent, sell_amount_pct, swap_result.signature),
                                 true
                             ).await;
-                            
+
                             // Marcar TP como ejecutado en DB
                             let _ = state_manager.mark_tp_triggered(&target.mint);
-                            
+
                             // Actualizar amount restante en DB (aprox)
-                            let remaining_sol = pos.amount_sol * (1.0 - (tp_amount_percent / 100.0));
+                            let remaining_sol = db_amount_sol * (1.0 - (tp_amount_percent / 100.0));
                             let _ = state_manager.update_amount_invested(&target.mint, remaining_sol);
-                            
-                            // Registrar Trade
-                             let trade_record = TradeRecord {
+
+                            // Registrar Trade en historial
+                            let pnl_sold_portion = swap_result.output_amount - (db_amount_sol * (tp_amount_percent / 100.0));
+                            let trade_record = TradeRecord {
                                 id: None,
                                 signature: swap_result.signature.clone(),
                                 token_mint: target.mint.clone(),
                                 symbol: target.symbol.clone(),
                                 trade_type: "TAKE_PROFIT".to_string(),
                                 amount_sol: swap_result.output_amount,
-                                tokens_amount: 0.0, // Should calculate based on price
+                                tokens_amount: 0.0,
                                 price: price_update.price_usd,
-                                pnl_sol: Some(swap_result.output_amount - (pos.amount_sol * (tp_amount_percent/100.0))), // PnL of the sold portion
+                                pnl_sol: Some(pnl_sold_portion),
                                 pnl_percent: Some(current_gain_percent),
                                 route: "Jupiter".to_string(),
                                 price_impact_pct: 0.0,
@@ -749,8 +753,6 @@ async fn run_monitor_mode() -> Result<()> {
                         Err(e) => eprintln!("❌ Error executing TP: {}", e),
                     }
                  }
-            } else {
-                // If not triggered, just log status
             }
 
             // ── Lógica de Emergencia (Stop-Loss + Auto-Sell + TSL) ──
