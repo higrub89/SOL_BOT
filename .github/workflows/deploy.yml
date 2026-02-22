@@ -65,7 +65,7 @@ jobs:
     name: 🚀 Deploy a GCP
     runs-on: ubuntu-latest
     needs: verify  # Solo deploya si el código está verificado
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
 
     steps:
       - name: 📥 Checkout código
