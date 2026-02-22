@@ -3,10 +3,9 @@ version: '3.8'
 services:
   # 🏎️ THE CHASSIS - Core Trading Engine
   bot:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    image: the_chassis:production
+    # En producción: usa imagen pre-compilada desde GHCR (ghcr.io/higrub89/the_chassis:latest)
+    # En local: construye desde el Dockerfile -> docker compose build bot
+    image: ${BOT_IMAGE:-ghcr.io/higrub89/the_chassis:latest}
     container_name: solana_trading_bot
     restart: unless-stopped
     env_file:

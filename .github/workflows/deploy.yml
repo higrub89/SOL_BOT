@@ -4,13 +4,13 @@ on:
   push:
     branches: [ master ]
     paths:
-      # Solo se activa si cambian archivos relevantes
       - 'core/**'
+      - 'intelligence/**'
       - 'targets.json'
       - 'docker-compose.yml'
       - 'Dockerfile'
       - '.github/workflows/deploy.yml'
-  # Permite lanzar el deploy manualmente desde GitHub
+      - 'Cargo.toml'
   workflow_dispatch:
     inputs:
       reason:
@@ -18,79 +18,25 @@ on:
         required: false
         default: 'Deploy manual'
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/the_chassis
+
 jobs:
   # ──────────────────────────────────────────────
-  # JOB 1: Verificación del Código (CI)
+  # JOB 1: Detectar tipo de cambio
   # ──────────────────────────────────────────────
-  verify:
-    name: ✅ Verificar Código Rust
+  detect:
+    name: 🔍 Detectar Cambios
     runs-on: ubuntu-latest
     outputs:
       code_changed: ${{ steps.filter.outputs.code }}
-
+      config_changed: ${{ steps.filter.outputs.config }}
     steps:
-      - name: 📥 Checkout código
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🔍 Detectar cambios (Code vs Config)
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            code:
-              - 'core/**'
-              - 'intelligence/**'
-              - 'Cargo.toml'
-              - 'Dockerfile'
-              - '.github/workflows/**'
-
-      - name: 🦀 Instalar Rust toolchain
-        if: steps.filter.outputs.code == 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: 📦 Cache de dependencias Cargo
-        if: steps.filter.outputs.code == 'true'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: 🔧 Instalar dependencias del sistema
-        if: steps.filter.outputs.code == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev libssl-dev pkg-config
-
-      - name: 🔍 Verificar compilación (cargo check)
-        if: steps.filter.outputs.code == 'true'
-        run: cargo check --workspace --release
-
-      - name: 📋 Lints (cargo clippy)
-        if: steps.filter.outputs.code == 'true'
-        run: cargo clippy --workspace -- -D warnings
-        continue-on-error: true
-
-  # ──────────────────────────────────────────────
-  # JOB 2: Deploy al Servidor GCP
-  # ──────────────────────────────────────────────
-  deploy:
-    name: 🚀 Deploy a GCP
-    runs-on: ubuntu-latest
-    needs: verify  # Solo deploya si el código está verificado
-    if: github.ref == 'refs/heads/master'
-
-    steps:
-      - name: 📥 Checkout código
-        uses: actions/checkout@v4
-
-      - name: 🔍 Detectar cambios (Code vs Config)
+      - name: 🔍 Filtrar cambios
         uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -105,6 +51,94 @@ jobs:
               - 'targets.json'
               - 'docker-compose.yml'
 
+  # ──────────────────────────────────────────────
+  # JOB 2: Build y Push imagen (solo si hay cambios de código)
+  # Se ejecuta en GitHub Actions — sin timeout en el servidor
+  # ──────────────────────────────────────────────
+  build:
+    name: 🐳 Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: detect
+    if: needs.detect.outputs.code_changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔧 Instalar dependencias del sistema (para cargo check)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev libssl-dev pkg-config
+
+      - name: 🦀 Instalar Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 📦 Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: ✅ Verificar compilación (cargo check)
+        run: cargo check --workspace --release
+
+      - name: 🔐 Login a GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extraer metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: ⚡ Configurar Docker Buildx (con caché)
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build y Push imagen a GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+  # ──────────────────────────────────────────────
+  # JOB 3: Deploy al servidor GCP
+  # El servidor SOLO hace pull + restart (sin compilar)
+  # ──────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy a GCP
+    runs-on: ubuntu-latest
+    needs: [detect, build]
+    # Ejecutar si: build terminó OK (code change) O si solo hay config change
+    if: |
+      always() &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.detect.outputs.code_changed == 'true' || needs.detect.outputs.config_changed == 'true')
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
       - name: 🔐 Configurar clave SSH
         run: |
           mkdir -p ~/.ssh
@@ -112,7 +146,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.GCP_SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: 📤 Sincronizar código al servidor
+      - name: 📤 Sincronizar archivos de configuración al servidor
         run: |
           rsync -avz \
             --exclude='.git' \
@@ -121,16 +155,18 @@ jobs:
             --exclude='trading_state.db' \
             --exclude='.env' \
             --exclude='*.bak' \
+            --exclude='core/' \
+            --exclude='intelligence/' \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             ./ ${{ secrets.GCP_USER }}@${{ secrets.GCP_SERVER_IP }}:~/bot_trading/
 
-      - name: 🔄 Reiniciar el bot en el servidor
+      - name: 🔄 Deploy en servidor (pull imagen + restart)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.GCP_SERVER_IP }}
           username: ${{ secrets.GCP_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
-          timeout: 30m
+          timeout: 5m
           script: |
             set -e
             cd ~/bot_trading
@@ -141,27 +177,33 @@ jobs:
             echo "📅 Fecha: $(date '+%Y-%m-%d %H:%M:%S UTC')"
             echo "📝 Commit: ${{ github.sha }}"
             echo "👤 Autor:  ${{ github.actor }}"
-            
-            if [ "${{ steps.filter.outputs.code }}" == "true" ]; then
-              echo "🛠️  CAMBIO EN CÓDIGO DETECTADO. Recompilando..."
-              sudo docker compose build bot
-              echo "🔄 Reiniciando contenedor..."
+
+            # Login a GHCR para hacer pull
+            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io \
+              -u ${{ github.actor }} --password-stdin
+
+            if [ "${{ needs.detect.outputs.code_changed }}" == "true" ]; then
+              echo "🐳 CAMBIO EN CÓDIGO: Descargando nueva imagen de GHCR..."
+              sudo docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
+
+              # Actualizar docker-compose para usar imagen pre-compilada
+              echo "🔄 Reiniciando con la nueva imagen..."
               sudo docker compose down
               sudo docker compose up -d
             else
-              echo "📂 SOLO CAMBIO EN CONFIGURACIÓN. Reinicio rápido (Zero-Build)."
-              sudo docker compose up -d # Asegura que esté corriendo
+              echo "📂 SOLO CONFIG: Reinicio rápido (sin pull)..."
+              sudo docker compose up -d
               sudo docker compose restart bot
             fi
 
-            echo "⏳ Esperando que el bot arranque (10s)..."
-            sleep 10
+            echo "⏳ Esperando arranque (15s)..."
+            sleep 15
 
             echo "📋 Logs de inicio:"
-            sudo docker compose logs --tail=30
+            sudo docker compose logs --tail=25
 
             echo ""
-            echo "✅ Deploy completado con éxito!"
+            echo "✅ Deploy completado en segundos!"
 
       - name: 📱 Notificar en Telegram
         if: always()
@@ -175,6 +217,13 @@ jobs:
             MSG="Deploy FALLIDO"
           fi
 
+          CODE_CHANGED="${{ needs.detect.outputs.code_changed }}"
+          if [ "$CODE_CHANGED" = "true" ]; then
+            DEPLOY_TYPE="🐳 Nueva imagen compilada"
+          else
+            DEPLOY_TYPE="⚡ Zero-Build (solo config)"
+          fi
+
           COMMIT_MSG="${{ github.event.head_commit.message }}"
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
@@ -186,8 +235,8 @@ jobs:
             -d text="<b>${EMOJI} THE CHASSIS — ${MSG}</b>
           <b>━━━━━━━━━━━━━━━━━━━━━━</b>
           <b>⬡ Commit:</b> <code>${SHORT_SHA}</code>
+          <b>⬡ Tipo:</b> ${DEPLOY_TYPE}
           <b>⬡ Mensaje:</b> ${COMMIT_MSG}
           <b>⬡ Autor:</b> ${{ github.actor }}
-          <b>⬡ Servidor:</b> GCP (${{ secrets.GCP_SERVER_IP }})
 
           <i>🤖 Bot actualizado y corriendo 24/7</i>"
