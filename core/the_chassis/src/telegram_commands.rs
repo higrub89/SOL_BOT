@@ -195,9 +195,11 @@ impl CommandHandler {
                     ⬡ /balance - SOL Balance in Hot Wallet\n\
                     ⬡ /targets - Tracked Asset Configuration\n\
                     ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code> - Precision Entry\n\
+                    ⬡ <code>/track &lt;MINT&gt; &lt;SYMBOL&gt; &lt;SOL&gt; &lt;SL&gt;</code> - Manual Indexing\n\
                     ⬡ <code>/panic &lt;MINT&gt;</code> - Sell 100% Immediately\n\
                     ⬡ /hibernate - Suspend ALL Trading\n\
-                    ⬡ /wake - Re-enable Trading\n\n\
+                    ⬡ /wake - Re-enable Trading\n\
+                    ⬡ /reboot - Hot Reload (Pick up new tracks)\n\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
             }
 
@@ -205,8 +207,17 @@ impl CommandHandler {
                 if Self::is_hibernating() {
                     self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
                 } else {
-                    self.cmd_buy(cmd, Arc::clone(&executor)).await?;
+                    self.cmd_buy(cmd, Arc::clone(&executor), Arc::clone(&state_manager)).await?;
                 }
+            }
+
+            cmd if cmd.starts_with("/track ") => {
+                self.cmd_track(cmd, Arc::clone(&state_manager)).await?;
+            }
+
+            "/reboot" => {
+                self.send_message("<b>🔄 SYSTEM REBOOT INITIATED</b>\nRestarting process...").await?;
+                std::process::exit(0);
             }
 
             cmd if cmd.starts_with("/panic ") => {
@@ -281,7 +292,7 @@ impl CommandHandler {
     }
 
     /// Comando /buy - Ejecuta una compra de token
-    async fn cmd_buy(&self, command: &str, executor: Arc<TradeExecutor>) -> Result<()> {
+    async fn cmd_buy(&self, command: &str, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>) -> Result<()> {
         let parts: Vec<&str> = command.split_whitespace().collect();
         
         if parts.len() < 3 {
@@ -321,9 +332,102 @@ impl CommandHandler {
                     res.sol_spent, res.tokens_received, res.signature
                 );
                 self.send_message(&msg).await?;
+
+                // Intentar obtener el símbolo para el monitor
+                let scanner = crate::scanner::PriceScanner::new();
+                let symbol = match scanner.get_token_price(mint).await {
+                    Ok(p) => p.symbol,
+                    Err(_) => "BOUGHT".to_string(),
+                };
+
+                // Guardar en base de datos para monitoreo automático al reiniciar
+                let pos = crate::state_manager::PositionState {
+                    id: None,
+                    token_mint: mint.to_string(),
+                    symbol,
+                    entry_price: res.price_per_token,
+                    current_price: res.price_per_token,
+                    amount_sol: res.sol_spent,
+                    stop_loss_percent: -50.0, // Default SL
+                    trailing_enabled: true,
+                    trailing_distance_percent: 25.0,
+                    trailing_activation_threshold: 15.0,
+                    trailing_highest_price: Some(res.price_per_token),
+                    trailing_current_sl: Some(-50.0),
+                    tp_percent: Some(100.0), // Default TP 2x
+                    tp_amount_percent: Some(50.0), // Sell 50%
+                    tp_triggered: false,
+                    active: true,
+                    created_at: chrono::Utc::now().timestamp(),
+                    updated_at: chrono::Utc::now().timestamp(),
+                };
+
+                let _ = state_manager.upsert_position(&pos);
+                self.send_message("<b>✅ MONITORING ARMED</b>\n<b>TP:</b> +100% (Sell 50%)\nUse /reboot to activate tracking.").await?;
             }
             Err(e) => {
                 self.send_message(&format!("❌ <b>Execution Failure:</b> {}", e)).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Comando /track - Añade un token manualmente al DB para monitoreo
+    async fn cmd_track(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.len() < 5 {
+            self.send_message("❌ <b>Syntax Error:</b> <code>/track &lt;MINT&gt; &lt;SYMBOL&gt; &lt;SOL&gt; &lt;SL&gt; [TP]</code>\nExample: <code>/track 3GEz... SCRAT 0.1 -50 100</code>").await?;
+            return Ok(());
+        }
+
+        let mint = parts[1];
+        let symbol = parts[2];
+        let sol: f64 = parts[3].parse().unwrap_or(0.0);
+        let sl: f64 = parts[4].parse().unwrap_or(-50.0);
+        let tp: f64 = if parts.len() > 5 { parts[5].parse().unwrap_or(100.0) } else { 100.0 };
+
+        self.send_message(&format!("🔍 <b>Indexing Asset: {}...</b>", symbol)).await?;
+
+        let scanner = crate::scanner::PriceScanner::new();
+        match scanner.get_token_price(mint).await {
+            Ok(price_data) => {
+                let pos = crate::state_manager::PositionState {
+                    id: None,
+                    token_mint: mint.to_string(),
+                    symbol: symbol.to_string(),
+                    entry_price: price_data.price_usd,
+                    current_price: price_data.price_usd,
+                    amount_sol: sol,
+                    stop_loss_percent: sl,
+                    trailing_enabled: true,
+                    trailing_distance_percent: 25.0,
+                    trailing_activation_threshold: 20.0,
+                    trailing_highest_price: Some(price_data.price_usd),
+                    trailing_current_sl: Some(sl),
+                    tp_percent: Some(tp),
+                    tp_amount_percent: Some(50.0), // Default sell 50%
+                    tp_triggered: false,
+                    active: true,
+                    created_at: chrono::Utc::now().timestamp(),
+                    updated_at: chrono::Utc::now().timestamp(),
+                };
+
+                state_manager.upsert_position(&pos)?;
+
+                self.send_message(&format!(
+                    "<b>✅ ASSET TRACKED SUCCESSFULLY</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <b>⬢ Symbol:</b> <code>{}</code>\n\
+                    <b>⬢ Entry:</b> <code>${:.8}</code>\n\
+                    <b>⬢ SL / TP:</b> <code>{}% / {}%</code>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <i>🔄 Use /reboot to activate monitoring.</i>",
+                    symbol, price_data.price_usd, sl, tp
+                )).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ <b>Tracking Error:</b> {}", e)).await?;
             }
         }
 

@@ -28,6 +28,9 @@ pub struct PositionState {
     pub trailing_activation_threshold: f64,
     pub trailing_highest_price: Option<f64>,
     pub trailing_current_sl: Option<f64>,
+    pub tp_percent: Option<f64>, // Take Profit Target %
+    pub tp_amount_percent: Option<f64>, // % of stack to sell
+    pub tp_triggered: bool,
     pub active: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -40,7 +43,7 @@ pub struct TradeRecord {
     pub signature: String,
     pub token_mint: String,
     pub symbol: String,
-    pub trade_type: String, // "BUY" | "SELL" | "EMERGENCY_SELL"
+    pub trade_type: String, // "BUY" | "SELL" | "EMERGENCY_SELL" | "TAKE_PROFIT"
     pub amount_sol: f64,
     pub tokens_amount: f64,
     pub price: f64,
@@ -78,6 +81,7 @@ impl StateManager {
         };
         
         manager.initialize_schema()?;
+        manager.run_migrations()?;
         
         println!("✅ State Manager inicializado: {}", db_path);
         
@@ -103,6 +107,9 @@ impl StateManager {
                 trailing_activation_threshold REAL NOT NULL,
                 trailing_highest_price REAL,
                 trailing_current_sl REAL,
+                tp_percent REAL,
+                tp_amount_percent REAL,
+                tp_triggered INTEGER DEFAULT 0,
                 active INTEGER NOT NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -153,6 +160,19 @@ impl StateManager {
         
         Ok(())
     }
+
+    /// Ejecuta migraciones de esquema para actualizar DBs existentes
+    fn run_migrations(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Migration: Add TP columns if they don't exist
+        // Note: SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we catch errors
+        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_percent REAL", []);
+        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_amount_percent REAL", []);
+        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_triggered INTEGER DEFAULT 0", []);
+
+        Ok(())
+    }
     
     // ========================================================================
     // POSITION OPERATIONS
@@ -169,13 +189,17 @@ impl StateManager {
                 token_mint, symbol, entry_price, amount_sol, current_price,
                 stop_loss_percent, trailing_enabled, trailing_distance_percent,
                 trailing_activation_threshold, trailing_highest_price,
-                trailing_current_sl, active, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                active, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
             ON CONFLICT(token_mint) DO UPDATE SET
                 current_price = excluded.current_price,
                 stop_loss_percent = excluded.stop_loss_percent,
                 trailing_highest_price = excluded.trailing_highest_price,
                 trailing_current_sl = excluded.trailing_current_sl,
+                tp_percent = excluded.tp_percent,
+                tp_amount_percent = excluded.tp_amount_percent,
+                tp_triggered = excluded.tp_triggered,
                 active = excluded.active,
                 updated_at = excluded.updated_at",
             params![
@@ -190,6 +214,9 @@ impl StateManager {
                 position.trailing_activation_threshold,
                 position.trailing_highest_price,
                 position.trailing_current_sl,
+                position.tp_percent,
+                position.tp_amount_percent,
+                position.tp_triggered as i32,
                 position.active as i32,
                 position.created_at,
                 now,
@@ -207,7 +234,8 @@ impl StateManager {
             "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
                     stop_loss_percent, trailing_enabled, trailing_distance_percent,
                     trailing_activation_threshold, trailing_highest_price,
-                    trailing_current_sl, active, created_at, updated_at
+                    trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                    active, created_at, updated_at
              FROM positions
              WHERE active = 1
              ORDER BY created_at DESC"
@@ -227,9 +255,12 @@ impl StateManager {
                 trailing_activation_threshold: row.get(9)?,
                 trailing_highest_price: row.get(10)?,
                 trailing_current_sl: row.get(11)?,
-                active: row.get::<_, i32>(12)? != 0,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                tp_percent: row.get(12).ok(),
+                tp_amount_percent: row.get(13).ok(),
+                tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                active: row.get::<_, i32>(15)? != 0,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -245,7 +276,8 @@ impl StateManager {
             "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
                     stop_loss_percent, trailing_enabled, trailing_distance_percent,
                     trailing_activation_threshold, trailing_highest_price,
-                    trailing_current_sl, active, created_at, updated_at
+                    trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                    active, created_at, updated_at
              FROM positions
              WHERE token_mint = ?1"
         )?;
@@ -266,13 +298,40 @@ impl StateManager {
                 trailing_activation_threshold: row.get(9)?,
                 trailing_highest_price: row.get(10)?,
                 trailing_current_sl: row.get(11)?,
-                active: row.get::<_, i32>(12)? != 0,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                tp_percent: row.get(12).ok(),
+                tp_amount_percent: row.get(13).ok(),
+                tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                active: row.get::<_, i32>(15)? != 0,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             }))
         } else {
             Ok(None)
         }
+    }
+    
+    /// Marca el TP como disparado
+    pub fn mark_tp_triggered(&self, token_mint: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        
+        conn.execute(
+            "UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
+            params![Utc::now().timestamp(), token_mint],
+        )?;
+        
+        Ok(())
+    }
+
+    /// Actualiza el monto invertido (útil para TP parciales)
+    pub fn update_amount_invested(&self, token_mint: &str, new_amount_sol: f64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        
+        conn.execute(
+            "UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3",
+            params![new_amount_sol, Utc::now().timestamp(), token_mint],
+        )?;
+        
+        Ok(())
     }
     
     /// Marca una posición como inactiva (cerrada)

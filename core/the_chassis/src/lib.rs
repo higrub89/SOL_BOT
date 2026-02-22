@@ -35,6 +35,7 @@ pub mod validation;
 pub mod price_feed;
 pub mod amm_math;
 pub mod ws_feed;
+pub mod jito;
 
 // 🏎️ Módulos del Framework Institucional (v2.0)
 pub mod engine;
@@ -434,18 +435,41 @@ async fn run_monitor_mode() -> Result<()> {
     println!("📡 PRICE FEED SETUP:");
     let feed_config = PriceFeedConfig::from_env();
     
-    // Construir la lista de tokens a monitorear
-    let monitored_tokens: Vec<MonitoredToken> = app_config.targets.iter()
-        .filter(|t| t.active)
-        .map(|t| MonitoredToken {
-            mint: t.mint.clone(),
-            symbol: t.symbol.clone(),
-            pool_account: t.pool_account.clone(),
-            coin_vault: t.coin_vault.clone(),
-            pc_vault: t.pc_vault.clone(),
-            token_decimals: t.token_decimals,
-        })
-        .collect();
+    // ── UNIFIED MONITORING LIST (Targets + DB) ──
+    let mut monitored_tokens: Vec<MonitoredToken> = Vec::new();
+
+    // 1. Add from targets.json (Legacy/Static)
+    for t in &app_config.targets {
+        if t.active {
+            monitored_tokens.push(MonitoredToken {
+                mint: t.mint.clone(),
+                symbol: t.symbol.clone(),
+                pool_account: t.pool_account.clone(),
+                coin_vault: t.coin_vault.clone(),
+                pc_vault: t.pc_vault.clone(),
+                token_decimals: t.token_decimals,
+            });
+        }
+    }
+
+    // 2. Add from StateManager (Dynamic/DB)
+    if let Ok(db_positions) = state_manager.get_active_positions() {
+        for pos in db_positions {
+            // Avoid duplicates if already in targets.json
+            if !monitored_tokens.iter().any(|t| t.mint == pos.token_mint) {
+                monitored_tokens.push(MonitoredToken {
+                    mint: pos.token_mint.clone(),
+                    symbol: pos.symbol.clone(),
+                    pool_account: None, // Will fallback to DexScreener/WebSocket
+                    coin_vault: None,
+                    pc_vault: None,
+                    token_decimals: 6, // Default
+                });
+            }
+        }
+    }
+
+    println!("   • Total Monitored: {}", monitored_tokens.len());
     
     if feed_config.geyser_enabled {
         println!("   ⚡ Modo:       HFT (Geyser gRPC + DexScreener fallback)");
@@ -469,13 +493,46 @@ async fn run_monitor_mode() -> Result<()> {
     let monitor_clone = Arc::clone(&emergency_monitor);
     let telegram_clone = Arc::clone(&telegram);
     let executor_clone = Arc::clone(&executor);
-    let active_targets = app_config.targets.clone();
+
+    // ── UNIFIED TARGET MAP (Targets + DB) ──
+    let mut target_map: std::collections::HashMap<String, config::TargetConfig> = std::collections::HashMap::new();
+    
+    // 1. Static Targets (targets.json)
+    for t in &app_config.targets {
+        if t.active {
+            target_map.insert(t.mint.clone(), t.clone());
+        }
+    }
+
+    // 2. Dynamic Positions (StateManager SQLite)
+    if let Ok(db_positions) = state_manager.get_active_positions() {
+        for pos in db_positions {
+            if !target_map.contains_key(&pos.token_mint) {
+                target_map.insert(pos.token_mint.clone(), config::TargetConfig {
+                    symbol: pos.symbol.clone(),
+                    mint: pos.token_mint.clone(),
+                    entry_price: pos.entry_price,
+                    amount_sol: pos.amount_sol,
+                    stop_loss_percent: pos.stop_loss_percent,
+                    panic_sell_price: 0.0,
+                    active: true,
+                    pool_account: "".to_string(),
+                    coin_vault: "".to_string(),
+                    pc_vault: "".to_string(),
+                    token_decimals: 6,
+                    trailing_enabled: pos.trailing_enabled,
+                    trailing_distance_percent: pos.trailing_distance_percent,
+                    trailing_activation_threshold: pos.trailing_activation_threshold,
+                });
+            }
+        }
+    }
 
     // Setup de Trailing SL y Liquidez para cada target
     let mut trailing_monitors: std::collections::HashMap<String, TrailingStopLoss> = std::collections::HashMap::new();
     let mut liquidity_monitors: std::collections::HashMap<String, LiquidityMonitor> = std::collections::HashMap::new();
 
-    for target in &active_targets {
+    for target in target_map.values() {
         if target.active {
             if target.trailing_enabled {
                 let mut tsl = TrailingStopLoss::new(
@@ -515,12 +572,6 @@ async fn run_monitor_mode() -> Result<()> {
             liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
         }
     }
-
-    // Mapa rápido de mint → target para lookup O(1)
-    let target_map: std::collections::HashMap<String, config::TargetConfig> = active_targets.iter()
-        .filter(|t| t.active)
-        .map(|t| (t.mint.clone(), t.clone()))
-        .collect();
 
     // ── Hibernation checker (cada 30 segundos en background) ──
     let hibernate_wallet = Arc::clone(&wallet_monitor);
@@ -610,16 +661,97 @@ async fn run_monitor_mode() -> Result<()> {
                 String::new()
             };
 
+            // 💰 TAKE PROFIT LOGIC 💰
+            // Hydrate TP settings from DB if not in target config
+            // (Assumed target.tp_percent doesn't exist yet, fetch from pos)
+            let tp_target_percent = pos.tp_percent.unwrap_or(100.0); // Default 100% gain
+            let tp_amount_percent = pos.tp_amount_percent.unwrap_or(50.0); // Sell half
+            let tp_triggered = pos.tp_triggered;
+            
+            let current_gain_percent = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
+            let tp_price = pos.entry_price * (1.0 + tp_target_percent / 100.0);
+            
+            let tp_status = if tp_triggered {
+                "✅ TP HIT".to_string()
+            } else {
+                format!("TP: {:.1}% (${:.6})", tp_target_percent, tp_price)
+            };
+
             println!("┌────────────────────────────────────────────────────────┐");
             println!("│ {} {} Status {:>30} │", status_emoji, target.symbol, source_tag);
             println!("├────────────────────────────────────────────────────────┤");
             println!("│   Price:    ${:.8}                         │", pos.current_price);
-            println!("│   Drawdown: {:.2}%                                  │", dd);
+            println!("│   PnL:      {:.2}%                                  │", current_gain_percent);
             println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", effective_sl_percent, dist_to_sl);
             if !tsl_info.is_empty() {
                 println!("│   {:<53}│", tsl_info.trim());
             }
+            println!("│   {:<53}│", tp_status);
             println!("└────────────────────────────────────────────────────────┘");
+
+            // ── Lógica de Take Profit ──
+            if !tp_triggered && current_gain_percent >= tp_target_percent {
+                 println!("\n╔════════════════════════════════════════════════════════════╗");
+                 println!("║                  💰 TAKE PROFIT TRIGGERED! 💰             ║");
+                 println!("║         Gain: {:.2}% >= Target {:.1}%                     ║", current_gain_percent, tp_target_percent);
+                 println!("╚════════════════════════════════════════════════════════════╝\n");
+                 
+                 if telegram_commands::CommandHandler::is_hibernating() {
+                     // Log warning
+                 } else if app_config.global_settings.auto_execute {
+                     println!("⚡ AUTO-EXECUTING TAKE PROFIT ({}%)...", tp_amount_percent);
+                     // Ejecutar venta parcial
+                     let sell_amount_pct = tp_amount_percent as u8;
+                     
+                     let sell_result = executor_clone.execute_emergency_sell(
+                        &target.mint,
+                        wallet_keypair.as_ref(),
+                        sell_amount_pct,
+                    ).await;
+                    
+                    match sell_result {
+                        Ok(swap_result) => {
+                             println!("✅ TP Parcial completado: {}", swap_result.signature);
+                             let _ = telegram_clone.send_message(
+                                &format!("💰 <b>TAKE PROFIT HIT</b> for {}!\n\
+                                          <b>⬡ Gain:</b> {:.2}%\n\
+                                          <b>⬡ Sold:</b> {}%\n\
+                                          <b>⬡ Tx:</b> {}", 
+                                          target.symbol, current_gain_percent, sell_amount_pct, swap_result.signature),
+                                true
+                            ).await;
+                            
+                            // Marcar TP como ejecutado en DB
+                            let _ = state_manager.mark_tp_triggered(&target.mint);
+                            
+                            // Actualizar amount restante en DB (aprox)
+                            let remaining_sol = pos.amount_sol * (1.0 - (tp_amount_percent / 100.0));
+                            let _ = state_manager.update_amount_invested(&target.mint, remaining_sol);
+                            
+                            // Registrar Trade
+                             let trade_record = TradeRecord {
+                                id: None,
+                                signature: swap_result.signature.clone(),
+                                token_mint: target.mint.clone(),
+                                symbol: target.symbol.clone(),
+                                trade_type: "TAKE_PROFIT".to_string(),
+                                amount_sol: swap_result.output_amount,
+                                tokens_amount: 0.0, // Should calculate based on price
+                                price: price_update.price_usd,
+                                pnl_sol: Some(swap_result.output_amount - (pos.amount_sol * (tp_amount_percent/100.0))), // PnL of the sold portion
+                                pnl_percent: Some(current_gain_percent),
+                                route: "Jupiter".to_string(),
+                                price_impact_pct: 0.0,
+                                timestamp: Utc::now().timestamp(),
+                            };
+                            let _ = state_manager.record_trade(&trade_record);
+                        },
+                        Err(e) => eprintln!("❌ Error executing TP: {}", e),
+                    }
+                 }
+            } else {
+                // If not triggered, just log status
+            }
 
             // ── Lógica de Emergencia (Stop-Loss + Auto-Sell + TSL) ──
             if dd <= effective_sl_percent {

@@ -25,17 +25,33 @@ jobs:
   verify:
     name: ✅ Verificar Código Rust
     runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code }}
 
     steps:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
+      - name: 🔍 Detectar cambios (Code vs Config)
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'core/**'
+              - 'intelligence/**'
+              - 'Cargo.toml'
+              - 'Dockerfile'
+              - '.github/workflows/**'
+
       - name: 🦀 Instalar Rust toolchain
+        if: steps.filter.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
       - name: 📦 Cache de dependencias Cargo
+        if: steps.filter.outputs.code == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -47,16 +63,19 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: 🔧 Instalar dependencias del sistema
+        if: steps.filter.outputs.code == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libprotobuf-dev libssl-dev pkg-config
 
       - name: 🔍 Verificar compilación (cargo check)
+        if: steps.filter.outputs.code == 'true'
         run: cargo check --workspace --release
 
       - name: 📋 Lints (cargo clippy)
+        if: steps.filter.outputs.code == 'true'
         run: cargo clippy --workspace -- -D warnings
-        continue-on-error: true  # Warnings no bloquean el deploy
+        continue-on-error: true
 
   # ──────────────────────────────────────────────
   # JOB 2: Deploy al Servidor GCP
@@ -70,6 +89,21 @@ jobs:
     steps:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
+
+      - name: 🔍 Detectar cambios (Code vs Config)
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'core/**'
+              - 'intelligence/**'
+              - 'Cargo.toml'
+              - 'Dockerfile'
+              - '.github/workflows/**'
+            config:
+              - 'targets.json'
+              - 'docker-compose.yml'
 
       - name: 🔐 Configurar clave SSH
         run: |
@@ -107,14 +141,18 @@ jobs:
             echo "📅 Fecha: $(date '+%Y-%m-%d %H:%M:%S UTC')"
             echo "📝 Commit: ${{ github.sha }}"
             echo "👤 Autor:  ${{ github.actor }}"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-            # Construir y reiniciar con Docker Compose
-            sudo docker compose build bot
-
-            echo "🔄 Reiniciando contenedor..."
-            sudo docker compose down
-            sudo docker compose up -d
+            
+            if [ "${{ steps.filter.outputs.code }}" == "true" ]; then
+              echo "🛠️  CAMBIO EN CÓDIGO DETECTADO. Recompilando..."
+              sudo docker compose build bot
+              echo "🔄 Reiniciando contenedor..."
+              sudo docker compose down
+              sudo docker compose up -d
+            else
+              echo "📂 SOLO CAMBIO EN CONFIGURACIÓN. Reinicio rápido (Zero-Build)."
+              sudo docker compose up -d # Asegura que esté corriendo
+              sudo docker compose restart bot
+            fi
 
             echo "⏳ Esperando que el bot arranque (10s)..."
             sleep 10
