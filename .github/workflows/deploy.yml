@@ -6,7 +6,7 @@ on:
     paths:
       - 'core/**'
       - 'intelligence/**'
-      - 'targets.json'
+      - 'settings.json'
       - 'docker-compose.yml'
       - 'Dockerfile'
       - '.github/workflows/deploy.yml'
@@ -48,7 +48,7 @@ jobs:
               - 'Dockerfile'
               - '.github/workflows/**'
             config:
-              - 'targets.json'
+              - 'settings.json'
               - 'docker-compose.yml'
 
   # ──────────────────────────────────────────────

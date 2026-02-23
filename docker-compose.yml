@@ -16,8 +16,8 @@ services:
     volumes:
       # Persistencia de logs
       - ./logs:/app/logs
-      # Config dinámica — edita targets.json y reinicia para aplicar cambios
-      - ./targets.json:/app/targets.json
+      # Configuración de entorno dinámico
+      - ./settings.json:/app/settings.json
       # Base de datos de estado persistente (posiciones, historial, PnL)
       - ./trading_state.db:/app/trading_state.db
       # Cache de pools de Raydium
