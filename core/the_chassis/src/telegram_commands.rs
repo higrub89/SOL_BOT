@@ -23,6 +23,12 @@ pub struct CommandHandler {
     start_time: Instant,
 }
 
+impl Default for CommandHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandHandler {
     pub fn new() -> Self {
         let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
@@ -121,23 +127,22 @@ impl CommandHandler {
             "/start" => {
                 self.send_message("<b>⚜️ THE CHASSIS v2.0.0 ⚜️</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-                    <i>Select an operation command:</i>\n\n\
-                    ⬡ <b>SYSTEM COMMANDS</b>\n\
-                    /ping - Diagnostics & Uptime\n\
-                    /balance - Vault Balance\n\n\
-                    ⬡ <b>TRADING COMMANDS</b>\n\
-                    <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code> - Execute Snipe\n\
-                    <code>/panic &lt;MINT&gt;</code> - Emergency Liquidation\n\n\
-                    ⬡ <b>MONITORING</b>\n\
-                    /positions - Live Ledger\n\
-                    /targets - Configured Assets\n\
-                    /history - Recent Execution Log\n\
-                    /stats - Performance Analytics\n\n\
-                    ⬡ <b>CONTROL</b>\n\
-                    /hibernate - Halt Execution\n\
-                    /wake - Resume Operations\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <i>Aegis Protocol Active — 24/7 Monitoring</i>").await?;
+                    <i>Aegis Protocol: Institutional Execution</i>\n\n\
+                    <b>⬢ SYSTEM CONTROL</b>\n\
+                    ⬡ /ping - Health & Latency\n\
+                    ⬡ /balance - Vault Status\n\n\
+                    <b>⬢ TRADING</b>\n\
+                    ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
+                    ⬡ <code>/panic &lt;MINT&gt;</code>\n\n\
+                    <b>⬢ MONITORING</b>\n\
+                    ⬡ /positions - Live Ledger\n\
+                    ⬡ /targets - Traceability\n\
+                    ⬡ /history - Execution Log\n\
+                    ⬡ /stats - Performance Analytics\n\n\
+                    <b>⬢ ENGINE</b>\n\
+                    ⬡ /hibernate - Halt Ops\n\
+                    ⬡ /wake - Active Mode\n\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
             }
 
             "/ping" => {
@@ -187,21 +192,27 @@ impl CommandHandler {
 
             "/help" => {
                 self.send_message("<b>📚 PROTOCOL MANUAL</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    ⬡ /ping - System Health & RPC Latency\n\
-                    ⬡ /positions - Live Active Positions (DB)\n\
-                    ⬡ /history - Ledger of Last 10 Trades\n\
-                    ⬡ /stats - Comprehensive PnL Analytics\n\
-                    ⬡ /balance - SOL Balance in Hot Wallet\n\
-                    ⬡ /targets - Tracked Asset Configuration\n\
-                    ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code> - Precision Entry\n\
-                    ⬡ <code>/track &lt;MINT&gt; &lt;SYMBOL&gt; &lt;SOL&gt; &lt;SL&gt;</code> - Manual Indexing\n\
-                    ⬡ <code>/untrack &lt;MINT&gt;</code> - Remove from tracking\n\
-                    ⬡ <code>/update &lt;MINT&gt; sl=-X tp=Y</code> - Hot reload params\n\
-                    ⬡ <code>/panic &lt;MINT&gt;</code> - Sell 100% Immediately\n\
-                    ⬡ /hibernate - Suspend ALL Trading\n\
-                    ⬡ /wake - Re-enable Trading\n\
-                    ⬡ /reboot - Hot Reload (Pick up new tracks)\n\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
+                    <b>⬢ SYSTEM</b>\n\
+                    ⬡ /ping - Health Check\n\
+                    ⬡ /balance - Vault Status\n\
+                    ⬡ /reboot - Hot Reload\n\n\
+                    <b>⬢ TRADING</b>\n\
+                    ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
+                    ⬡ <code>/panic &lt;MINT&gt;</code>\n\
+                    ⬡ /panic_all - Liquidate All\n\n\
+                    <b>⬢ MONITORING</b>\n\
+                    ⬡ /positions - Live Ledger\n\
+                    ⬡ /history - Execution Log\n\
+                    ⬡ /stats - Analytics\n\
+                    ⬡ /targets - Traceability\n\n\
+                    <b>⬢ MANAGEMENT</b>\n\
+                    ⬡ <code>/track &lt;MINT&gt; &lt;SYM&gt; &lt;SOL&gt; &lt;SL&gt;</code>\n\
+                    ⬡ <code>/update &lt;MINT&gt; sl=-X tp=Y</code>\n\
+                    ⬡ <code>/untrack &lt;MINT&gt;</code>\n\n\
+                    <b>⬢ ENGINE</b>\n\
+                    ⬡ /hibernate - Halt Ops\n\
+                    ⬡ /wake - Active Mode\n\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
             }
 
@@ -232,6 +243,10 @@ impl CommandHandler {
 
             cmd if cmd.starts_with("/panic ") => {
                 self.cmd_panic(cmd, Arc::clone(&executor)).await?;
+            }
+
+            "/panic_all" => {
+                self.cmd_panic_all(Arc::clone(&executor), Arc::clone(&state_manager)).await?;
             }
 
             _ => {
@@ -284,12 +299,12 @@ impl CommandHandler {
 
         let response = format!(
             "<b>🏓 SYSTEM DIAGNOSTICS</b>\n\
-            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-            <b>⬢ Uptime:</b> <code>{}h {}m {}s</code>\n\
-            {}\n\
-            {}\n\
-            <b>⬢ Status:</b> {}\n\
-            <b>⬢ Engine:</b> <code>v2.0.0-alpha</code>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
+            <b>⋄ Uptime:</b> <code>{}h {}m {}s</code>\n\
+            <b>⋄ {}</b>\n\
+            <b>⋄ {}</b>\n\
+            <b>⋄ Health:</b> {}\n\
+            <b>⋄ Engine:</b> <code>v2.0.0-institutional</code>\n\n\
             <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
             hours, minutes, secs,
             rpc_status,
@@ -375,7 +390,7 @@ impl CommandHandler {
                     updated_at: chrono::Utc::now().timestamp(),
                 };
 
-                let _ = state_manager.upsert_position(&pos);
+                let _ = state_manager.upsert_position(pos).await;
                 self.send_message("<b>✅ MONITORING ARMED</b>\n<b>TP:</b> +100% (Sell 50%)\nUse /reboot to activate tracking.").await?;
             }
             Err(e) => {
@@ -429,7 +444,7 @@ impl CommandHandler {
                     updated_at: chrono::Utc::now().timestamp(),
                 };
 
-                state_manager.upsert_position(&pos)?;
+                state_manager.upsert_position(pos).await?;
 
                 self.send_message(&format!(
                     "<b>✅ ASSET TRACKED SUCCESSFULLY</b>\n\
@@ -459,7 +474,7 @@ impl CommandHandler {
         }
 
         let mint = parts[1];
-        match state_manager.close_position(mint) {
+        match state_manager.close_position(mint).await {
             Ok(_) => {
                 self.send_message(&format!("🔴 <b>ASSET UNTRACKED</b>\n<code>{}</code> will no longer trigger trading events.", mint)).await?;
             }
@@ -481,7 +496,7 @@ impl CommandHandler {
         let mint = parts[1];
         
         // Fetch current position and mutate in place
-        match state_manager.get_position(mint) {
+        match state_manager.get_position(mint).await {
             Ok(Some(mut pos)) => {
                 let mut updated_sl = false;
                 let mut updated_tp = false;
@@ -500,7 +515,7 @@ impl CommandHandler {
                     }
                 }
 
-                if let Err(e) = state_manager.upsert_position(&pos) {
+                if let Err(e) = state_manager.upsert_position(pos.clone()).await {
                     self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
                     return Ok(());
                 }
@@ -555,6 +570,59 @@ impl CommandHandler {
         Ok(())
     }
 
+    /// Comando /panic_all - Liquida TODAS las posiciones activas en un bundle
+    async fn cmd_panic_all(&self, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>) -> Result<()> {
+        self.send_message("<b>🚨 GLOBAL LIQUIDATION INITIATED</b>\nGathering all active positions for Jito Bundling...").await?;
+
+        let active_positions = state_manager.get_active_positions().await?;
+        if active_positions.is_empty() {
+            self.send_message("<b>⚠️ Aborting:</b> No active positions found to liquidate.").await?;
+            return Ok(());
+        }
+
+        let mints: Vec<String> = active_positions.iter().map(|p| p.token_mint.clone()).collect();
+        let symbols: Vec<String> = active_positions.iter().map(|p| p.symbol.clone()).collect();
+
+        self.send_message(&format!("<b>📦 Bundling Targets:</b> <code>{}</code>\n<i>Optimizing routes...</i>", symbols.join(", "))).await?;
+
+        let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
+            Ok(kp) => Some(kp),
+            Err(e) => {
+                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e)).await?;
+                None
+            }
+        };
+
+        if let Some(kp) = kp_opt {
+            match executor.execute_multi_sell(mints.clone(), &kp, 100).await {
+                Ok(results) => {
+                    let mut total_sol = 0.0;
+                    for res in &results { total_sol += res.output_amount; }
+                    
+                    self.send_message(&format!(
+                        "<b>✅ GLOBAL LIQUIDATION COMPLETE</b>\n\
+                        <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                        <b>⬢ Items:</b> <code>{}</code>\n\
+                        <b>⬢ Total Yield:</b> <code>{:.4} SOL</code>\n\
+                        <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                        <i>All tracked positions have been closed.</i>",
+                        results.len(), total_sol
+                    )).await?;
+
+                    // Marcar como inactivas en DB
+                    for mint in mints {
+                        let _ = state_manager.close_position(&mint).await;
+                    }
+                }
+                Err(e) => {
+                    self.send_message(&format!("❌ <b>CRITICAL BUNDLE FAILURE:</b> {}", e)).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Comando /status - Muestra el estado de todos los tokens
     async fn cmd_status(&self, emergency_monitor: Arc<Mutex<EmergencyMonitor>>) -> Result<()> {
         let positions = {
@@ -563,11 +631,11 @@ impl CommandHandler {
         };
 
         if positions.is_empty() {
-            self.send_message("<b>⚠️ NO ACTIVE POSITIONS (LEGACY)</b>").await?;
+            self.send_message("<b>🛡️ STATUS: NO ACTIVE ALLOCATIONS</b>").await?;
             return Ok(());
         }
 
-        let mut response = "<b>📊 LIVE TRACKING (LEGACY)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n".to_string();
+        let mut response = "<b>📡 LIVE TELEMETRY</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
         for pos in positions {
             let dd = pos.drawdown_percent();
@@ -575,12 +643,12 @@ impl CommandHandler {
             
             response.push_str(&format!(
                 "{} <b>{}</b>\n\
-                <b>⬡ Price:</b> <code>${:.8}</code>\n\
-                <b>⬡ Entry:</b> <code>${:.8}</code>\n\
-                <b>⬡ Drawdown:</b> <b>{}{:.2}%</b>\n\
-                <b>⬡ Value:</b> <code>{:.4} SOL</code>\n\n",
+                <b>⋄ Price:</b>   <code>${:.8}</code>\n\
+                <b>⋄ Entry:</b>   <code>${:.8}</code>\n\
+                <b>⋄ Yield:</b>   <b>{}{:.2}%</b>\n\
+                <b>⋄ Value:</b>   <code>{:.3} SOL</code>\n\n",
                 status_emoji,
-                pos.token_mint,
+                &pos.token_mint[..8],
                 pos.current_price,
                 pos.entry_price,
                 if dd > 0.0 { "+" } else { "" },
@@ -589,6 +657,7 @@ impl CommandHandler {
             ));
         }
 
+        response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
         self.send_message(&response).await?;
         Ok(())
     }
@@ -598,9 +667,9 @@ impl CommandHandler {
         match wallet_monitor.get_sol_balance() {
             Ok(balance) => {
                 let message = format!(
-                    "<b>🏦 VAULT BALANCE</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <b>⬡ SOL:</b> <code>{:.4} SOL</code>\n\
+                    "<b>🏦 VAULT STATUS</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
+                    <b>⋄ Allocation:</b> <code>{:.4} SOL</code>\n\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
                     balance
                 );
@@ -617,18 +686,17 @@ impl CommandHandler {
     async fn cmd_targets(&self, config: Arc<AppConfig>, state_manager: Arc<StateManager>) -> Result<()> {
         let mut response = "<b>🎯 SECURED TARGETS (DB)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
-        if let Ok(db_positions) = state_manager.get_active_positions() {
+        if let Ok(db_positions) = state_manager.get_active_positions().await {
             if db_positions.is_empty() {
-                response.push_str("<i>No active allocations.</i>\n\n");
+                response.push_str("<i>No assets indexed.</i>\n\n");
             } else {
                 for target in db_positions {
                     let status = if target.active { "✅ ACTIVE" } else { "⏸ INACTIVE" };
                     response.push_str(&format!(
                         "<b>⬢ {}</b> <code>({})</code>\n\
-                        <b>⬡ Stop-Loss:</b> <code>{:.1}%</code>\n\
-                        <b>⬡ Take-Profit:</b> <code>{:.1}%</code>\n\
-                        <b>⬡ Allocation:</b> <code>{:.4} SOL</code>\n\
-                        <b>⬡ Status:</b> {}\n\n",
+                        <b>⋄ Limits:</b> <code>{:.0}% / {:.0}%</code>\n\
+                        <b>⋄ Entry:</b>  <code>{:.3} SOL</code>\n\
+                        <b>⋄ Status:</b> {}\n\n",
                         target.symbol,
                         &target.token_mint[..8],
                         target.stop_loss_percent,
@@ -641,10 +709,10 @@ impl CommandHandler {
         }
 
         response.push_str(&format!(
-            "<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-            <b>⚙️ GLOBAL PREFERENCES</b>\n\
-            <b>⬡ Auto-Execute:</b> {}\n\
-            <b>⬡ Scan Interval:</b> <code>{}s</code>",
+            "<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
+            <b>⚙️ PREFERENCES</b>\n\
+            <b>⋄ Execution:</b> {}\n\
+            <b>⋄ Heartbeat:</b> <code>{}s</code>",
             if config.global_settings.auto_execute { "🔴 ARMED" } else { "🟡 DRY-RUN" },
             config.global_settings.monitor_interval_sec
         ));
@@ -698,14 +766,14 @@ impl CommandHandler {
 
     /// Comando /positions - Muestra posiciones activas desde la DB
     async fn cmd_positions(&self, state_manager: Arc<StateManager>) -> Result<()> {
-        match state_manager.get_active_positions() {
+        match state_manager.get_active_positions().await {
             Ok(positions) => {
                 if positions.is_empty() {
                     self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\nNo active allocations detected.").await?;
                     return Ok(());
                 }
 
-                let mut response = "<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n".to_string();
+                let mut response = "<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
                 for pos in positions {
                     let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
@@ -716,27 +784,24 @@ impl CommandHandler {
 
                     response.push_str(&format!(
                         "{} <b>{}</b>\n\
-                        <b>⬡ Entry:</b> <code>${:.8}</code> <i>({:.4} SOL)</i>\n\
-                        <b>⬡ Current:</b> <code>${:.8}</code>\n\
-                        <b>⬡ Yield:</b> <code>{:.2} Tokens</code>\n\
-                        <b>⬡ Drawdown:</b> <b>{}{:.2}%</b>\n\
-                        <b>⬡ PnL:</b> <b>{}{:.4} SOL</b>\n\
-                        <b>⬡ SL:</b> <code>{:.1}%{}</code>\n\n",
+                        <b>⋄ Entry:</b>   <code>${:.8}</code>\n\
+                        <b>⋄ Price:</b>   <code>${:.8}</code>\n\
+                        <b>⋄ PnL:</b>     <b>{}{:.2}%</b> <i>({}{:.3} SOL)</i>\n\
+                        <b>⋄ SL / TP:</b> <code>{:.0}% / {:.0}%</code>\n\n",
                         status_emoji,
                         pos.symbol,
                         pos.entry_price,
-                        pos.amount_sol,
                         pos.current_price,
-                        tokens_held,
                         if dd > 0.0 { "+" } else { "" },
                         dd,
                         if pnl > 0.0 { "+" } else { "" },
                         pnl,
                         pos.stop_loss_percent,
-                        if pos.trailing_enabled { " <i>(Trailing)</i>" } else { "" }
+                        pos.tp_percent.unwrap_or(100.0)
                     ));
                 }
 
+                response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
                 self.send_message(&response).await?;
             }
             Err(e) => {
@@ -748,14 +813,14 @@ impl CommandHandler {
 
     /// Comando /history - Muestra historial de trades (últimos 10)
     async fn cmd_history(&self, state_manager: Arc<StateManager>) -> Result<()> {
-        match state_manager.get_trade_history(10) {
+        match state_manager.get_trade_history(10).await {
             Ok(trades) => {
                 if trades.is_empty() {
                     self.send_message("<b>📜 TRADE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\nNo operations recorded.").await?;
                     return Ok(());
                 }
 
-                let mut response = "<b>📜 RECENT EXECUTIONS (T-10)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+                let mut response = "<b>📜 RECENT EXECUTIONS</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
                 for trade in trades {
                     let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
@@ -763,28 +828,24 @@ impl CommandHandler {
                     
                     let pnl_emoji = if pnl_sol > 0.0 { "🟢" } else { "🔴" };
                     let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
-                        .map(|dt| dt.format("%m/%d %H:%M").to_string())
+                        .map(|dt| dt.format("%H:%M %m/%d").to_string())
                         .unwrap_or_else(|| "N/A".to_string());
 
                     response.push_str(&format!(
                         "{} <b>{}</b> <i>({})</i>\n\
-                        <b>⬡ Type:</b> {}\n\
-                        <b>⬡ Price:</b> <code>${:.8}</code>\n\
-                        <b>⬡ PnL:</b> <b>{}{:.4} SOL</b> <i>({}{:.2}%)</i>\n\
-                        <b>⬡ Tx:</b> <code>{}</code>\n\n",
+                        <b>⋄ Type:</b>   {}\n\
+                        <b>⋄ PnL:</b>    <b>{}{:.3} SOL</b> <i>({:+.1}%)</i>\n\n",
                         pnl_emoji,
                         trade.symbol,
                         timestamp,
                         trade.trade_type,
-                        trade.price,
                         if pnl_sol > 0.0 { "+" } else { "" },
                         pnl_sol,
-                        if pnl_percent > 0.0 { "+" } else { "" },
                         pnl_percent,
-                        &trade.signature[..8]
                     ));
                 }
 
+                response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
                 self.send_message(&response).await?;
             }
             Err(e) => {
@@ -796,7 +857,7 @@ impl CommandHandler {
 
     /// Comando /stats - Muestra estadísticas completas
     async fn cmd_stats(&self, state_manager: Arc<StateManager>) -> Result<()> {
-        match state_manager.get_stats() {
+        match state_manager.get_stats().await {
             Ok(stats) => {
                 let avg_pnl = if stats.total_trades > 0 {
                     stats.total_pnl_sol / stats.total_trades as f64
@@ -807,14 +868,13 @@ impl CommandHandler {
                 let status_emoji = if stats.total_pnl_sol > 0.0 { "🟢" } else if stats.total_pnl_sol == 0.0 { "🟡" } else { "🔴" };
 
                 let response = format!(
-                    "<b>📈 PERFORMANCE ANALYTICS</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    {} <b>Total PnL:</b> <b>{}{:.4} SOL</b>\n\
-                    <b>⬡ Executions:</b> <code>{}</code>\n\
-                    <b>⬡ Active Positions:</b> <code>{}</code>\n\
-                    <b>⬡ Avg Yield/Trade:</b> <code>{}{:.4} SOL</code>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <i>Source: Persistent Ledger</i>",
+                    "<b>📈 PERFORMANCE METRICS</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
+                    {} <b>Net Yield:</b> <b>{}{:.4} SOL</b>\n\
+                    <b>⋄ Scalps:</b>    <code>{}</code>\n\
+                    <b>⋄ Active:</b>    <code>{}</code>\n\
+                    <b>⋄ Avg/Pos:</b>   <code>{}{:.4} SOL</code>\n\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
                     status_emoji,
                     if stats.total_pnl_sol > 0.0 { "+" } else { "" },
                     stats.total_pnl_sol,

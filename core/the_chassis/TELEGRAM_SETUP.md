@@ -1,150 +1,92 @@
-# 📱 Configuración de Notificaciones Telegram para The Chassis
+<div align="center">
 
-Este documento explica cómo configurar las notificaciones de Telegram para recibir alertas automáticas cuando se active el stop-loss.
-
-## ¿Por qué Telegram?
-
-- ⚡ **Notificaciones instantáneas**: Recibes alertas en tu móvil al segundo
-- 🔗 **Links directos**: Click para abrir Jupiter y ejecutar la venta
-- 📊 **Información completa**: Precio, drawdown, y estado del mercado
-- 🔒 **Privado y seguro**: Solo tú recibes las notificaciones
-
-## Paso 1: Crear un Bot de Telegram
-
-1. Abre Telegram y busca el bot **@BotFather**
-2. Envía el comando `/newbot`
-3. Sigue las instrucciones:
-   - Elige un nombre para tu bot (ej: "The Chassis Alerts")
-   - Elige un username (debe terminar en "bot", ej: "chassis_trading_bot")
-4. BotFather te dará un **token** como este:
-   ```
-   1234567890:ABCdefGHIjklMNOpqrsTUVwxyz1234567890
-   ```
-5. **¡GUARDA ESTE TOKEN!** Lo necesitarás en el paso 3.
-
-## Paso 2: Obtener tu Chat ID
-
-### Opción A: Usando el bot GetIDs (Más Fácil)
-
-1. Busca el bot **@getidsbot** en Telegram
-2. Inicia una conversación con `/start`
-3. El bot te enviará tu **Chat ID** (un número como `123456789`)
-
-### Opción B: Manualmente
-
-1. Envía un mensaje a tu bot recién creado (el que hiciste en Paso 1)
-2. Abre esta URL en tu navegador (reemplaza `YOUR_BOT_TOKEN` con el token del Paso 1):
-   ```
-   https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates
-   ```
-3. Busca el campo `"chat":{"id":123456789}`
-4. El número es tu **Chat ID**
-
-## Paso 3: Configurar el .env
-
-Edita el archivo `.env` en el directorio del proyecto:
-
-```bash
-HELIUS_API_KEY=1d8b1813-084e-41ed-8e93-87a503c496c6
-WALLET_ADDRESS=6EJeiMFoBgQrUfbpt8jjXZdc5nASe2Kc8qzfVSyGrPQv
-MAX_LATENCY_MS=150
-
-# Telegram Notifications
-TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz1234567890
-TELEGRAM_CHAT_ID=123456789
-```
-
-## Paso 4: Probar la Configuración
-
-1. Guarda el archivo `.env`
-2. Ejecuta el bot:
-   ```bash
-   cargo run
-   ```
-3. Deberías ver en la consola:
-   ```
-   📱 Telegram Notifier: ACTIVADO
-      • Chat ID: 123456789
-   ```
-
-## Tipos de Notificaciones
-
-El bot enviará notificaciones en estos casos:
-
-### 🚨 Stop-Loss Activado
-```
-🚨 ALERTA DE STOP-LOSS 🚨
-
-🪙 Token: ICEBEAR
-📉 Precio Actual: $0.00028435
-📊 Precio Entrada: $0.00056870
-📉 Drawdown: -50.02%
-🛑 Límite SL: -50.0%
-
-⚡ ACCIÓN REQUERIDA
-👉 [Abrir Jupiter para vender](https://jup.ag/swap/...)
-
-⏰ 2026-02-08 10:30:45 UTC
-```
-
-### ✅ Venta Automática Ejecutada
-```
-✅ VENTA AUTOMÁTICA EJECUTADA
-
-🪙 Token: ICEBEAR
-💰 Precio: $0.00028435
-💵 Cantidad: ~0.051 SOL
-
-⏰ 2026-02-08 10:30:45 UTC
-```
-
-### ❌ Error Crítico
-```
-❌ ERROR CRÍTICO
-
-Error obteniendo precio de ICEBEAR: Network timeout
-
-⏰ 2026-02-08 10:30:45 UTC
-```
-
-## Solución de Problemas
-
-### ❌ "Telegram Notifier: DESACTIVADO"
-- Verifica que hayas añadido `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` al `.env`
-- Asegúrate de que no haya espacios extra en el archivo `.env`
-
-### ❌ "Error enviando mensaje a Telegram"
-- Verifica que el token sea correcto (cópialo nuevamente de BotFather)
-- Asegúrate de haber enviado al menos un mensaje a tu bot antes
-
-### ❌ "Chat not found"
-- El Chat ID debe ser correcto
-- Debes iniciar una conversación con el bot (enviar `/start`)
-
-## Desactivar Notificaciones
-
-Si quieres desactivar temporalmente las notificaciones, simplemente deja vacíos los campos en `.env`:
-
-```bash
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-```
-
-El sistema funcionará normalmente, pero sin enviar notificaciones.
-
-## 🔒 Seguridad
-
-- **NUNCA** compartas tu token de bot
-- **NUNCA** hagas commit del archivo `.env` a GitHub
-- El archivo `.gitignore` ya está configurado para ignorar `.env`
-
-## Próximos Pasos
-
-Una vez configurado Telegram, podrás:
-1. Ver el bot en acción monitoreando ICEBEAR
-2. Añadir más tokens al archivo `targets.json`
-3. Ajustar los límites de stop-loss dinámicamente
+# 📱 THE TELEGRAM UPLINK: ESTABLISHING CONNECTIVITY 📱
+### *Sovereign Monitoring & Command Interface*
 
 ---
 
-**¿Necesitas ayuda?** Revisa los logs del bot para ver mensajes de error detallados.
+</div>
+
+## 🌌 The Intelligence Stream
+In the institutional arena, status awareness is the ultimate asset. **The Chassis** employs an encrypted Telegram uplink to provide real-time telemetry and a mobile command cockpit.
+
+- **⚡ Instantaneous Telemetry**: Execution alerts delivered in sub-seconds.
+- **🔗 Transaction Fidelity**: Direct links to Solscan and Jupiter Explorers for immediate verification.
+- **📊 Metric Overlays**: Real-time Drawdown, PnL, and Trailing SL status at a glance.
+
+---
+
+## 🏛️ Phase I: Creating Your Personal Agent
+
+1.  Locate the **@BotFather** within the Telegram encrypted network.
+2.  Issue the command `/newbot`.
+3.  Design your agent (e.g., "The Chassis Prime").
+4.  Secure your **Access Token**. This is your private key to the uplink—protect it with institutional rigor.
+
+---
+
+## 🏛️ Phase II: Identifying Your Vault (Chat ID)
+
+### Option Alpha: The Automated Protocol
+1.  Initialize a session with **@getidsbot**.
+2.  Receive your unique **Vault ID** (e.g., `123456789`).
+
+### Option Beta: The Manual Interrogate
+1.  Send a message to your newly created agent.
+2.  Access the following API endpoint via your secure browser:
+    `https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates`
+3.  Locate the `"chat":{"id":123456789}` string.
+
+---
+
+## 🏛️ Phase III: Engine Configuration (`.env`)
+
+Calibrate your sovereign environment file:
+
+```bash
+# Sovereign Access
+HELIUS_API_KEY=your_access_protocol
+WALLET_PRIVATE_KEY=your_secure_vault
+
+# Telegram Uplink
+TELEGRAM_BOT_TOKEN=1234567890:ACCESS_GRANTED
+TELEGRAM_CHAT_ID=123456789
+```
+
+---
+
+## 🏛️ Phase IV: Systems Check
+
+1.  Secure the `.env` file.
+2.  Engage the engine:
+    ```bash
+    cargo run --bin the_chassis_app monitor
+    ```
+3.  Verify the ignition sequence in the console:
+    `📱 Telegram Command Handler: ACTIVADO`
+
+---
+
+## 💎 Notification Protocol Aesthetics
+
+Every alert is formatted to the **Chassis Hyper-Luxury Specification**:
+
+### 🚨 Tactical Alert: Stop-Loss
+- **⬢ Status**: `LIQUIDATION TRIGGERED`
+- **⬢ Asset**: `ICEBEAR`
+- **⬢ Delta**: `-50.0%`
+- **⬢ Action**: `Jito Bundle Scheduled`
+
+### ✅ Execution Success
+- **⬢ Status**: `ACQUISITION COMPLETE`
+- **⬢ Yield**: `+0.25 SOL`
+- **⬢ Tx**: `View on Sovereign Explorer`
+
+---
+
+<div align="center">
+
+**THE CHASSIS | SOVEREIGN. RESPONSIVE. BEYOND.**
+*Crafted with Precision | Ruben | 2026*
+
+</div>

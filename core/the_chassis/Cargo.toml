@@ -26,11 +26,6 @@ tonic = { version = "0.8", features = ["tls", "tls-roots"] }
 prost = "0.11"
 tonic-build = "0.8"
 
-# Database - ACID Compliance (The Black Box)
-# Desactivamos default-features para evitar conflictos con drivers no usados (MySQL/Postgres)
-# sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-native-tls", "sqlite", "macros"] }
-rusqlite = { version = "0.31", features = ["bundled"] } # State persistence (sync SQLite)
-
 # Observability - Telemetría de Hiperlujo
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -61,6 +56,8 @@ rand = "0.8"
 teloxide = { version = "0.12", features = ["macros"] } # 📱 Telegram notifications
 clap = { version = "4.0", features = ["derive"] } # 🚀 CLI Argument handling
 bytemuck = "1.25.0"
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+deadpool-sqlite = "0.8.0"
 
 [[bin]]
 name = "the_chassis_app"

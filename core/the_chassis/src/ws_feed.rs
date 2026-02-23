@@ -43,8 +43,8 @@ pub async fn ws_price_loop(
     // ── Construir vault tracking ──
     let vault_pairs: Vec<VaultPair> = tokens.iter()
         .filter(|t| {
-            t.coin_vault.as_ref().map_or(false, |v| v.len() >= 8) && 
-            t.pc_vault.as_ref().map_or(false, |v| v.len() >= 8)
+            t.coin_vault.as_ref().is_some_and(|v| v.len() >= 8) && 
+            t.pc_vault.as_ref().is_some_and(|v| v.len() >= 8)
         })
         .map(|t| VaultPair {
             token_mint: t.mint.clone(),
@@ -260,7 +260,7 @@ pub async fn ws_price_loop(
                                                                 let _ = tx.try_send(ws_update);
                                                                 
                                                                 // Log periódico
-                                                                if update_count % 25 == 0 {
+                                                                if update_count.is_multiple_of(25) {
                                                                     let elapsed = start_time.elapsed();
                                                                     let rate = update_count as f64 / elapsed.as_secs_f64();
                                                                     println!(

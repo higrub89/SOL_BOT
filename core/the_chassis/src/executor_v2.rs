@@ -630,8 +630,10 @@ impl TradeExecutor {
         println!("   1. Proporciona el Keypair de tu wallet");
         println!("   2. Ajusta 'auto_execute = true' en settings.json\n");
         
+        let sig = format!("SIM_{}_{}", token_mint, chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        
         Ok(SwapResult {
-            signature: "SIMULATION_ONLY".to_string(),
+            signature: sig,
             input_amount: 1000000000.0,
             output_amount: output_sol,
             route,
@@ -659,6 +661,115 @@ impl TradeExecutor {
         writeln!(file, "{},{},SELL,{:.6},SIMULATED", now, token, amount_sol)?;
         
         Ok(())
+    }
+
+    /// Ejecuta múltiples ventas agrupadas en un solo Jito Bundle
+    pub async fn execute_multi_sell(
+        &self,
+        mints: Vec<String>,
+        wallet_keypair: &Keypair,
+        amount_percent: u8,
+    ) -> Result<Vec<SwapResult>> {
+        println!("╔════════════════════════════════════════════════════════════╗");
+        println!("║           🚀 JITO MULTI-TOKEN BUNDLE EXECUTOR            ║");
+        println!("╚════════════════════════════════════════════════════════════╝\n");
+
+        if self.config.dry_run {
+            println!("🧪 Mode: DRY RUN - Simulando bundle de {} tokens", mints.len());
+            let mut results = Vec::new();
+            for mint in mints {
+                results.push(self.simulate_emergency_sell(&mint, amount_percent).await?);
+            }
+            return Ok(results);
+        }
+
+        let user_pubkey = wallet_keypair.pubkey();
+        let mut transactions = Vec::new();
+        let mut sell_infos = Vec::new();
+
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+
+        for mint in &mints {
+            println!("🔍 Procesando {}...", &mint[..8]);
+            
+            // 1. Balance
+            let (_, token_balance) = match self.get_token_account_balance(&user_pubkey, mint) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("   ⚠️ Saltar {}: {}", mint, e);
+                    continue;
+                }
+            };
+            let amount_to_sell = (token_balance as f64 * (amount_percent as f64 / 100.0)) as u64;
+            if amount_to_sell == 0 { continue; }
+
+            // 2. Quote
+            let quote = match self.jupiter.get_quote(mint, SOL_MINT, amount_to_sell, self.config.slippage_bps).await {
+                Ok(q) => q,
+                Err(e) => {
+                    eprintln!("   ⚠️ Error quote {}: {}", mint, e);
+                    continue;
+                }
+            };
+
+            // 3. Tx
+            let swap_response = match self.jupiter.get_swap_transaction(&quote, &user_pubkey.to_string(), true).await {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("   ⚠️ Error swap tx {}: {}", mint, e);
+                    continue;
+                }
+            };
+
+            // 4. Decode & Sign
+            let tx_bytes = general_purpose::STANDARD.decode(&swap_response.swap_transaction)?;
+            let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+            
+            let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
+            transaction.message.set_recent_blockhash(recent_blockhash);
+            let signed_tx = VersionedTransaction::try_new(transaction.message, &[wallet_keypair])?;
+            
+            let sig = signed_tx.signatures[0].to_string();
+            transactions.push(signed_tx);
+            sell_infos.push((mint.clone(), quote, sig));
+        }
+
+        if transactions.is_empty() {
+            anyhow::bail!("No hay transacciones válidas para enviar en el bundle");
+        }
+
+        // 5. Jito Tip
+        let jito_tip_lamports = crate::config::AppConfig::load()
+            .map(|c| c.global_settings.jito_tip_lamports)
+            .unwrap_or(100_000);
+
+        let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
+        let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
+        let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
+        let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
+        tip_tx.sign(&[wallet_keypair], recent_blockhash);
+        
+        let mut bundle = transactions.clone();
+        bundle.push(VersionedTransaction::from(tip_tx));
+
+        // 6. Send Bundle
+        let bundle_id = self.jito_client.send_bundle(bundle).await?;
+        println!("✅ Jito Multi-Bundle Enviado: {}", bundle_id);
+
+        // 7. Results
+        let mut final_results = Vec::new();
+        for (_mint, quote, sig) in sell_infos {
+            let sol_received = FinancialValidator::parse_price_safe(&quote.out_amount, "Jup")? / 1_000_000_000.0;
+            final_results.push(SwapResult {
+                signature: sig,
+                input_amount: 0.0, // Simplificado
+                output_amount: sol_received,
+                route: "Jupiter Bundle".to_string(),
+                price_impact_pct: 0.0,
+            });
+        }
+
+        Ok(final_results)
     }
 
     /// Obtiene el token account y balance para un mint específico

@@ -14,6 +14,12 @@ pub struct PriceScanner {
     client: reqwest::Client,
 }
 
+impl Default for PriceScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PriceScanner {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()

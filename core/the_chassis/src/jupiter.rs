@@ -14,6 +14,12 @@ pub struct JupiterClient {
     api_key: Option<String>,
 }
 
+impl Default for JupiterClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JupiterClient {
     pub fn new() -> Self {
         Self {

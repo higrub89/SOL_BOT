@@ -2,7 +2,7 @@
     "global_settings": {
         "min_sol_balance": 0.05,
         "jito_tip_lamports": 5000,
-        "monitor_interval_sec": 30,
+        "monitor_interval_sec": 10,
         "auto_execute": true
     }
 }

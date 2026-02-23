@@ -69,6 +69,12 @@ pub struct DexScreenerSensor {
     last_request_time: Arc<Mutex<Instant>>,
 }
 
+impl Default for DexScreenerSensor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DexScreenerSensor {
     pub fn new() -> Self {
         // Cliente HTTP con Timeout estricto

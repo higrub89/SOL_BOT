@@ -13,6 +13,12 @@ pub struct DynamicTipCalculator {
     slope_multiplier: f64,
 }
 
+impl Default for DynamicTipCalculator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DynamicTipCalculator {
     pub fn new() -> Self {
         Self {
@@ -52,6 +58,12 @@ pub struct AdaptiveSlippageCalculator {
     base_bps: u16,     // 300 bps = 3%
     max_bps: u16,      // 2000 bps = 20%
     slope_factor: f64, // Factor de escalado
+}
+
+impl Default for AdaptiveSlippageCalculator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AdaptiveSlippageCalculator {

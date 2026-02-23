@@ -4,10 +4,11 @@
 //! Usa SQLite para garantizar que el bot nunca pierda información crítica.
 
 use anyhow::{Result, Context};
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 use chrono::Utc;
+use deadpool_sqlite::{Config, Pool, Runtime};
+use std::sync::Arc;
 
 // ============================================================================
 // DATA STRUCTURES
@@ -70,115 +71,133 @@ pub struct ConfigSnapshot {
 // ============================================================================
 
 pub struct StateManager {
-    conn: Arc<Mutex<Connection>>,
+    pool: Arc<Pool>,
 }
 
 impl StateManager {
     /// Inicializa el State Manager y crea las tablas si no existen
-    pub fn new(db_path: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .context("Failed to open SQLite database")?;
-        
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let cfg = Config::new(db_path);
+        let pool = cfg.create_pool(Runtime::Tokio1)
+            .context("Failed to create SQLite connection pool")?;
+
         let manager = Self {
-            conn: Arc::new(Mutex::new(conn)),
+            pool: Arc::new(pool),
         };
-        
-        manager.initialize_schema()?;
-        manager.run_migrations()?;
-        
+
+        // Enable WAL mode
+        manager.pool.get().await?.interact(|conn| {
+            conn.execute_batch("PRAGMA journal_mode=WAL;")
+        }).await.map_err(|e| anyhow::anyhow!("tokio join error: {}", e))??;
+
+        manager.initialize_schema().await?;
+        manager.run_migrations().await?;
+
         println!("✅ State Manager inicializado: {}", db_path);
-        
+
         Ok(manager)
     }
-    
+
     /// Crea las tablas necesarias
-    fn initialize_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    async fn initialize_schema(&self) -> Result<()> {
+        let conn = self.pool.get().await?;
         
-        // Tabla de posiciones activas
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS positions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                token_mint TEXT NOT NULL UNIQUE,
-                symbol TEXT NOT NULL,
-                entry_price REAL NOT NULL,
-                amount_sol REAL NOT NULL,
-                current_price REAL NOT NULL,
-                stop_loss_percent REAL NOT NULL,
-                trailing_enabled INTEGER NOT NULL,
-                trailing_distance_percent REAL NOT NULL,
-                trailing_activation_threshold REAL NOT NULL,
-                trailing_highest_price REAL,
-                trailing_current_sl REAL,
-                tp_percent REAL,
-                tp_amount_percent REAL,
-                tp_triggered INTEGER DEFAULT 0,
-                tp2_percent REAL,
-                tp2_amount_percent REAL,
-                tp2_triggered INTEGER DEFAULT 0,
-                active INTEGER NOT NULL,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        
-        // Tabla de historial de trades
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                signature TEXT NOT NULL UNIQUE,
-                token_mint TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                trade_type TEXT NOT NULL,
-                amount_sol REAL NOT NULL,
-                tokens_amount REAL NOT NULL,
-                price REAL NOT NULL,
-                pnl_sol REAL,
-                pnl_percent REAL,
-                route TEXT NOT NULL,
-                price_impact_pct REAL NOT NULL,
-                timestamp INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        
-        // Tabla de snapshots de configuración
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS config_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_json TEXT NOT NULL,
-                timestamp INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        
-        // Índices para búsquedas rápidas
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_positions_active ON positions(active)",
-            [],
-        )?;
-        
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC)",
-            [],
-        )?;
+        conn.interact(|conn| -> Result<()> {
+            // Tabla de posiciones activas
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS positions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token_mint TEXT NOT NULL UNIQUE,
+                    symbol TEXT NOT NULL,
+                    entry_price REAL NOT NULL,
+                    amount_sol REAL NOT NULL,
+                    current_price REAL NOT NULL,
+                    stop_loss_percent REAL NOT NULL,
+                    trailing_enabled INTEGER NOT NULL,
+                    trailing_distance_percent REAL NOT NULL,
+                    trailing_activation_threshold REAL NOT NULL,
+                    trailing_highest_price REAL,
+                    trailing_current_sl REAL,
+                    tp_percent REAL,
+                    tp_amount_percent REAL,
+                    tp_triggered INTEGER DEFAULT 0,
+                    tp2_percent REAL,
+                    tp2_amount_percent REAL,
+                    tp2_triggered INTEGER DEFAULT 0,
+                    active INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )",
+                [],
+            )?;
+            
+            // Tabla de historial de trades
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signature TEXT NOT NULL UNIQUE,
+                    token_mint TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    trade_type TEXT NOT NULL,
+                    amount_sol REAL NOT NULL,
+                    tokens_amount REAL NOT NULL,
+                    price REAL NOT NULL,
+                    pnl_sol REAL,
+                    pnl_percent REAL,
+                    route TEXT NOT NULL,
+                    price_impact_pct REAL NOT NULL,
+                    timestamp INTEGER NOT NULL
+                )",
+                [],
+            )?;
+            
+            // Tabla de snapshots de configuración
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS config_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    config_json TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL
+                )",
+                [],
+            )?;
+            
+            // Índices para búsquedas rápidas
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_positions_active ON positions(active)",
+                [],
+            )?;
+            
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC)",
+                [],
+            )?;
+            
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
 
     /// Ejecuta migraciones de esquema para actualizar DBs existentes
-    fn run_migrations(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    async fn run_migrations(&self) -> Result<()> {
+        let conn = self.pool.get().await?;
 
-        // Migration: Add TP columns if they don't exist
-        // Note: SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we catch errors
-        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_percent REAL", []);
-        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_amount_percent REAL", []);
-        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_triggered INTEGER DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_percent REAL", []);
-        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_amount_percent REAL", []);
-        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_triggered INTEGER DEFAULT 0", []);
+        conn.interact(|conn| -> Result<()> {
+            // Migration: Add TP columns if they don't exist
+            // Note: SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we catch errors
+            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_percent REAL", []);
+            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_amount_percent REAL", []);
+            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_triggered INTEGER DEFAULT 0", []);
+            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_percent REAL", []);
+            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_amount_percent REAL", []);
+            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_triggered INTEGER DEFAULT 0", []);
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
 
         Ok(())
     }
@@ -188,228 +207,279 @@ impl StateManager {
     // ========================================================================
     
     /// Guarda o actualiza una posición
-    pub fn upsert_position(&self, position: &PositionState) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn upsert_position(&self, position: PositionState) -> Result<()> {
+        let conn = self.pool.get().await?;
         
         let now = Utc::now().timestamp();
         
-        conn.execute(
-            "INSERT INTO positions (
-                token_mint, symbol, entry_price, amount_sol, current_price,
-                stop_loss_percent, trailing_enabled, trailing_distance_percent,
-                trailing_activation_threshold, trailing_highest_price,
-                trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
-                tp2_percent, tp2_amount_percent, tp2_triggered,
-                active, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
-            ON CONFLICT(token_mint) DO UPDATE SET
-                current_price = excluded.current_price,
-                stop_loss_percent = excluded.stop_loss_percent,
-                trailing_highest_price = excluded.trailing_highest_price,
-                trailing_current_sl = excluded.trailing_current_sl,
-                tp_percent = excluded.tp_percent,
-                tp_amount_percent = excluded.tp_amount_percent,
-                tp_triggered = excluded.tp_triggered,
-                tp2_percent = excluded.tp2_percent,
-                tp2_amount_percent = excluded.tp2_amount_percent,
-                tp2_triggered = excluded.tp2_triggered,
-                active = excluded.active,
-                updated_at = excluded.updated_at",
-            params![
-                position.token_mint,
-                position.symbol,
-                position.entry_price,
-                position.amount_sol,
-                position.current_price,
-                position.stop_loss_percent,
-                position.trailing_enabled as i32,
-                position.trailing_distance_percent,
-                position.trailing_activation_threshold,
-                position.trailing_highest_price,
-                position.trailing_current_sl,
-                position.tp_percent,
-                position.tp_amount_percent,
-                position.tp_triggered as i32,
-                position.tp2_percent,
-                position.tp2_amount_percent,
-                position.tp2_triggered as i32,
-                position.active as i32,
-                position.created_at,
-                now,
-            ],
-        )?;
-        
-        Ok(())
-    }
-    
-    /// Obtiene todas las posiciones activas
-    pub fn get_active_positions(&self) -> Result<Vec<PositionState>> {
-        let conn = self.conn.lock().unwrap();
-        
-        let mut stmt = conn.prepare(
-            "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
-                    stop_loss_percent, trailing_enabled, trailing_distance_percent,
-                    trailing_activation_threshold, trailing_highest_price,
-                    trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
-                    active, created_at, updated_at
-             FROM positions
-             WHERE active = 1
-             ORDER BY created_at DESC"
-        )?;
-        
-        let positions = stmt.query_map([], |row| {
-            Ok(PositionState {
-                id: Some(row.get(0)?),
-                token_mint: row.get(1)?,
-                symbol: row.get(2)?,
-                entry_price: row.get(3)?,
-                amount_sol: row.get(4)?,
-                current_price: row.get(5)?,
-                stop_loss_percent: row.get(6)?,
-                trailing_enabled: row.get::<_, i32>(7)? != 0,
-                trailing_distance_percent: row.get(8)?,
-                trailing_activation_threshold: row.get(9)?,
-                trailing_highest_price: row.get(10)?,
-                trailing_current_sl: row.get(11)?,
-                tp_percent: row.get(12).ok(),
-                tp_amount_percent: row.get(13).ok(),
-                tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                tp2_percent: row.get(15).ok(),
-                tp2_amount_percent: row.get(16).ok(),
-                tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
-                active: row.get::<_, i32>(18)? != 0,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-        
-        Ok(positions)
-    }
-    
-    /// Obtiene una posición específica por mint
-    pub fn get_position(&self, token_mint: &str) -> Result<Option<PositionState>> {
-        let conn = self.conn.lock().unwrap();
-        
-        let mut stmt = conn.prepare(
-            "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "INSERT INTO positions (
+                    token_mint, symbol, entry_price, amount_sol, current_price,
                     stop_loss_percent, trailing_enabled, trailing_distance_percent,
                     trailing_activation_threshold, trailing_highest_price,
                     trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
                     tp2_percent, tp2_amount_percent, tp2_triggered,
                     active, created_at, updated_at
-             FROM positions
-             WHERE token_mint = ?1"
-        )?;
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                ON CONFLICT(token_mint) DO UPDATE SET
+                    current_price = excluded.current_price,
+                    stop_loss_percent = excluded.stop_loss_percent,
+                    trailing_highest_price = excluded.trailing_highest_price,
+                    trailing_current_sl = excluded.trailing_current_sl,
+                    tp_percent = excluded.tp_percent,
+                    tp_amount_percent = excluded.tp_amount_percent,
+                    tp_triggered = excluded.tp_triggered,
+                    tp2_percent = excluded.tp2_percent,
+                    tp2_amount_percent = excluded.tp2_amount_percent,
+                    tp2_triggered = excluded.tp2_triggered,
+                    active = excluded.active,
+                    updated_at = excluded.updated_at",
+                params![
+                    position.token_mint,
+                    position.symbol,
+                    position.entry_price,
+                    position.amount_sol,
+                    position.current_price,
+                    position.stop_loss_percent,
+                    position.trailing_enabled as i32,
+                    position.trailing_distance_percent,
+                    position.trailing_activation_threshold,
+                    position.trailing_highest_price,
+                    position.trailing_current_sl,
+                    position.tp_percent,
+                    position.tp_amount_percent,
+                    position.tp_triggered as i32,
+                    position.tp2_percent,
+                    position.tp2_amount_percent,
+                    position.tp2_triggered as i32,
+                    position.active as i32,
+                    position.created_at,
+                    now,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
-        let mut rows = stmt.query(params![token_mint])?;
+        Ok(())
+    }
+    
+    /// Obtiene todas las posiciones activas
+    pub async fn get_active_positions(&self) -> Result<Vec<PositionState>> {
+        let conn = self.pool.get().await?;
         
-        if let Some(row) = rows.next()? {
-            Ok(Some(PositionState {
-                id: Some(row.get(0)?),
-                token_mint: row.get(1)?,
-                symbol: row.get(2)?,
-                entry_price: row.get(3)?,
-                amount_sol: row.get(4)?,
-                current_price: row.get(5)?,
-                stop_loss_percent: row.get(6)?,
-                trailing_enabled: row.get::<_, i32>(7)? != 0,
-                trailing_distance_percent: row.get(8)?,
-                trailing_activation_threshold: row.get(9)?,
-                trailing_highest_price: row.get(10)?,
-                trailing_current_sl: row.get(11)?,
-                tp_percent: row.get(12).ok(),
-                tp_amount_percent: row.get(13).ok(),
-                tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                tp2_percent: row.get(15).ok(),
-                tp2_amount_percent: row.get(16).ok(),
-                tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
-                active: row.get::<_, i32>(18)? != 0,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            }))
-        } else {
-            Ok(None)
-        }
+        conn.interact(|conn| -> Result<Vec<PositionState>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
+                        stop_loss_percent, trailing_enabled, trailing_distance_percent,
+                        trailing_activation_threshold, trailing_highest_price,
+                        trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                        tp2_percent, tp2_amount_percent, tp2_triggered,
+                        active, created_at, updated_at
+                 FROM positions
+                 WHERE active = 1
+                 ORDER BY created_at DESC"
+            )?;
+            
+            let positions = stmt.query_map([], |row| {
+                Ok(PositionState {
+                    id: Some(row.get(0)?),
+                    token_mint: row.get(1)?,
+                    symbol: row.get(2)?,
+                    entry_price: row.get(3)?,
+                    amount_sol: row.get(4)?,
+                    current_price: row.get(5)?,
+                    stop_loss_percent: row.get(6)?,
+                    trailing_enabled: row.get::<_, i32>(7)? != 0,
+                    trailing_distance_percent: row.get(8)?,
+                    trailing_activation_threshold: row.get(9)?,
+                    trailing_highest_price: row.get(10)?,
+                    trailing_current_sl: row.get(11)?,
+                    tp_percent: row.get(12).ok(),
+                    tp_amount_percent: row.get(13).ok(),
+                    tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                    tp2_percent: row.get(15).ok(),
+                    tp2_amount_percent: row.get(16).ok(),
+                    tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                    active: row.get::<_, i32>(18)? != 0,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+            
+            Ok(positions)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
+    }
+    
+    /// Obtiene una posición específica por mint
+    pub async fn get_position(&self, token_mint: &str) -> Result<Option<PositionState>> {
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
+        
+        conn.interact(move |conn| -> Result<Option<PositionState>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
+                        stop_loss_percent, trailing_enabled, trailing_distance_percent,
+                        trailing_activation_threshold, trailing_highest_price,
+                        trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                        tp2_percent, tp2_amount_percent, tp2_triggered,
+                        active, created_at, updated_at
+                 FROM positions
+                 WHERE token_mint = ?1"
+            )?;
+            
+            let mut rows = stmt.query(params![tm])?;
+            
+            if let Some(row) = rows.next()? {
+                Ok(Some(PositionState {
+                    id: Some(row.get(0)?),
+                    token_mint: row.get(1)?,
+                    symbol: row.get(2)?,
+                    entry_price: row.get(3)?,
+                    amount_sol: row.get(4)?,
+                    current_price: row.get(5)?,
+                    stop_loss_percent: row.get(6)?,
+                    trailing_enabled: row.get::<_, i32>(7)? != 0,
+                    trailing_distance_percent: row.get(8)?,
+                    trailing_activation_threshold: row.get(9)?,
+                    trailing_highest_price: row.get(10)?,
+                    trailing_current_sl: row.get(11)?,
+                    tp_percent: row.get(12).ok(),
+                    tp_amount_percent: row.get(13).ok(),
+                    tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                    tp2_percent: row.get(15).ok(),
+                    tp2_amount_percent: row.get(16).ok(),
+                    tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                    active: row.get::<_, i32>(18)? != 0,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
     
     /// Marca el TP como disparado
-    pub fn mark_tp_triggered(&self, token_mint: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn mark_tp_triggered(&self, token_mint: &str) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
         
-        conn.execute(
-            "UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
-            params![Utc::now().timestamp(), token_mint],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
+                params![Utc::now().timestamp(), tm],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
 
     /// Marca el Take Profit 2 (Moonbag) como ejecutado
-    pub fn mark_tp2_triggered(&self, token_mint: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn mark_tp2_triggered(&self, token_mint: &str) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
         
-        conn.execute(
-            "UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
-            params![Utc::now().timestamp(), token_mint],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
+                params![Utc::now().timestamp(), tm],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
 
     /// Actualiza el monto invertido (útil para TP parciales)
-    pub fn update_amount_invested(&self, token_mint: &str, new_amount_sol: f64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn update_amount_invested(&self, token_mint: &str, new_amount_sol: f64) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
         
-        conn.execute(
-            "UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3",
-            params![new_amount_sol, Utc::now().timestamp(), token_mint],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3",
+                params![new_amount_sol, Utc::now().timestamp(), tm],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
     
     /// Marca una posición como inactiva (cerrada)
-    pub fn close_position(&self, token_mint: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn close_position(&self, token_mint: &str) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
         
-        conn.execute(
-            "UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2",
-            params![Utc::now().timestamp(), token_mint],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2",
+                params![Utc::now().timestamp(), tm],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
     
     /// Actualiza el precio actual de una posición
-    pub fn update_position_price(&self, token_mint: &str, current_price: f64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn update_position_price(&self, token_mint: &str, current_price: f64) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
         
-        conn.execute(
-            "UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3",
-            params![current_price, Utc::now().timestamp(), token_mint],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3",
+                params![current_price, Utc::now().timestamp(), tm],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
     
     /// Actualiza el estado del Trailing Stop Loss
-    pub fn update_trailing_sl(
+    pub async fn update_trailing_sl(
         &self,
         token_mint: &str,
         highest_price: f64,
         current_sl: f64,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.pool.get().await?;
+        let tm = token_mint.to_string();
         
-        conn.execute(
-            "UPDATE positions 
-             SET trailing_highest_price = ?1, 
-                 trailing_current_sl = ?2,
-                 updated_at = ?3
-             WHERE token_mint = ?4",
-            params![highest_price, current_sl, Utc::now().timestamp(), token_mint],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "UPDATE positions 
+                 SET trailing_highest_price = ?1, 
+                     trailing_current_sl = ?2,
+                     updated_at = ?3
+                 WHERE token_mint = ?4",
+                params![highest_price, current_sl, Utc::now().timestamp(), tm],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
@@ -419,84 +489,97 @@ impl StateManager {
     // ========================================================================
     
     /// Registra un trade ejecutado
-    pub fn record_trade(&self, trade: &TradeRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn record_trade(&self, trade: TradeRecord) -> Result<()> {
+        let conn = self.pool.get().await?;
         
-        conn.execute(
-            "INSERT INTO trades (
-                signature, token_mint, symbol, trade_type, amount_sol,
-                tokens_amount, price, pnl_sol, pnl_percent, route,
-                price_impact_pct, timestamp
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                trade.signature,
-                trade.token_mint,
-                trade.symbol,
-                trade.trade_type,
-                trade.amount_sol,
-                trade.tokens_amount,
-                trade.price,
-                trade.pnl_sol,
-                trade.pnl_percent,
-                trade.route,
-                trade.price_impact_pct,
-                trade.timestamp,
-            ],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "INSERT INTO trades (
+                    signature, token_mint, symbol, trade_type, amount_sol,
+                    tokens_amount, price, pnl_sol, pnl_percent, route,
+                    price_impact_pct, timestamp
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    trade.signature,
+                    trade.token_mint,
+                    trade.symbol,
+                    trade.trade_type,
+                    trade.amount_sol,
+                    trade.tokens_amount,
+                    trade.price,
+                    trade.pnl_sol,
+                    trade.pnl_percent,
+                    trade.route,
+                    trade.price_impact_pct,
+                    trade.timestamp,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
     
     /// Obtiene el historial de trades (últimos N)
-    pub fn get_trade_history(&self, limit: usize) -> Result<Vec<TradeRecord>> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn get_trade_history(&self, limit: usize) -> Result<Vec<TradeRecord>> {
+        let conn = self.pool.get().await?;
         
-        let mut stmt = conn.prepare(
-            "SELECT id, signature, token_mint, symbol, trade_type, amount_sol,
-                    tokens_amount, price, pnl_sol, pnl_percent, route,
-                    price_impact_pct, timestamp
-             FROM trades
-             ORDER BY timestamp DESC
-             LIMIT ?1"
-        )?;
-        
-        let trades = stmt.query_map(params![limit], |row| {
-            Ok(TradeRecord {
-                id: Some(row.get(0)?),
-                signature: row.get(1)?,
-                token_mint: row.get(2)?,
-                symbol: row.get(3)?,
-                trade_type: row.get(4)?,
-                amount_sol: row.get(5)?,
-                tokens_amount: row.get(6)?,
-                price: row.get(7)?,
-                pnl_sol: row.get(8)?,
-                pnl_percent: row.get(9)?,
-                route: row.get(10)?,
-                price_impact_pct: row.get(11)?,
-                timestamp: row.get(12)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-        
-        Ok(trades)
+        conn.interact(move |conn| -> Result<Vec<TradeRecord>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, signature, token_mint, symbol, trade_type, amount_sol,
+                        tokens_amount, price, pnl_sol, pnl_percent, route,
+                        price_impact_pct, timestamp
+                 FROM trades
+                 ORDER BY timestamp DESC
+                 LIMIT ?1"
+            )?;
+            
+            let trades = stmt.query_map(params![limit], |row| {
+                Ok(TradeRecord {
+                    id: Some(row.get(0)?),
+                    signature: row.get(1)?,
+                    token_mint: row.get(2)?,
+                    symbol: row.get(3)?,
+                    trade_type: row.get(4)?,
+                    amount_sol: row.get(5)?,
+                    tokens_amount: row.get(6)?,
+                    price: row.get(7)?,
+                    pnl_sol: row.get(8)?,
+                    pnl_percent: row.get(9)?,
+                    route: row.get(10)?,
+                    price_impact_pct: row.get(11)?,
+                    timestamp: row.get(12)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+            
+            Ok(trades)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
     
     /// Calcula PnL total de todos los trades
-    pub fn calculate_total_pnl(&self) -> Result<(f64, f64)> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn calculate_total_pnl(&self) -> Result<(f64, f64)> {
+        let conn = self.pool.get().await?;
         
-        let mut stmt = conn.prepare(
-            "SELECT COALESCE(SUM(pnl_sol), 0.0), COUNT(*) 
-             FROM trades 
-             WHERE pnl_sol IS NOT NULL"
-        )?;
-        
-        let (total_pnl, count): (f64, i64) = stmt.query_row([], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?;
-        
-        Ok((total_pnl, count as f64))
+        conn.interact(|conn| -> Result<(f64, f64)> {
+            let mut stmt = conn.prepare(
+                "SELECT COALESCE(SUM(pnl_sol), 0.0), COUNT(*) 
+                 FROM trades 
+                 WHERE pnl_sol IS NOT NULL"
+            )?;
+            
+            let (total_pnl, count): (f64, i64) = stmt.query_row([], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
+            
+            Ok((total_pnl, count as f64))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
     
     // ========================================================================
@@ -504,39 +587,49 @@ impl StateManager {
     // ========================================================================
     
     /// Guarda un snapshot de la configuración actual
-    pub fn save_config_snapshot(&self, config_json: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn save_config_snapshot(&self, config_json: &str) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let cj = config_json.to_string();
         
-        conn.execute(
-            "INSERT INTO config_snapshots (config_json, timestamp) VALUES (?1, ?2)",
-            params![config_json, Utc::now().timestamp()],
-        )?;
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "INSERT INTO config_snapshots (config_json, timestamp) VALUES (?1, ?2)",
+                params![cj, Utc::now().timestamp()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
         
         Ok(())
     }
     
     /// Obtiene el último snapshot de configuración
-    pub fn get_latest_config_snapshot(&self) -> Result<Option<ConfigSnapshot>> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn get_latest_config_snapshot(&self) -> Result<Option<ConfigSnapshot>> {
+        let conn = self.pool.get().await?;
         
-        let mut stmt = conn.prepare(
-            "SELECT id, config_json, timestamp 
-             FROM config_snapshots 
-             ORDER BY timestamp DESC 
-             LIMIT 1"
-        )?;
-        
-        let mut rows = stmt.query([])?;
-        
-        if let Some(row) = rows.next()? {
-            Ok(Some(ConfigSnapshot {
-                id: Some(row.get(0)?),
-                config_json: row.get(1)?,
-                timestamp: row.get(2)?,
-            }))
-        } else {
-            Ok(None)
-        }
+        conn.interact(|conn| -> Result<Option<ConfigSnapshot>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, config_json, timestamp 
+                 FROM config_snapshots 
+                 ORDER BY timestamp DESC 
+                 LIMIT 1"
+            )?;
+            
+            let mut rows = stmt.query([])?;
+            
+            if let Some(row) = rows.next()? {
+                Ok(Some(ConfigSnapshot {
+                    id: Some(row.get(0)?),
+                    config_json: row.get(1)?,
+                    timestamp: row.get(2)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
     
     // ========================================================================
@@ -544,31 +637,35 @@ impl StateManager {
     // ========================================================================
     
     /// Obtiene estadísticas del estado actual
-    pub fn get_stats(&self) -> Result<StateStats> {
-        let conn = self.conn.lock().unwrap();
+    pub async fn get_stats(&self) -> Result<StateStats> {
+        let conn = self.pool.get().await?;
         
-        let active_positions: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM positions WHERE active = 1",
-            [],
-            |row| row.get(0),
-        )?;
-        
-        let total_trades: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM trades",
-            [],
-            |row| row.get(0),
-        )?;
+        conn.interact(|conn| -> Result<StateStats> {
+            let active_positions: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM positions WHERE active = 1",
+                [],
+                |row| row.get(0),
+            )?;
+            
+            let total_trades: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM trades",
+                [],
+                |row| row.get(0),
+            )?;
 
-        let mut stmt = conn.prepare(
-            "SELECT COALESCE(SUM(pnl_sol), 0.0) FROM trades WHERE pnl_sol IS NOT NULL"
-        )?;
-        let total_pnl: f64 = stmt.query_row([], |row| row.get(0))?;
-        
-        Ok(StateStats {
-            active_positions: active_positions as usize,
-            total_trades: total_trades as usize,
-            total_pnl_sol: total_pnl,
+            let mut stmt = conn.prepare(
+                "SELECT COALESCE(SUM(pnl_sol), 0.0) FROM trades WHERE pnl_sol IS NOT NULL"
+            )?;
+            let total_pnl: f64 = stmt.query_row([], |row| row.get(0))?;
+            
+            Ok(StateStats {
+                active_positions: active_positions as usize,
+                total_trades: total_trades as usize,
+                total_pnl_sol: total_pnl,
+            })
         })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
 }
 
@@ -588,17 +685,22 @@ pub struct StateStats {
 mod tests {
     use super::*;
     
-    #[test]
-    fn test_state_manager_creation() {
-        let manager = StateManager::new(":memory:").unwrap();
-        let stats = manager.get_stats().unwrap();
+    #[tokio::test]
+    async fn test_state_manager_creation() {
+        // Use an empty path or memory
+        // But tests might need to use memory config differently with deadpool
+        // For now, let's just create a temporary file
+        let db_path = "file:test_creation?mode=memory&cache=shared";
+        let manager = StateManager::new(db_path).await.unwrap();
+        let stats = manager.get_stats().await.unwrap();
         assert_eq!(stats.active_positions, 0);
         assert_eq!(stats.total_trades, 0);
     }
     
-    #[test]
-    fn test_position_lifecycle() {
-        let manager = StateManager::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_position_lifecycle() {
+        let db_path = "file:test_lifecycle?mode=memory&cache=shared";
+        let manager = StateManager::new(db_path).await.unwrap();
         
         let position = PositionState {
             id: None,
@@ -616,20 +718,23 @@ mod tests {
             tp_percent: None,
             tp_amount_percent: None,
             tp_triggered: false,
+            tp2_percent: None,
+            tp2_amount_percent: None,
+            tp2_triggered: false,
             active: true,
             created_at: Utc::now().timestamp(),
             updated_at: Utc::now().timestamp(),
         };
         
-        manager.upsert_position(&position).unwrap();
+        manager.upsert_position(position).await.unwrap();
         
-        let retrieved = manager.get_position("TEST_MINT").unwrap();
+        let retrieved = manager.get_position("TEST_MINT").await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().symbol, "TEST");
         
-        manager.close_position("TEST_MINT").unwrap();
+        manager.close_position("TEST_MINT").await.unwrap();
         
-        let stats = manager.get_stats().unwrap();
+        let stats = manager.get_stats().await.unwrap();
         assert_eq!(stats.active_positions, 0);
     }
 }

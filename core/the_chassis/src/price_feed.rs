@@ -485,7 +485,7 @@ impl PriceFeed {
                                                                 // Buffer lleno, dato ya en caché
                                                             }
                                                             
-                                                            if update_count % 50 == 0 {
+                                                            if update_count.is_multiple_of(50) {
                                                                 println!(
                                                                     "⚡ [Geyser] #{} {} = {:.10} SOL (${:.8}) | Liq: {:.1} SOL",
                                                                     update_count, symbol, price_sol, price_usd, liq_sol

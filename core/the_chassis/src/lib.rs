@@ -296,9 +296,9 @@ async fn run_monitor_mode() -> Result<()> {
     ));
     
     // Cargar targets activos
-    let state_manager = Arc::new(StateManager::new("trading_state.db")?);
+    let state_manager = Arc::new(StateManager::new("trading_state.db").await?);
     
-    if let Ok(db_positions) = state_manager.get_active_positions() {
+    if let Ok(db_positions) = state_manager.get_active_positions().await {
         for target in &db_positions {
             emergency_monitor.lock().unwrap().add_position(Position {
                 token_mint: target.symbol.clone(),
@@ -316,7 +316,7 @@ async fn run_monitor_mode() -> Result<()> {
     // Eliminado el código legacy de migración desde targets.json
     
     // Show stats
-    let stats = state_manager.get_stats()?;
+    let stats = state_manager.get_stats().await?;
     println!("   • Active Positions: {}", stats.active_positions);
     println!("   • Total Trades:     {}", stats.total_trades);
     println!("   • Total PnL:        {:.4} SOL", stats.total_pnl_sol);
@@ -405,7 +405,7 @@ async fn run_monitor_mode() -> Result<()> {
     let mut monitored_tokens: Vec<MonitoredToken> = Vec::new();
 
     // 1. Add from StateManager (Dynamic/DB)
-    if let Ok(db_positions) = state_manager.get_active_positions() {
+    if let Ok(db_positions) = state_manager.get_active_positions().await {
         for pos in db_positions {
             monitored_tokens.push(MonitoredToken {
                 mint: pos.token_mint.clone(),
@@ -447,7 +447,7 @@ async fn run_monitor_mode() -> Result<()> {
     let mut trailing_monitors: std::collections::HashMap<String, TrailingStopLoss> = std::collections::HashMap::new();
     let mut liquidity_monitors: std::collections::HashMap<String, LiquidityMonitor> = std::collections::HashMap::new();
 
-    if let Ok(db_positions) = state_manager.get_active_positions() {
+    if let Ok(db_positions) = state_manager.get_active_positions().await {
         for target in db_positions {
             if target.trailing_enabled {
                 let mut tsl = TrailingStopLoss::new(
@@ -458,7 +458,7 @@ async fn run_monitor_mode() -> Result<()> {
                 );
 
                 // 💧 Hydrate TSL from StateManager (DB)
-                match state_manager.get_position(&target.token_mint) {
+                match state_manager.get_position(&target.token_mint).await {
                     Ok(Some(saved_pos)) => {
                         if let Some(peak) = saved_pos.trailing_highest_price {
                             if peak > tsl.peak_price {
@@ -521,6 +521,8 @@ async fn run_monitor_mode() -> Result<()> {
     // HashSet para evitar intentar vender el mismo token múltiples veces en el mismo ciclo de vida
     // Previene el bucle infinito de alertas cuando la venta falla
     let mut sell_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut tp1_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut tp2_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
     // HashSet para evitar spamear alertas de hibernación + SL cada tick
     let mut sl_alerted: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -529,7 +531,7 @@ async fn run_monitor_mode() -> Result<()> {
 
     while let Some(price_update) = price_rx.recv().await {
         // Fetch from DB (live hot-swap of parameters and active state)
-        let target = match state_manager.get_position(&price_update.token_mint) {
+        let target = match state_manager.get_position(&price_update.token_mint).await {
             Ok(Some(p)) if p.active => p,
             _ => continue,
         };
@@ -547,7 +549,7 @@ async fn run_monitor_mode() -> Result<()> {
         }
 
         // Actualizar estado persistente
-        if let Err(e) = state_manager.update_position_price(&target.token_mint, price_update.price_usd) {
+        if let Err(e) = state_manager.update_position_price(&target.token_mint, price_update.price_usd).await {
             eprintln!("⚠️ Error updating persistent state for {}: {}", target.symbol, e);
         }
         
@@ -577,7 +579,7 @@ async fn run_monitor_mode() -> Result<()> {
             
             // Trailing SL status
             let tsl_info = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
-                if let Err(e) = state_manager.update_trailing_sl(&target.token_mint, tsl.peak_price, tsl.current_sl_percent) {
+                if let Err(e) = state_manager.update_trailing_sl(&target.token_mint, tsl.peak_price, tsl.current_sl_percent).await {
                     eprintln!("⚠️ Error updating trailing SL persistence: {}", e);
                 }
                 format!(" | TSL: {}", tsl.status_string())
@@ -640,56 +642,67 @@ async fn run_monitor_mode() -> Result<()> {
 
                  if telegram_commands::CommandHandler::is_hibernating() {
                      // Log warning - bot suspended
-                 } else if app_config.global_settings.auto_execute {
+                 } else if app_config.global_settings.auto_execute && !tp1_attempted.contains(&target.token_mint) {
+                     tp1_attempted.insert(target.token_mint.clone());
                      println!("⚡ AUTO-EXECUTING TAKE PROFIT 1 ({}%)...", tp_amount_percent);
                      let sell_amount_pct = tp_amount_percent as u8;
 
-                     let sell_result = executor_clone.execute_emergency_sell(
-                        &target.token_mint,
-                        wallet_keypair.as_ref(),
-                        sell_amount_pct,
-                    ).await;
+                     let mint_clone = target.token_mint.clone();
+                     let kp_wrapper = wallet_keypair.as_ref().map(|k| k.insecure_clone());
+                     let exc = Arc::clone(&executor_clone);
+                     let state_mgr = Arc::clone(&state_manager);
+                     let tel = Arc::clone(&telegram_clone);
+                     let symbol = target.symbol.clone();
+                     let price_usd = price_update.price_usd;
+                     
+                     tokio::spawn(async move {
+                         let sell_result = exc.execute_emergency_sell(
+                            &mint_clone,
+                            kp_wrapper.as_ref(), // pass as reference inside task
+                            sell_amount_pct,
+                        ).await;
 
-                    match sell_result {
-                        Ok(swap_result) => {
-                             println!("✅ TP1 Parcial completado: {}", swap_result.signature);
-                             let _ = telegram_clone.send_message(
-                                &format!("💰 <b>TAKE PROFIT 1 HIT</b> for {}!\n\
-                                          <b>⬡ Gain:</b> {:.2}%\n\
-                                          <b>⬡ Sold:</b> {}%\n\
-                                          <b>⬡ Tx:</b> {}",
-                                          target.symbol, current_gain_percent, sell_amount_pct, swap_result.signature),
-                                true
-                            ).await;
+                        match sell_result {
+                            Ok(swap_result) => {
+                                 println!("✅ TP1 Parcial completado: {}", swap_result.signature);
+                                 let _ = tel.send_message(
+                                    &format!("💰 <b>TAKE PROFIT 1 HIT</b> for {}!\n\
+                                              <b>⬡ Gain:</b> {:.2}%\n\
+                                              <b>⬡ Sold:</b> {}%\n\
+                                              <b>⬡ Tx:</b> {}",
+                                              symbol, current_gain_percent, sell_amount_pct, swap_result.signature),
+                                    true
+                                ).await;
 
-                            // Marcar TP como ejecutado en DB
-                            let _ = state_manager.mark_tp_triggered(&target.token_mint);
+                                // Marcar TP como ejecutado en DB
+                                let _ = state_mgr.mark_tp_triggered(&mint_clone).await;
 
-                            // Actualizar amount restante en DB (aprox)
-                            let remaining_sol = db_amount_sol * (1.0 - (tp_amount_percent / 100.0));
-                            let _ = state_manager.update_amount_invested(&target.token_mint, remaining_sol);
+                                // Actualizar amount restante en DB (aprox)
+                                let remaining_sol = db_amount_sol * (1.0 - (tp_amount_percent / 100.0));
+                                let _ = state_mgr.update_amount_invested(&mint_clone, remaining_sol).await;
 
-                            // Registrar Trade en historial
-                            let pnl_sold_portion = swap_result.output_amount - (db_amount_sol * (tp_amount_percent / 100.0));
-                            let trade_record = TradeRecord {
-                                id: None,
-                                signature: swap_result.signature.clone(),
-                                token_mint: target.token_mint.clone(),
-                                symbol: target.symbol.clone(),
-                                trade_type: "TAKE_PROFIT_1".to_string(),
-                                amount_sol: swap_result.output_amount,
-                                tokens_amount: 0.0,
-                                price: price_update.price_usd,
-                                pnl_sol: Some(pnl_sold_portion),
-                                pnl_percent: Some(current_gain_percent),
-                                route: "Jupiter".to_string(),
-                                price_impact_pct: 0.0,
-                                timestamp: Utc::now().timestamp(),
-                            };
-                            let _ = state_manager.record_trade(&trade_record);
-                        },
-                        Err(e) => eprintln!("❌ Error executing TP1: {}", e),
-                    }
+                                // Registrar Trade en historial
+                                let pnl_sold_portion = swap_result.output_amount - (db_amount_sol * (tp_amount_percent / 100.0));
+                                let trade_record = TradeRecord {
+                                    id: None,
+                                    signature: swap_result.signature.clone(),
+                                    token_mint: mint_clone,
+                                    symbol,
+                                    trade_type: "TAKE_PROFIT_1".to_string(),
+                                    amount_sol: swap_result.output_amount,
+                                    tokens_amount: 0.0,
+                                    price: price_usd,
+                                    pnl_sol: Some(pnl_sold_portion),
+                                    pnl_percent: Some(current_gain_percent),
+                                    route: "Jupiter".to_string(),
+                                    price_impact_pct: 0.0,
+                                    timestamp: Utc::now().timestamp(),
+                                };
+                                let _ = state_mgr.record_trade(trade_record).await;
+                            },
+                            Err(e) => eprintln!("❌ Error executing TP1: {}", e),
+                        }
+                     });
                  }
             }
             
@@ -702,60 +715,71 @@ async fn run_monitor_mode() -> Result<()> {
 
                  if telegram_commands::CommandHandler::is_hibernating() {
                      // Log warning - bot suspended
-                 } else if app_config.global_settings.auto_execute {
+                 } else if app_config.global_settings.auto_execute && !tp2_attempted.contains(&target.token_mint) {
+                     tp2_attempted.insert(target.token_mint.clone());
                      println!("⚡ AUTO-EXECUTING TAKE PROFIT 2 ({}%)...", tp2_amount_percent);
                      let sell_amount_pct = tp2_amount_percent as u8;
 
-                     let sell_result = executor_clone.execute_emergency_sell(
-                        &target.token_mint,
-                        wallet_keypair.as_ref(),
-                        sell_amount_pct,
-                    ).await;
+                     let mint_clone = target.token_mint.clone();
+                     let kp_wrapper = wallet_keypair.as_ref().map(|k| k.insecure_clone());
+                     let exc = Arc::clone(&executor_clone);
+                     let state_mgr = Arc::clone(&state_manager);
+                     let tel = Arc::clone(&telegram_clone);
+                     let symbol = target.symbol.clone();
+                     let price_usd = price_update.price_usd;
+                     
+                     tokio::spawn(async move {
+                         let sell_result = exc.execute_emergency_sell(
+                            &mint_clone,
+                            kp_wrapper.as_ref(),
+                            sell_amount_pct,
+                        ).await;
 
-                    match sell_result {
-                        Ok(swap_result) => {
-                             println!("✅ TP2 completado: {}", swap_result.signature);
-                             let _ = telegram_clone.send_message(
-                                &format!("🚀 <b>TAKE PROFIT 2 (MOONBAG) HIT</b> for {}!\n\
-                                          <b>⬡ Gain:</b> {:.2}%\n\
-                                          <b>⬡ Sold:</b> {}%\n\
-                                          <b>⬡ Tx:</b> {}",
-                                          target.symbol, current_gain_percent, sell_amount_pct, swap_result.signature),
-                                true
-                            ).await;
+                        match sell_result {
+                            Ok(swap_result) => {
+                                 println!("✅ TP2 completado: {}", swap_result.signature);
+                                 let _ = tel.send_message(
+                                    &format!("🚀 <b>TAKE PROFIT 2 (MOONBAG) HIT</b> for {}!\n\
+                                              <b>⬡ Gain:</b> {:.2}%\n\
+                                              <b>⬡ Sold:</b> {}%\n\
+                                              <b>⬡ Tx:</b> {}",
+                                              symbol, current_gain_percent, sell_amount_pct, swap_result.signature),
+                                    true
+                                ).await;
 
-                            // Marcar TP2 como ejecutado en DB
-                            let _ = state_manager.mark_tp2_triggered(&target.token_mint);
-                            
-                            // Si se vendió todo lo restante, cerramos posición
-                            if sell_amount_pct == 100 {
-                                let _ = state_manager.close_position(&target.token_mint);
-                            } else {
-                                let remaining_sol = db_amount_sol * (1.0 - (tp2_amount_percent / 100.0));
-                                let _ = state_manager.update_amount_invested(&target.token_mint, remaining_sol);
-                            }
+                                // Marcar TP2 como ejecutado en DB
+                                let _ = state_mgr.mark_tp2_triggered(&mint_clone).await;
+                                
+                                // Si se vendió todo lo restante, cerramos posición
+                                if sell_amount_pct == 100 {
+                                    let _ = state_mgr.close_position(&mint_clone).await;
+                                } else {
+                                    let remaining_sol = db_amount_sol * (1.0 - (tp2_amount_percent / 100.0));
+                                    let _ = state_mgr.update_amount_invested(&mint_clone, remaining_sol).await;
+                                }
 
-                            // Registrar Trade en historial
-                            let pnl_sold_portion = swap_result.output_amount - (db_amount_sol * (tp2_amount_percent / 100.0));
-                            let trade_record = TradeRecord {
-                                id: None,
-                                signature: swap_result.signature.clone(),
-                                token_mint: target.token_mint.clone(),
-                                symbol: target.symbol.clone(),
-                                trade_type: "TAKE_PROFIT_2".to_string(),
-                                amount_sol: swap_result.output_amount,
-                                tokens_amount: 0.0,
-                                price: price_update.price_usd,
-                                pnl_sol: Some(pnl_sold_portion),
-                                pnl_percent: Some(current_gain_percent),
-                                route: "Jupiter".to_string(),
-                                price_impact_pct: 0.0,
-                                timestamp: Utc::now().timestamp(),
-                            };
-                            let _ = state_manager.record_trade(&trade_record);
-                        },
-                        Err(e) => eprintln!("❌ Error executing TP2: {}", e),
-                    }
+                                // Registrar Trade en historial
+                                let pnl_sold_portion = swap_result.output_amount - (db_amount_sol * (tp2_amount_percent / 100.0));
+                                let trade_record = TradeRecord {
+                                    id: None,
+                                    signature: swap_result.signature.clone(),
+                                    token_mint: mint_clone,
+                                    symbol,
+                                    trade_type: "TAKE_PROFIT_2".to_string(),
+                                    amount_sol: swap_result.output_amount,
+                                    tokens_amount: 0.0,
+                                    price: price_usd,
+                                    pnl_sol: Some(pnl_sold_portion),
+                                    pnl_percent: Some(current_gain_percent),
+                                    route: "Jupiter".to_string(),
+                                    price_impact_pct: 0.0,
+                                    timestamp: Utc::now().timestamp(),
+                                };
+                                let _ = state_mgr.record_trade(trade_record).await;
+                            },
+                            Err(e) => eprintln!("❌ Error executing TP2: {}", e),
+                        }
+                     });
                  }
             }
 
@@ -782,60 +806,72 @@ async fn run_monitor_mode() -> Result<()> {
                         sell_attempted.insert(target.token_mint.clone());
                         println!("⚡ AUTO-EXECUTING EMERGENCY SELL para {}...", target.symbol);
 
-                        let sell_result = executor_clone.execute_emergency_sell(
-                            &target.token_mint,
-                            wallet_keypair.as_ref(),
-                            100,
-                        ).await;
+                        let mint_clone = target.token_mint.clone();
+                        let kp_wrapper = wallet_keypair.as_ref().map(|k| k.insecure_clone());
+                        let exc = Arc::clone(&executor_clone);
+                        let state_mgr = Arc::clone(&state_manager);
+                        let tel = Arc::clone(&telegram_clone);
+                        let symbol = target.symbol.clone();
+                        let price_usd = price_update.price_usd;
+                        let target_amount_sol = target.amount_sol;
+                        let target_entry_price = target.entry_price;
 
-                        match sell_result {
-                            Ok(swap_result) => {
-                                println!("✅ Venta automática completada: {}", swap_result.signature);
-                                let _ = telegram_clone.send_message(
-                                    &format!("✅ Venta automática de {} completada.\nSignature: {}", target.symbol, swap_result.signature),
-                                    true
-                                ).await;
+                        tokio::spawn(async move {
+                            let sell_result = exc.execute_emergency_sell(
+                                &mint_clone,
+                                kp_wrapper.as_ref(),
+                                100,
+                            ).await;
 
-                                let trade_record = TradeRecord {
-                                    id: None,
-                                    signature: swap_result.signature.clone(),
-                                    token_mint: target.token_mint.clone(),
-                                    symbol: target.symbol.clone(),
-                                    trade_type: "EMERGENCY_SELL".to_string(),
-                                    amount_sol: swap_result.output_amount,
-                                    tokens_amount: target.amount_sol / target.entry_price,
-                                    price: price_update.price_usd,
-                                    pnl_sol: Some(swap_result.output_amount - target.amount_sol),
-                                    pnl_percent: Some(((swap_result.output_amount - target.amount_sol) / target.amount_sol) * 100.0),
-                                    route: "Jupiter".to_string(),
-                                    price_impact_pct: 0.0,
-                                    timestamp: Utc::now().timestamp(),
-                                };
+                            match sell_result {
+                                Ok(swap_result) => {
+                                    println!("✅ Venta automática completada: {}", swap_result.signature);
+                                    let _ = tel.send_message(
+                                        &format!("✅ Venta automática de {} completada.\nSignature: {}", symbol, swap_result.signature),
+                                        true
+                                    ).await;
 
-                                if let Err(e) = state_manager.record_trade(&trade_record) {
-                                    eprintln!("❌ Error recording trade to DB: {}", e);
+                                    let trade_record = TradeRecord {
+                                        id: None,
+                                        signature: swap_result.signature.clone(),
+                                        token_mint: mint_clone.clone(),
+                                        symbol: symbol.clone(),
+                                        trade_type: "EMERGENCY_SELL".to_string(),
+                                        amount_sol: swap_result.output_amount,
+                                        tokens_amount: target_amount_sol / target_entry_price,
+                                        price: price_usd,
+                                        pnl_sol: Some(swap_result.output_amount - target_amount_sol),
+                                        pnl_percent: Some(((swap_result.output_amount - target_amount_sol) / target_amount_sol) * 100.0),
+                                        route: "Jupiter".to_string(),
+                                        price_impact_pct: 0.0,
+                                        timestamp: Utc::now().timestamp(),
+                                    };
+
+                                    if let Err(e) = state_mgr.record_trade(trade_record).await {
+                                        eprintln!("❌ Error recording trade to DB: {}", e);
+                                    }
+                                    if let Err(e) = state_mgr.close_position(&mint_clone).await {
+                                        eprintln!("❌ Error closing position in DB: {}", e);
+                                    }
                                 }
-                                if let Err(e) = state_manager.close_position(&target.token_mint) {
-                                    eprintln!("❌ Error closing position in DB: {}", e);
+                                Err(e) => {
+                                    eprintln!("❌ Error en auto-sell para {}: {}", symbol, e);
+                                    println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
+
+                                    // Cerrar la posición en DB para no seguir intentando
+                                    let _ = state_mgr.close_position(&mint_clone).await;
+
+                                    let _ = tel.send_error_alert(
+                                        &format!(
+                                            "❌ <b>Error en auto-sell para {}:</b> {}\n\n\
+                                            ⚠️ Posición marcada como CERRADA en DB.\n\
+                                            Vende manualmente: <a href='https://jup.ag/swap/{}-SOL'>Jupiter</a>",
+                                            symbol, e, mint_clone
+                                        )
+                                    ).await;
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("❌ Error en auto-sell para {}: {}", target.symbol, e);
-                                println!("⚠️  ACCIÓN MANUAL REQUERIDA: VENDER EN TROJAN O JUPITER");
-
-                                // Cerrar la posición en DB para no seguir intentando
-                                let _ = state_manager.close_position(&target.token_mint);
-
-                                let _ = telegram_clone.send_error_alert(
-                                    &format!(
-                                        "❌ <b>Error en auto-sell para {}:</b> {}\n\n\
-                                        ⚠️ Posición marcada como CERRADA en DB.\n\
-                                        Vende manualmente: <a href='https://jup.ag/swap/{}-SOL'>Jupiter</a>",
-                                        target.symbol, e, target.token_mint
-                                    )
-                                ).await;
-                            }
-                        }
+                        });
                     } else {
                         // Ya se intentó — solo loguear localmente, no spamear Telegram
                         println!("⚠️  [{}] SL en -{}% pero ya se intentó sell. Esperando cierre del loop.", target.symbol, dd.abs());

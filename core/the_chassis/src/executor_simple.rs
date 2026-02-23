@@ -14,6 +14,12 @@ pub struct SimpleExecutor {
     pub jupiter: JupiterClient,
 }
 
+impl Default for SimpleExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleExecutor {
     pub fn new() -> Self {
         Self {

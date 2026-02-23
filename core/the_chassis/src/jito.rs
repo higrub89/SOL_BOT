@@ -32,6 +32,12 @@ pub struct JitoClient {
     client: reqwest::Client,
 }
 
+impl Default for JitoClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JitoClient {
     pub fn new() -> Self {
         Self {
