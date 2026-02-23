@@ -153,7 +153,7 @@ impl CommandHandler {
             }
 
             "/targets" => {
-                self.cmd_targets(config).await?;
+                self.cmd_targets(Arc::clone(&config), Arc::clone(&state_manager)).await?;
             }
 
             "/positions" => {
@@ -196,6 +196,8 @@ impl CommandHandler {
                     ⬡ /targets - Tracked Asset Configuration\n\
                     ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code> - Precision Entry\n\
                     ⬡ <code>/track &lt;MINT&gt; &lt;SYMBOL&gt; &lt;SOL&gt; &lt;SL&gt;</code> - Manual Indexing\n\
+                    ⬡ <code>/untrack &lt;MINT&gt;</code> - Remove from tracking\n\
+                    ⬡ <code>/update &lt;MINT&gt; sl=-X tp=Y</code> - Hot reload params\n\
                     ⬡ <code>/panic &lt;MINT&gt;</code> - Sell 100% Immediately\n\
                     ⬡ /hibernate - Suspend ALL Trading\n\
                     ⬡ /wake - Re-enable Trading\n\
@@ -213,6 +215,14 @@ impl CommandHandler {
 
             cmd if cmd.starts_with("/track ") => {
                 self.cmd_track(cmd, Arc::clone(&state_manager)).await?;
+            }
+
+            cmd if cmd.starts_with("/untrack ") => {
+                self.cmd_untrack(cmd, Arc::clone(&state_manager)).await?;
+            }
+
+            cmd if cmd.starts_with("/update ") => {
+                self.cmd_update(cmd, Arc::clone(&state_manager)).await?;
             }
 
             "/reboot" => {
@@ -357,6 +367,9 @@ impl CommandHandler {
                     tp_percent: Some(100.0), // Default TP 2x
                     tp_amount_percent: Some(50.0), // Sell 50%
                     tp_triggered: false,
+                    tp2_percent: Some(200.0), // TP2 Moonbag
+                    tp2_amount_percent: Some(100.0), // Sell remaining
+                    tp2_triggered: false,
                     active: true,
                     created_at: chrono::Utc::now().timestamp(),
                     updated_at: chrono::Utc::now().timestamp(),
@@ -408,6 +421,9 @@ impl CommandHandler {
                     tp_percent: Some(tp),
                     tp_amount_percent: Some(50.0), // Default sell 50%
                     tp_triggered: false,
+                    tp2_percent: Some(200.0), // TP2 Moonbag default
+                    tp2_amount_percent: Some(100.0), // Sell remaining
+                    tp2_triggered: false,
                     active: true,
                     created_at: chrono::Utc::now().timestamp(),
                     updated_at: chrono::Utc::now().timestamp(),
@@ -422,12 +438,90 @@ impl CommandHandler {
                     <b>⬢ Entry:</b> <code>${:.8}</code>\n\
                     <b>⬢ SL / TP:</b> <code>{}% / {}%</code>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <i>🔄 Use /reboot to activate monitoring.</i>",
+                    <i>🔄 Note: Restart tracking active once PriceFeed refreshes.</i>",
                     symbol, price_data.price_usd, sl, tp
                 )).await?;
             }
             Err(e) => {
                 self.send_message(&format!("❌ <b>Tracking Error:</b> {}", e)).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Comando /untrack - Elimina instantáneamente de SQLite y silencia al monitor
+    async fn cmd_untrack(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.len() < 2 {
+            self.send_message("❌ <b>Syntax Error:</b> <code>/untrack &lt;MINT&gt;</code>").await?;
+            return Ok(());
+        }
+
+        let mint = parts[1];
+        match state_manager.close_position(mint) {
+            Ok(_) => {
+                self.send_message(&format!("🔴 <b>ASSET UNTRACKED</b>\n<code>{}</code> will no longer trigger trading events.", mint)).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Comando /update - Hot swap parameters in DB
+    async fn cmd_update(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.len() < 3 {
+            self.send_message("❌ <b>Syntax Error:</b> <code>/update &lt;MINT&gt; sl=-X tp=Y</code>").await?;
+            return Ok(());
+        }
+
+        let mint = parts[1];
+        
+        // Fetch current position and mutate in place
+        match state_manager.get_position(mint) {
+            Ok(Some(mut pos)) => {
+                let mut updated_sl = false;
+                let mut updated_tp = false;
+
+                for param in &parts[2..] {
+                    if param.starts_with("sl=") {
+                        if let Ok(val) = param[3..].parse::<f64>() {
+                            pos.stop_loss_percent = val;
+                            updated_sl = true;
+                        }
+                    } else if param.starts_with("tp=") {
+                        if let Ok(val) = param[3..].parse::<f64>() {
+                            pos.tp_percent = Some(val);
+                            updated_tp = true;
+                        }
+                    }
+                }
+
+                if let Err(e) = state_manager.upsert_position(&pos) {
+                    self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                    return Ok(());
+                }
+
+                let msg = format!(
+                    "⚙️ <b>HOT-SWAP COMPLETE</b> for {}\n\
+                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                     ⬡ <b>SL:</b> {}\n\
+                     ⬡ <b>TP:</b> {}\n\
+                     <i>Execution engine updated without reboot.</i>",
+                    pos.symbol,
+                    if updated_sl { format!("<code>{:.1}%</code> ✅", pos.stop_loss_percent) } else { "Unchanged".to_string() },
+                    if updated_tp { format!("<code>{:.1}%</code> ✅", pos.tp_percent.unwrap_or(0.0)) } else { "Unchanged".to_string() }
+                );
+                self.send_message(&msg).await?;
+            }
+            Ok(None) => {
+                self.send_message(&format!("⚠️ <b>Position Not Found:</b> <code>{}</code>", mint)).await?;
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
             }
         }
 
@@ -520,22 +614,30 @@ impl CommandHandler {
     }
 
     /// Comando /targets - Muestra la lista de tokens monitoreados
-    async fn cmd_targets(&self, config: Arc<AppConfig>) -> Result<()> {
-        let mut response = "<b>🎯 SECURED TARGETS</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+    async fn cmd_targets(&self, config: Arc<AppConfig>, state_manager: Arc<StateManager>) -> Result<()> {
+        let mut response = "<b>🎯 SECURED TARGETS (DB)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
-        for target in &config.targets {
-            let status = if target.active { "✅ ACTIVE" } else { "⏸ INACTIVE" };
-            response.push_str(&format!(
-                "<b>⬢ {}</b> <code>({})</code>\n\
-                <b>⬡ Stop-Loss:</b> <code>{:.1}%</code>\n\
-                <b>⬡ Allocation:</b> <code>{:.4} SOL</code>\n\
-                <b>⬡ Status:</b> {}\n\n",
-                target.symbol,
-                &target.mint[..8],
-                target.stop_loss_percent,
-                target.amount_sol,
-                status
-            ));
+        if let Ok(db_positions) = state_manager.get_active_positions() {
+            if db_positions.is_empty() {
+                response.push_str("<i>No active allocations.</i>\n\n");
+            } else {
+                for target in db_positions {
+                    let status = if target.active { "✅ ACTIVE" } else { "⏸ INACTIVE" };
+                    response.push_str(&format!(
+                        "<b>⬢ {}</b> <code>({})</code>\n\
+                        <b>⬡ Stop-Loss:</b> <code>{:.1}%</code>\n\
+                        <b>⬡ Take-Profit:</b> <code>{:.1}%</code>\n\
+                        <b>⬡ Allocation:</b> <code>{:.4} SOL</code>\n\
+                        <b>⬡ Status:</b> {}\n\n",
+                        target.symbol,
+                        &target.token_mint[..8],
+                        target.stop_loss_percent,
+                        target.tp_percent.unwrap_or(100.0),
+                        target.amount_sol,
+                        status
+                    ));
+                }
+            }
         }
 
         response.push_str(&format!(

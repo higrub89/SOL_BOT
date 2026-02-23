@@ -173,7 +173,7 @@ fn main() -> Result<()> {
         println!("│ Paired with: {}", if pool.pc_mint == WSOL_MINT { "SOL ✅" } else { &pool.pc_mint[..8] });
         println!("└────────────────────────────────────────────────┘");
         
-        // Generar el fragmento JSON para targets.json
+        // Generar el fragmento JSON para settings.json
         let is_sol_pair = pool.pc_mint == WSOL_MINT || pool.coin_mint == WSOL_MINT;
         
         if is_sol_pair {
@@ -185,7 +185,7 @@ fn main() -> Result<()> {
             };
             
             println!();
-            println!("📋 Añade esto a tu targets.json:");
+            println!("📋 Añade esto a tu base de datos SQLite comandos /track:");
             println!("─────────────────────────────────");
             println!(r#"    {{
       "symbol": "TU_SYMBOL",
@@ -207,7 +207,7 @@ fn main() -> Result<()> {
     }
     
     println!();
-    println!("✅ ¡Listo! Copia el JSON de arriba a tu targets.json");
+    println!("✅ ¡Listo! Utiliza el comando /track en Telegram con estos datos");
     
     Ok(())
 }

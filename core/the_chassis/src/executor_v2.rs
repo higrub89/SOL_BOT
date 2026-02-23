@@ -164,23 +164,6 @@ impl TradeExecutor {
         let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
-        // 🛡️ JITO INTEGRATION: Agregar propina (Tip) para Anti-MEV
-        // Solo para compras, ya que ventas urgentes pueden preferir ruta estándar si Jito falla
-        // Pero para "Emergency Sell" queremos velocidad, así que Jito es ideal.
-        
-        let jito_tip_lamports = 100_000; // 0.0001 SOL tip (ajustable)
-        
-        // Agregar instrucción de Tip al final de la transacción
-        // Nota: Esto requiere reconstruir el mensaje si no hay espacio, pero Jupiter suele dejar espacio.
-        // Simplificación: Enviar como transacción normal por ahora, Jito Integration completa requiere
-        // recompilar el Message.
-        // 
-        // PLAN B: Usar Jito si podemos, sino Standard RPC.
-        // Para inyectar la instrucción, necesitamos modificar el VersionedMessage.
-        // Dado que esto es complejo en caliente, usaremos envío estándar optimizado.
-        
-        // ✅ CRITICAL FIX: Jupiter devuelve la tx sin la firma del usuario.
-        // Obtenemos un blockhash fresco y firmamos con nuestro keypair antes de broadcast.
         let recent_blockhash = self.rpc_client
             .get_latest_blockhash()
             .context("Error obteniendo blockhash reciente")?;
@@ -191,11 +174,36 @@ impl TradeExecutor {
         // 5. Enviar transacción (Standard vs Jito)
         println!("📡 Broadcasting transacción a Solana...");
         
-        // Intentar Jito si es posible (aunque sin Tip instruction no es garantizado, 
-        // pero enviarlo al block engine a veces ayuda si hay congestión).
-        // Realmente necesitamos el Tip instruction para que Jito lo procese prioritariamente.
-        // Por ahora, usaremos el método estándar con retries agresivos.
-        let signature = self.send_transaction_with_retry(&signed_tx, 3).await?;
+        // 🛡️ JITO INTEGRATION: Preparar bundle con Tip Transaction
+        let jito_tip_lamports = crate::config::AppConfig::load()
+            .map(|c| c.global_settings.jito_tip_lamports)
+            .unwrap_or(100_000);
+
+        let signature_str = if jito_tip_lamports > 0 {
+            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", jito_tip_lamports as f64 / 1_000_000_000.0);
+            
+            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
+            let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
+            let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
+            tip_tx.sign(&[keypair], recent_blockhash);
+            let versioned_tip_tx = VersionedTransaction::from(tip_tx);
+            
+            let bundle = vec![signed_tx.clone(), versioned_tip_tx];
+
+            match self.jito_client.send_bundle(bundle).await {
+                Ok(bundle_id) => {
+                    println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
+                    signed_tx.signatures[0].to_string()
+                },
+                Err(e) => {
+                    eprintln!("⚠️  Jito falló: {}. Fallback a RPC standard...", e);
+                    self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+                }
+            }
+        } else {
+            self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+        };
+        let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
         println!("✅ Transacción confirmada!\n");
         println!("🔗 Signature: {}", signature);
@@ -287,7 +295,30 @@ impl TradeExecutor {
         let signed_tx = VersionedTransaction::try_new(transaction.message, &[keypair])
             .context("Error firmando transacción con keypair")?;
         
-        let signature = self.send_transaction_with_retry(&signed_tx, 3).await?;
+        let signature_str = if priority_fee_lamports > 0 {
+            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", priority_fee_lamports as f64 / 1_000_000_000.0);
+            
+            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, priority_fee_lamports);
+            let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
+            let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
+            tip_tx.sign(&[keypair], recent_blockhash);
+            
+            let bundle = vec![signed_tx.clone(), VersionedTransaction::from(tip_tx)];
+
+            match self.jito_client.send_bundle(bundle).await {
+                Ok(bundle_id) => {
+                    println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
+                    signed_tx.signatures[0].to_string()
+                },
+                Err(e) => {
+                    eprintln!("⚠️  Jito falló: {}. Fallback a RPC standard...", e);
+                    self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+                }
+            }
+        } else {
+            self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+        };
+        let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
         Ok(SwapResult {
             signature: signature.to_string(),
@@ -479,7 +510,33 @@ impl TradeExecutor {
             .context("Error firmando transacción con keypair")?;
 
         println!("📡 Broadcasting transacción a Solana...");
-        let signature = self.send_transaction_with_retry(&signed_tx, 3).await?;
+        let jito_tip_lamports = crate::config::AppConfig::load()
+            .map(|c| c.global_settings.jito_tip_lamports)
+            .unwrap_or(100_000);
+
+        let signature_str = if jito_tip_lamports > 0 {
+            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", jito_tip_lamports as f64 / 1_000_000_000.0);
+            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
+            let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
+            let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
+            tip_tx.sign(&[keypair], recent_blockhash);
+            
+            let bundle = vec![signed_tx.clone(), VersionedTransaction::from(tip_tx)];
+
+            match self.jito_client.send_bundle(bundle).await {
+                Ok(bundle_id) => {
+                    println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
+                    signed_tx.signatures[0].to_string()
+                },
+                Err(e) => {
+                    eprintln!("⚠️  Jito falló: {}. Fallback a RPC standard...", e);
+                    self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+                }
+            }
+        } else {
+            self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+        };
+        let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
         println!("✅ Compra confirmada!\n");
         println!("🔗 Signature: {}", signature);
@@ -571,7 +628,7 @@ impl TradeExecutor {
 
         println!("💡 Para ejecutar en PRODUCCIÓN:");
         println!("   1. Proporciona el Keypair de tu wallet");
-        println!("   2. Ajusta 'auto_execute = true' en targets.json\n");
+        println!("   2. Ajusta 'auto_execute = true' en settings.json\n");
         
         Ok(SwapResult {
             signature: "SIMULATION_ONLY".to_string(),

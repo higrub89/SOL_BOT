@@ -15,9 +15,9 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-# Verificar que existe targets.json
-if [ ! -f "targets.json" ]; then
-    echo "❌ ERROR: No se encuentra targets.json"
+# Verificar que existe settings.json
+if [ ! -f "settings.json" ]; then
+    echo "❌ ERROR: No se encuentra settings.json"
     echo "   Este archivo es necesario para configurar los tokens a monitorear"
     exit 1
 fi
@@ -35,11 +35,15 @@ echo "📋 CONFIGURACIÓN ACTUAL:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Contar targets activos
-ACTIVE_TARGETS=$(grep -o '"active": true' targets.json | wc -l)
+if command -v sqlite3 &> /dev/null && [ -f "trading_state.db" ]; then
+    ACTIVE_TARGETS=$(sqlite3 trading_state.db "SELECT count(*) FROM positions WHERE active = 1;")
+else
+    ACTIVE_TARGETS=0
+fi
 echo "   • Targets activos: $ACTIVE_TARGETS"
 
-# Verificar auto_execute
-if grep -q '"auto_execute": true' targets.json; then
+# Check si Auto Execute esta habilitado
+if grep -q '"auto_execute": true' settings.json; then
     echo "   • Auto-Execute:    🔴 ACTIVADO (abrirá Jupiter automáticamente)"
 else
     echo "   • Auto-Execute:    🟡 DESACTIVADO (requiere acción manual)"
@@ -67,7 +71,7 @@ echo "🚀 Iniciando The Chassis..."
 echo ""
 
 if [ "$MODE" == "2" ]; then
-    cargo run --release
+    cargo run --release --bin the_chassis_app
 else
-    cargo run
+    cargo run --bin the_chassis_app
 fi

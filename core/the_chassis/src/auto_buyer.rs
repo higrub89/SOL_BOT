@@ -71,6 +71,7 @@ pub struct AutoBuyer {
     helius_sensor: HeliusSensor,
     dexscreener_sensor: DexScreenerSensor,
     /// Cache de precios del PriceFeed para calcular momentum real
+    #[allow(dead_code)]
     price_cache: Option<PriceCache>,
     /// Historial de precios por token para calcular slope
     momentum_history: Arc<RwLock<std::collections::HashMap<String, MomentumBuffer>>>,

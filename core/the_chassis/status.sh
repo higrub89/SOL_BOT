@@ -35,38 +35,42 @@ else
     echo "   ❌ .env NO encontrado"
 fi
 
-if [ -f "targets.json" ]; then
-    echo "   ✅ targets.json encontrado"
+if [ -f "settings.json" ]; then
+    echo "   ✅ settings.json encontrado"
 else
-    echo "   ❌ targets.json NO encontrado"
+    echo "   ❌ settings.json NO encontrado"
 fi
 
 echo ""
 echo "📊 TARGETS CONFIGURADOS:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-if [ -f "targets.json" ]; then
-    # Contar targets totales
-    TOTAL_TARGETS=$(grep -c '"symbol"' targets.json)
-    # Contar targets activos
-    ACTIVE_TARGETS=$(grep -c '"active": true' targets.json)
+if [ -f "settings.json" ]; then
+    # Query sqlite for positions 
+    if command -v sqlite3 &> /dev/null && [ -f "trading_state.db" ]; then
+        TOTAL_TARGETS=$(sqlite3 trading_state.db "SELECT count(*) FROM positions;")
+        ACTIVE_TARGETS=$(sqlite3 trading_state.db "SELECT count(*) FROM positions WHERE active = 1;")
+    else
+        TOTAL_TARGETS=0
+        ACTIVE_TARGETS=0
+        echo "   ⚠️  SQLite no disponible o base de datos no creada"
+    fi
     
     echo "   • Total de targets: $TOTAL_TARGETS"
     echo "   • Targets activos:  $ACTIVE_TARGETS"
     
     # Mostrar símbolos activos
-    if [ $ACTIVE_TARGETS -gt 0 ]; then
+    if [ "$ACTIVE_TARGETS" -gt 0 ]; then
         echo ""
-        echo "   🎯 Tokens en monitoreo:"
-        # Extraer símbolos de targets activos (simple parsing)
-        grep -B 5 '"active": true' targets.json | grep '"symbol"' | sed 's/.*"symbol": "\(.*\)".*/      • \1/'
+        echo "   🎯 Tokens en monitoreo activo:"
+        sqlite3 trading_state.db "SELECT symbol FROM positions WHERE active = 1;" | sed 's/^/      • /'
     fi
     
     # Mostrar configuración global
     echo ""
     echo "   ⚙️  Configuración global:"
-    AUTO_EXEC=$(grep '"auto_execute"' targets.json | grep -o 'true\|false')
-    INTERVAL=$(grep '"monitor_interval_sec"' targets.json | grep -o '[0-9]*')
+    AUTO_EXEC=$(grep '"auto_execute"' settings.json | grep -o 'true\|false')
+    INTERVAL=$(grep '"monitor_interval_sec"' settings.json | grep -o '[0-9]*')
     
     if [ "$AUTO_EXEC" == "true" ]; then
         echo "      • Auto-Execute:  🔴 ACTIVADO"
@@ -119,22 +123,15 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 # Resumen final
 echo ""
-if [ -f ".env" ] && [ -f "targets.json" ]; then
-    ACTIVE_COUNT=$(grep -c '"active": true' targets.json 2>/dev/null || echo "0")
-    if [ "$ACTIVE_COUNT" -gt 0 ]; then
-        echo "✅ Sistema LISTO para ejecutar"
-        echo ""
-        echo "Para iniciar el bot, ejecuta:"
-        echo "   ./start.sh"
-    else
-        echo "⚠️  Sistema configurado pero sin targets activos"
-        echo ""
-        echo "Activa un target en targets.json cambiando 'active' a true"
-    fi
+if [ -f ".env" ] && [ -f "settings.json" ]; then
+    echo "✅ Sistema LISTO para ejecutar"
+    echo ""
+    echo "Para iniciar el bot, ejecuta:"
+    echo "   ./start.sh"
 else
     echo "⚠️  Configuración incompleta"
     echo ""
-    echo "Completa los archivos .env y targets.json antes de ejecutar"
+    echo "Completa los archivos .env y settings.json antes de ejecutar"
 fi
 
 echo ""

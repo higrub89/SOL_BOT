@@ -48,6 +48,7 @@ pub struct OnChainAnalysis {
 
 pub struct HeliusSensor {
     rpc_client: Arc<RpcClient>,
+    #[allow(dead_code)]
     helius_api_key: Option<String>,
 }
 

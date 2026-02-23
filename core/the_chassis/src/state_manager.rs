@@ -31,6 +31,9 @@ pub struct PositionState {
     pub tp_percent: Option<f64>, // Take Profit Target %
     pub tp_amount_percent: Option<f64>, // % of stack to sell
     pub tp_triggered: bool,
+    pub tp2_percent: Option<f64>, // Moonbag TP Target %
+    pub tp2_amount_percent: Option<f64>, // % of stack to sell for TP2
+    pub tp2_triggered: bool,
     pub active: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -110,6 +113,9 @@ impl StateManager {
                 tp_percent REAL,
                 tp_amount_percent REAL,
                 tp_triggered INTEGER DEFAULT 0,
+                tp2_percent REAL,
+                tp2_amount_percent REAL,
+                tp2_triggered INTEGER DEFAULT 0,
                 active INTEGER NOT NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -170,6 +176,9 @@ impl StateManager {
         let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_percent REAL", []);
         let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_amount_percent REAL", []);
         let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_triggered INTEGER DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_percent REAL", []);
+        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_amount_percent REAL", []);
+        let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_triggered INTEGER DEFAULT 0", []);
 
         Ok(())
     }
@@ -190,8 +199,9 @@ impl StateManager {
                 stop_loss_percent, trailing_enabled, trailing_distance_percent,
                 trailing_activation_threshold, trailing_highest_price,
                 trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                tp2_percent, tp2_amount_percent, tp2_triggered,
                 active, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
             ON CONFLICT(token_mint) DO UPDATE SET
                 current_price = excluded.current_price,
                 stop_loss_percent = excluded.stop_loss_percent,
@@ -200,6 +210,9 @@ impl StateManager {
                 tp_percent = excluded.tp_percent,
                 tp_amount_percent = excluded.tp_amount_percent,
                 tp_triggered = excluded.tp_triggered,
+                tp2_percent = excluded.tp2_percent,
+                tp2_amount_percent = excluded.tp2_amount_percent,
+                tp2_triggered = excluded.tp2_triggered,
                 active = excluded.active,
                 updated_at = excluded.updated_at",
             params![
@@ -217,6 +230,9 @@ impl StateManager {
                 position.tp_percent,
                 position.tp_amount_percent,
                 position.tp_triggered as i32,
+                position.tp2_percent,
+                position.tp2_amount_percent,
+                position.tp2_triggered as i32,
                 position.active as i32,
                 position.created_at,
                 now,
@@ -258,9 +274,12 @@ impl StateManager {
                 tp_percent: row.get(12).ok(),
                 tp_amount_percent: row.get(13).ok(),
                 tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                active: row.get::<_, i32>(15)? != 0,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
+                tp2_percent: row.get(15).ok(),
+                tp2_amount_percent: row.get(16).ok(),
+                tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                active: row.get::<_, i32>(18)? != 0,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -277,6 +296,7 @@ impl StateManager {
                     stop_loss_percent, trailing_enabled, trailing_distance_percent,
                     trailing_activation_threshold, trailing_highest_price,
                     trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                    tp2_percent, tp2_amount_percent, tp2_triggered,
                     active, created_at, updated_at
              FROM positions
              WHERE token_mint = ?1"
@@ -301,9 +321,12 @@ impl StateManager {
                 tp_percent: row.get(12).ok(),
                 tp_amount_percent: row.get(13).ok(),
                 tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                active: row.get::<_, i32>(15)? != 0,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
+                tp2_percent: row.get(15).ok(),
+                tp2_amount_percent: row.get(16).ok(),
+                tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                active: row.get::<_, i32>(18)? != 0,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             }))
         } else {
             Ok(None)
@@ -316,6 +339,18 @@ impl StateManager {
         
         conn.execute(
             "UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
+            params![Utc::now().timestamp(), token_mint],
+        )?;
+        
+        Ok(())
+    }
+
+    /// Marca el Take Profit 2 (Moonbag) como ejecutado
+    pub fn mark_tp2_triggered(&self, token_mint: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        
+        conn.execute(
+            "UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
             params![Utc::now().timestamp(), token_mint],
         )?;
         

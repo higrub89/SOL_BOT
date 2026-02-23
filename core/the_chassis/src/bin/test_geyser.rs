@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     println!("   Presiona Ctrl+C para salir.");
 
     // Lanzar en background
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         if let Err(e) = client.subscribe_and_listen(target_account).await {
             eprintln!("❌ Error en suscripción: {}", e);
         }

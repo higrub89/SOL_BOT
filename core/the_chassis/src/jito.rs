@@ -9,11 +9,9 @@ use solana_sdk::{
     transaction::VersionedTransaction,
     pubkey::Pubkey,
     system_instruction,
-    signature::Keypair,
-    signer::Signer,
 };
 use std::str::FromStr;
-use base64::{Engine as _, engine::general_purpose};
+// use base64::{Engine as _, engine::general_purpose};
 
 // Tip Accounts oficiales de Jito (Mainnet)
 const JITO_TIP_ACCOUNTS: [&str; 8] = [

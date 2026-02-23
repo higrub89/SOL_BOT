@@ -313,7 +313,7 @@ impl PriceFeed {
             
             if pool_accounts.is_empty() {
                 eprintln!("⚠️  [Geyser] No hay vault accounts ni pool accounts configurados.");
-                eprintln!("   💡 Añade 'coin_vault' + 'pc_vault' a tus targets en targets.json");
+                eprintln!("   💡 Añade 'coin_vault' + 'pc_vault' a tus targets");
                 return;
             }
             
