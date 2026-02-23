@@ -60,7 +60,10 @@ Advanced financial logic is now hard-coded into the engine's DNA.
 
 - [ ] **Sentinel Liquidity Detection**: Automated exit protocols for liquidity drain events.
 - [ ] **Adaptive Gratuity**: Dynamic Jito tips based on real-time network congestion.
-- [ ] **The Glass Dashboard**: Web-based visual telemetry for portfolio oversight.
+- [ ] **The Glass Dashboard (Silicon Valley Protocol)**: 
+    *   **Decoupled Architecture**: Separation of the High-Performance Engine (Rust) from the Presentation Layer (Next.js).
+    *   **Showroom Interface**: A hyper-luxury dashboard for visual telemetry and simulation oversight.
+    *   **Sovereign API**: A dedicated internal data-stream connecting the Engine to the Dashboard without compromising execution speed.
 
 ---
 
