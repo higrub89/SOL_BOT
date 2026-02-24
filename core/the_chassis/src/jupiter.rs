@@ -41,6 +41,9 @@ impl JupiterClient {
         amount: u64,
         slippage_bps: u16, // Basis points (100 = 1%)
     ) -> Result<QuoteResponse> {
+        let input_mint = input_mint.trim();
+        let output_mint = output_mint.trim();
+        
         let url = format!(
             "{}/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
             self.base_url, input_mint, output_mint, amount, slippage_bps
