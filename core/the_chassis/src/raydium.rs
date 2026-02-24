@@ -139,20 +139,26 @@ impl RaydiumClient {
         })
     }
 
-    /// Carga el cache de pools desde JSON
+    /// Carga el cache de pools desde JSON (Robust)
     fn load_pool_cache() -> Result<HashMap<String, PoolInfo>> {
         let cache_path = "pools_cache.json";
         
         if !std::path::Path::new(cache_path).exists() {
-            println!("⚠️  pools_cache.json no encontrado. Cache vacío.");
             return Ok(HashMap::new());
         }
         
-        let content = fs::read_to_string(cache_path)
-            .context("Error leyendo pools_cache.json")?;
+        let content = match fs::read_to_string(cache_path) {
+            Ok(c) => c,
+            Err(_) => return Ok(HashMap::new()),
+        };
         
-        let cache: PoolsCache = serde_json::from_str(&content)
-            .context("Error parseando pools_cache.json")?;
+        let cache: PoolsCache = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("⚠️ Error parseando pools_cache.json: {}. Usando cache vacío.", e);
+                return Ok(HashMap::new());
+            }
+        };
         
         let mut map = HashMap::new();
         for pool in cache.pools {

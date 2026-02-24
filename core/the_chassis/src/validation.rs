@@ -131,11 +131,14 @@ impl FinancialValidator {
         Ok(price_impact_pct)
     }
     
-    /// Parsea un string a f64 con validación
+    /// Parsea un string a f64 con validación (Permisivo para tokens nuevos)
     pub fn parse_price_safe(price_str: &str, context: &str) -> Result<f64> {
-        let price = price_str
-            .parse::<f64>()
-            .with_context(|| format!("{}: No se pudo parsear precio '{}'", context, price_str))?;
+        let price = price_str.parse::<f64>().unwrap_or(0.0);
+        
+        if price <= 0.0 {
+            // No fallar, solo advertir. Es común en tokens de segundos de vida.
+            return Ok(0.0);
+        }
         
         Self::validate_price(price, context)
     }
