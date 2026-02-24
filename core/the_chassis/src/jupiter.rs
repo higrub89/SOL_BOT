@@ -28,7 +28,7 @@ impl JupiterClient {
                 .user_agent("TheChassis/2.0")
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            base_url: "https://api.jup.ag/swap/v6".to_string(),
+            base_url: "https://api.jup.ag/swap/v1".to_string(),
             api_key: std::env::var("JUPITER_API_KEY").ok(),
         }
     }
@@ -60,7 +60,7 @@ impl JupiterClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Jupiter API Error [{}]: {}", status, error_text);
+            anyhow::bail!("Jupiter Quote Error [{}]: {}", status, error_text);
         }
 
         let quote: QuoteResponse = response
@@ -101,8 +101,9 @@ impl JupiterClient {
             .context("Error al obtener transacción de Jupiter")?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Jupiter swap error: {}", error_text);
+            anyhow::bail!("Jupiter Swap Error [{}]: {}", status, error_text);
         }
 
         let swap_tx: SwapTransactionResponse = response
