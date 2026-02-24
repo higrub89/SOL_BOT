@@ -304,7 +304,8 @@ impl CommandHandler {
             <b>⋄ {}</b>\n\
             <b>⋄ {}</b>\n\
             <b>⋄ Health:</b> {}\n\
-            <b>⋄ Engine:</b> <code>v2.0.0-institutional</code>\n\n\
+            <b>⋄ Engine:</b> <code>v2.0.0-institutional</code>\n\
+            <b>⋄ Marker:</b> <code>DIAG_CODE: b08ad</code>\n\n\
             <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
             hours, minutes, secs,
             rpc_status,
