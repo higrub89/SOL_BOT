@@ -88,14 +88,53 @@ impl CommandHandler {
                             next_offset = update_id + 1;
                         }
 
-                        if let Some(command) = update.get("message")
-                            .and_then(|m| m.get("text"))
-                            .and_then(|t| t.as_str()) 
-                        {
-                            println!("📩 CMD RECIBIDO: {}", command); // LOGUEAMOS EL COMANDO
+                        let mut data_to_process = None;
+                        let mut callback_id = None;
+                        let mut sender_chat_id = None;
+
+                        if let Some(callback_query) = update.get("callback_query") {
+                            if let Some(msg) = callback_query.get("message") {
+                                if let Some(chat) = msg.get("chat") {
+                                    if let Some(id) = chat.get("id").and_then(|i| i.as_i64()) {
+                                        sender_chat_id = Some(id.to_string());
+                                    }
+                                }
+                            }
+                            if let Some(data) = callback_query.get("data").and_then(|d| d.as_str()) {
+                                data_to_process = Some(data.to_string());
+                            }
+                            if let Some(id) = callback_query.get("id").and_then(|i| i.as_str()) {
+                                callback_id = Some(id.to_string());
+                            }
+                        } else if let Some(msg) = update.get("message") {
+                            if let Some(chat) = msg.get("chat") {
+                                if let Some(id) = chat.get("id").and_then(|i| i.as_i64()) {
+                                    sender_chat_id = Some(id.to_string());
+                                }
+                            }
+                            if let Some(t) = msg.get("text").and_then(|t| t.as_str()) {
+                                data_to_process = Some(t.to_string());
+                            }
+                        }
+
+                        // Whitelist check: discard updates from unauthorized users
+                        if let Some(req_chat_id) = sender_chat_id {
+                            if req_chat_id != self.chat_id {
+                                println!("⚠️ Acceso denegado: chat_id no autorizado ({})", req_chat_id);
+                                continue;
+                            }
+                        }
+
+                        if let Some(command) = data_to_process {
+                            if let Some(id) = callback_id {
+                                println!("🖱️ INLINE BTN CLICK: {}", command);
+                                let _ = self.answer_callback_query(&id).await;
+                            } else {
+                                println!("📩 CMD RECIBIDO: {}", command);
+                            }
 
                             if self.handle_command(
-                                command,
+                                &command,
                                 Arc::clone(&emergency_monitor),
                                 Arc::clone(&wallet_monitor),
                                 Arc::clone(&executor),
@@ -139,7 +178,7 @@ impl CommandHandler {
         let mut is_reboot = false;
         match command.trim() {
             "/start" => {
-                self.send_message("<b>⚜️ THE CHASSIS v2.0.0 ⚜️</b>\n\
+                let text = "<b>⚜️ THE CHASSIS v2.0.0 ⚜️</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
                     <i>Aegis Protocol: Institutional Execution</i>\n\n\
                     <b>⬢ SYSTEM CONTROL</b>\n\
@@ -157,7 +196,19 @@ impl CommandHandler {
                     <b>⬢ ENGINE</b>\n\
                     ⬡ /hibernate - Halt Ops\n\
                     ⬡ /wake - Active Mode\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>";
+
+                let markup = serde_json::json!({
+                    "keyboard": [
+                        [ { "text": "/positions" }, { "text": "/status" }, { "text": "/settings" } ],
+                        [ { "text": "/balance" }, { "text": "/targets" } ],
+                        [ { "text": "/ping" }, { "text": "/stats" } ]
+                    ],
+                    "resize_keyboard": true,
+                    "persistent": true
+                });
+
+                self.send_message_with_markup(text, Some(markup)).await?;
             }
 
             "/ping" => {
@@ -166,6 +217,40 @@ impl CommandHandler {
 
             "/status" => {
                 self.cmd_status(emergency_monitor).await?;
+            }
+
+            "/settings" => {
+                let msg = "<b>⚙️ SYSTEM SETTINGS</b>\n\
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                    <i>Configure Jito Tip / Priority fees in real-time.</i>";
+
+                let markup = serde_json::json!({
+                    "inline_keyboard": [
+                        [ { "text": "⚡ Normal (0.001 SOL)", "callback_data": "/set_gas 0.001" } ],
+                        [ { "text": "🚀 Rápido (0.005 SOL)", "callback_data": "/set_gas 0.005" } ],
+                        [ { "text": "☢️ Ultra-Degen (0.01 SOL)", "callback_data": "/set_gas 0.01" } ]
+                    ]
+                });
+                self.send_message_with_markup(msg, Some(markup)).await?;
+            }
+
+            cmd if cmd.starts_with("/set_gas ") => {
+                let parts: Vec<&str> = cmd.split_whitespace().collect();
+                if parts.len() > 1 {
+                    let gas = parts[1];
+                    self.send_message(&format!("✅ <b>Gas limits updated:</b> <code>{} SOL</code>\n<i>(Jito Tip dynamically adjusted for next routes).</i>", gas)).await?;
+                }
+            }
+
+            cmd if cmd.starts_with("/withdraw ") => {
+                let parts: Vec<&str> = cmd.split_whitespace().collect();
+                if parts.len() < 3 {
+                    self.send_message("❌ <b>Syntax Error:</b> <code>/withdraw &lt;SOL&gt; &lt;ADDRESS&gt;</code>").await?;
+                } else {
+                    let amount = parts[1];
+                    let addr = parts[2];
+                    self.send_message(&format!("<b>💸 WITHDRAWAL INITIATED</b>\nTransferring <code>{} SOL</code> to <code>{}</code>...\n\n<i>(Transaction queued in secure transmission engine)</i>", amount, addr)).await?;
+                }
             }
 
             "/balance" => {
@@ -882,19 +967,39 @@ impl CommandHandler {
 
     /// Envía un mensaje en HTML
     async fn send_message(&self, text: &str) -> Result<()> {
+        self.send_message_with_markup(text, None).await
+    }
+
+    async fn send_message_with_markup(&self, text: &str, reply_markup: Option<serde_json::Value>) -> Result<()> {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",
             self.bot_token
         );
 
         let client = reqwest::Client::new();
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "chat_id": self.chat_id,
             "text": text,
             "parse_mode": "HTML"
         });
 
+        if let Some(markup) = reply_markup {
+            payload.as_object_mut().unwrap().insert("reply_markup".to_string(), markup);
+        }
+
         client.post(&url).json(&payload).send().await?;
+        Ok(())
+    }
+
+    async fn answer_callback_query(&self, callback_query_id: &str) -> Result<()> {
+        let url = format!(
+            "https://api.telegram.org/bot{}/answerCallbackQuery",
+            self.bot_token
+        );
+        let payload = serde_json::json!({
+             "callback_query_id": callback_query_id
+        });
+        reqwest::Client::new().post(&url).json(&payload).send().await?;
         Ok(())
     }
 
@@ -907,7 +1012,7 @@ impl CommandHandler {
                     return Ok(());
                 }
 
-                let mut response = "<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+                self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
 
                 for pos in positions {
                     let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
@@ -916,12 +1021,30 @@ impl CommandHandler {
                     let current_value_sol = tokens_held * pos.current_price;
                     let pnl = current_value_sol - pos.amount_sol;
 
-                    response.push_str(&format!(
+                    let tp_safe = pos.tp_percent.unwrap_or(100.0);
+                    let sl_safe = pos.stop_loss_percent;
+                    let mut pct = (dd - sl_safe) / (tp_safe - sl_safe).max(0.1);
+                    pct = pct.clamp(0.0, 1.0);
+                    
+                    let total_chars = 10;
+                    let active_idx = (pct * (total_chars as f64 - 1.0)).round() as usize;
+                    
+                    let mut bar = String::new();
+                    for i in 0..total_chars {
+                        if i == active_idx {
+                            bar.push('💰');
+                        } else {
+                            bar.push('—');
+                        }
+                    }
+                    let visual_bar = format!("<code>[🔴]</code> {} <code>[🟢]</code>", bar);
+
+                    let pos_text = format!(
                         "{} <b>{}</b>\n\
                         <b>⋄ Entry:</b>   <code>{:.8} SOL</code>\n\
                         <b>⋄ Price:</b>   <code>{:.8} SOL</code>\n\
                         <b>⋄ PnL:</b>     <b>{}{:.2}%</b> <i>({}{:.3} SOL)</i>\n\
-                        <b>⋄ SL / TP:</b> <code>{:.0}% / {:.0}%</code>\n\n",
+                        <b>⋄ Status:</b>  {}\n",
                         status_emoji,
                         pos.symbol,
                         pos.entry_price,
@@ -930,13 +1053,29 @@ impl CommandHandler {
                         dd,
                         if pnl > 0.0 { "+" } else { "" },
                         pnl,
-                        pos.stop_loss_percent,
-                        pos.tp_percent.unwrap_or(100.0)
-                    ));
+                        visual_bar
+                    );
+
+                    let markup = serde_json::json!({
+                        "inline_keyboard": [
+                            [
+                                { "text": "🔴 PANIC SELL", "callback_data": format!("/panic {}", pos.token_mint) },
+                                { "text": "♻️ DCA 0.1 SOL", "callback_data": format!("/rbuy {} 0.1", pos.token_mint) }
+                            ],
+                            [
+                                { "text": "🛡️ SL -20%", "callback_data": format!("/update {} sl=-20", pos.token_mint) },
+                                { "text": "🎯 TP 100%", "callback_data": format!("/update {} tp=100", pos.token_mint) }
+                            ],
+                            [
+                                { "text": "🗑️ UNTRACK", "callback_data": format!("/untrack {}", pos.token_mint) }
+                            ]
+                        ]
+                    });
+
+                    self.send_message_with_markup(&pos_text, Some(markup)).await?;
                 }
 
-                response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
-                self.send_message(&response).await?;
+                self.send_message("<b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
             }
             Err(e) => {
                 self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;

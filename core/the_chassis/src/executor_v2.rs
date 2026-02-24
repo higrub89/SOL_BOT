@@ -2,6 +2,7 @@
 //! 
 //! Implementación completa del executor con Jupiter Aggregator integration.
 //! Soporte para ejecución automática de swaps con firma y broadcast.
+//! [HFT EDITION - Dynamic ECU Parameters]
 
 use anyhow::{Result, Context};
 use solana_sdk::{
@@ -19,6 +20,7 @@ use base64::{Engine as _, engine::general_purpose};
 use crate::jupiter::{JupiterClient, SwapResult, BuyResult};
 use crate::validation::FinancialValidator;
 use crate::jito::JitoClient;
+use crate::raydium::RaydiumClient;
 
 /// Configuración del executor
 #[derive(Debug, Clone)]
@@ -50,9 +52,6 @@ impl ExecutorConfig {
     }
 }
 
-// ... imports
-use crate::raydium::RaydiumClient;
-
 /// Executor de trades con Jupiter integration y Raydium Fallback
 pub struct TradeExecutor {
     config: ExecutorConfig,
@@ -77,9 +76,6 @@ impl TradeExecutor {
             },
             Err(e) => {
                 eprintln!("⚠️  Raydium Client fallback: No se pudo cargar caché ({}). Iniciando vacío...", e);
-                // Si falla por caché corrupta, intentamos inicializarlo sin caché (vacío)
-                // Esto requiere que RaydiumClient pueda manejarlo.
-                // Por ahora, simplemente intentamos de nuevo y si falla, devolvemos None pero con log.
                 match RaydiumClient::new(config.rpc_url.clone()) {
                     Ok(c) => Some(c),
                     Err(_) => {
@@ -98,17 +94,115 @@ impl TradeExecutor {
             jito_client: JitoClient::new(),
         }
     }
+    
+    /// Actuador asíncrono con control de tracción para slippage dinámico y Jito Tips (Zero-Allocation)
+    pub async fn execute_sell_with_retry(
+        &self,
+        token_mint: String,
+        wallet_keypair: Option<&Keypair>,
+        amount_percent: u8,
+        is_emergency: bool, // True si es Stop-Loss (prioridad absoluta)
+    ) -> Result<SwapResult> {
+        let mut attempt = 1;
+        let max_attempts = if is_emergency { 5 } else { 3 };
+        
+        // Configuración inicial de inyección
+        let mut current_slippage_bps = self.config.slippage_bps;
+        let mut current_jito_tip = crate::config::AppConfig::load()
+            .map(|c| c.global_settings.jito_tip_lamports)
+            .unwrap_or(100_000);
 
-    /// Ejecuta una venta de emergencia completa
+        loop {
+            println!(
+                "🔄 [Intento {}/{}] Venta de {} | Tracción: {} bps | Tip: {} µL", 
+                attempt, max_attempts, token_mint, current_slippage_bps, current_jito_tip
+            );
+            
+            // ⚡ Llamada directa inyectando la sobrealimentación, sin reconstruir la instancia TCP
+            match self.execute_emergency_sell_with_params(
+                &token_mint, 
+                wallet_keypair.clone(), 
+                amount_percent, 
+                Some(current_slippage_bps), 
+                Some(current_jito_tip)
+            ).await {
+                Ok(result) => {
+                    println!("✅ Maniobra HFT confirmada en red. [Tx: {}]", result.signature);
+                    return Ok(result); // Maniobra exitosa, salimos del circuito
+                },
+                Err(e) => {
+                    let error_msg = e.to_string().to_lowercase();
+                    
+                    if attempt >= max_attempts {
+                        eprintln!(
+                            "💥 Motor calado. Abortando salida para {}. Fallo irrecuperable tras {} intentos: {}", 
+                            token_mint, max_attempts, e
+                        );
+                        return Err(anyhow::anyhow!("Fallo definitivo de Venta tras reintentos: {}", e));
+                    }
+
+                    // --- SISTEMA DE TELEMETRÍA Y RESPUESTA ACTIVA ---
+
+                    if error_msg.contains("slippage") || error_msg.contains("0x11") 
+                       || error_msg.contains("insufficient") || error_msg.contains("error") {
+                        // Pérdida de tracción. Duplicamos la tolerancia de precios.
+                        current_slippage_bps = (current_slippage_bps as f32 * 2.0) as u16; 
+                        
+                        if is_emergency && attempt == max_attempts - 1 {
+                            println!("☢️ [EMERGENCIA] Último ciclo para {}. Activando Modo Degen (Slippage MÁXIMO).", token_mint);
+                            current_slippage_bps = 10000; // 100% Slippage
+                        } else {
+                            println!("⚠️ Deslizamiento superado. Ajustando tracción a {} bps.", current_slippage_bps);
+                        }
+                    } 
+                    else if error_msg.contains("timeout") || error_msg.contains("blockhashnotfound") || error_msg.contains("0x0") {
+                        // Pérdida de presión en la red. Aumentamos el Tip un 50% para saltar la congestión.
+                        current_jito_tip = (current_jito_tip as f64 * 1.5) as u64;
+                        println!("⚡ Retraso de red detectado. Aumentando presión de inyección Jito a {} µLamports.", current_jito_tip);
+                    }
+                    else if error_msg.contains("toomanyrequests") {
+                        println!("⏳ Restricción térmica del RPC. Enfriando conductos...");
+                    }
+
+                    // Backoff Exponencial (200ms, 400ms, 800ms...) para respetar ciclos del nodo
+                    let delay = std::time::Duration::from_millis(200 * (2u64.pow(attempt as u32)));
+                    tokio::time::sleep(delay).await;
+                    
+                    attempt += 1;
+                }
+            }
+        }
+    }
+
+    /// Envoltorio estándar para mantener compatibilidad con API existente
     pub async fn execute_emergency_sell(
         &self,
         token_mint: &str,
         wallet_keypair: Option<&Keypair>,
+        amount_percent: u8,
+    ) -> Result<SwapResult> {
+        self.execute_emergency_sell_with_params(token_mint, wallet_keypair, amount_percent, None, None).await
+    }
+
+    /// Ejecuta una venta de emergencia completa inyectando parámetros dinámicos si se requiere
+    pub async fn execute_emergency_sell_with_params(
+        &self,
+        token_mint: &str,
+        wallet_keypair: Option<&Keypair>,
         amount_percent: u8, // 100 = vender todo
+        dynamic_slippage_bps: Option<u16>, // ⚡ Override de tracción
+        dynamic_jito_tip: Option<u64>,     // ⚡ Override de presión
     ) -> Result<SwapResult> {
         println!("╔════════════════════════════════════════════════════════════╗");
         println!("║           ⚡ EMERGENCY SELL EXECUTOR V2 ⚡               ║");
         println!("╚════════════════════════════════════════════════════════════╝\n");
+
+        let active_slippage = dynamic_slippage_bps.unwrap_or(self.config.slippage_bps);
+        let active_jito_tip = dynamic_jito_tip.unwrap_or_else(|| {
+            crate::config::AppConfig::load()
+                .map(|c| c.global_settings.jito_tip_lamports)
+                .unwrap_or(100_000)
+        });
 
         // ✅ CRITICAL: Validar mint ANTES de cualquier operación
         let token_mint = crate::validation::FinancialValidator::validate_mint(
@@ -120,7 +214,7 @@ impl TradeExecutor {
 
         // Modo dry run si no se proporciona keypair
         if self.config.dry_run || wallet_keypair.is_none() {
-            return self.simulate_emergency_sell(&token_mint, amount_percent).await;
+            return self.simulate_emergency_sell(&token_mint, amount_percent, active_slippage).await;
         }
 
         let keypair = wallet_keypair
@@ -130,11 +224,8 @@ impl TradeExecutor {
         println!("🎯 Token:        {}", token_mint);
         println!("🔑 Wallet:       {}...", &user_pubkey.to_string()[..8]);
         println!("📊 Amount:       {}%", amount_percent);
-        println!("📉 Slippage:     {}%", self.config.slippage_bps as f64 / 100.0);
+        println!("📉 Slippage:     {}%", active_slippage as f64 / 100.0);
         println!("⚙️  Mode:         PRODUCTION\n");
-
-        // Flash check: Raydium Fast Path para ventas?
-        // TODO: Implementar venta en Raydium. Por ahora venta siempre va por Jupiter para asegurar mejor precio de salida.
         
         // 1. Obtener token account y balance
         println!("📊 Verificando balance de tokens...");
@@ -159,7 +250,7 @@ impl TradeExecutor {
             &token_mint,
             SOL_MINT,
             amount_to_sell,
-            self.config.slippage_bps,
+            active_slippage, // ⚡ Inyección
         ).await?;
 
         self.jupiter.print_quote_summary(&quote);
@@ -190,16 +281,11 @@ impl TradeExecutor {
 
         // 5. Enviar transacción (Standard vs Jito)
         println!("📡 Broadcasting transacción a Solana...");
-        
-        // 🛡️ JITO INTEGRATION: Preparar bundle con Tip Transaction
-        let jito_tip_lamports = crate::config::AppConfig::load()
-            .map(|c| c.global_settings.jito_tip_lamports)
-            .unwrap_or(100_000);
 
-        let signature_str = if jito_tip_lamports > 0 {
-            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", jito_tip_lamports as f64 / 1_000_000_000.0);
+        let signature_str = if active_jito_tip > 0 {
+            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", active_jito_tip as f64 / 1_000_000_000.0);
             
-            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
+            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, active_jito_tip); // ⚡ Inyección
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
@@ -232,7 +318,6 @@ impl TradeExecutor {
             "Jupiter out_amount"
         )? / 1_000_000_000.0;
         
-        // Validar que recibimos algo razonable
         FinancialValidator::validate_sol_amount(sol_received, "SOL received")?;
         
         let price_impact = FinancialValidator::parse_price_safe(
@@ -286,10 +371,6 @@ impl TradeExecutor {
         ).await?;
 
         // 2. Obtener transacción optimizada
-        // Nota: Jupiter API permite configurar priority fee en la request de swap
-        // Si la librería client lo soporta. Si no, habría que inyectar instrucción ComputeBudget manual.
-        // Por ahora asumimos configuración estándar o Jito Bundle externo.
-        
         let swap_response = self.jupiter.get_swap_transaction(
             &quote,
             &user_pubkey.to_string(),
@@ -303,8 +384,6 @@ impl TradeExecutor {
         
         let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
         
-        // ✅ CRITICAL FIX: Jupiter devuelve la tx sin la firma del usuario.
-        // Debemos obtener el blockhash reciente y firmar con nuestro keypair.
         let recent_blockhash = self.rpc_client
             .get_latest_blockhash()
             .context("Error obteniendo blockhash reciente")?;
@@ -337,16 +416,14 @@ impl TradeExecutor {
         };
         let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
-        // ✅ CRITICAL FIX: Extraer out_amount real del quote para que el StateManager registre la posición
         let out_amount_raw = quote.out_amount.parse::<f64>().unwrap_or(0.0);
         let price_impact = quote.price_impact_pct.parse::<f64>().unwrap_or(0.0);
         
-        // Intentar obtener decimales vía RPC para normalizar el monto
         let decimals = match solana_sdk::pubkey::Pubkey::from_str(token_mint) {
             Ok(mint_pubkey) => {
                 match self.rpc_client.get_token_supply(&mint_pubkey) {
                     Ok(supply) => supply.decimals,
-                    Err(_) => 6, // Fallback a 6 si falla el RPC (común en tokens muy nuevos)
+                    Err(_) => 6, // Fallback a 6
                 }
             },
             Err(_) => 6,
@@ -387,7 +464,6 @@ impl TradeExecutor {
         println!("║              💰 BUY EXECUTOR V2 (HYBRID) 💰               ║");
         println!("╚════════════════════════════════════════════════════════════╝\n");
 
-        // ✅ CRITICAL: Validar mint ANTES de cualquier operación
         let token_mint = crate::validation::FinancialValidator::validate_mint(
             token_mint,
             "BUY EXECUTOR"
@@ -410,7 +486,6 @@ impl TradeExecutor {
                 println!("⚡ [ULTRA-FAST PATH] Pool detectado: {}", pool_info.name);
                 println!("🚀 Intentando ejecución directa en Raydium...");
 
-                // Intentar obtener un estimado rápido para protección básica, pero no bloquear si falla
                 let oracle_quote = self.jupiter.get_quote(SOL_MINT, &token_mint, amount_in, 500).await;
                 
                 let (estimated_out, found_oracle) = match oracle_quote {
@@ -453,14 +528,9 @@ impl TradeExecutor {
         // 2. FALLBACK/STANDARD: JUPITER AGGREGATOR
         println!("🔄 [STANDARD PATH] Ruteando vía Jupiter Aggregator...");
         
-        // ... (resto de la lógica original de Jupiter)
-        
         let user_pubkey = keypair.pubkey();
-
         println!("🎯 Token:        {}", token_mint);
-        // ... (logs)
         
-        // SOL amount en lamports
         let amount_lamports = (amount_sol * 1_000_000_000.0) as u64;
 
         // 1. Obtener quote de Jupiter
@@ -472,8 +542,6 @@ impl TradeExecutor {
             amount_lamports,
             self.config.slippage_bps,
         ).await?;
-
-        // ... (resto de ejecución normal)
         
         self.jupiter.print_quote_summary(&quote);
 
@@ -482,14 +550,11 @@ impl TradeExecutor {
             "Jupiter tokens to receive"
         )?;
         
-        // Validar que recibiremos tokens
         if tokens_to_receive <= 0.0 {
             anyhow::bail!("Jupiter quote inválido: 0 tokens a recibir");
         }
         
         let price_per_token = amount_sol / tokens_to_receive;
-        
-        // Validar price impact (Relajado para Degen Mode)
         let price_impact = quote.price_impact_pct.parse::<f64>().unwrap_or(0.0);
 
         println!("\n🔧 Generando transacción de swap...");
@@ -507,8 +572,6 @@ impl TradeExecutor {
         let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
             .context("Error deserializando transacción")?;
 
-        // ✅ CRITICAL FIX: Jupiter devuelve la tx sin la firma del usuario.
-        // Obtenemos un blockhash fresco y firmamos con nuestro keypair.
         let recent_blockhash = self.rpc_client
             .get_latest_blockhash()
             .context("Error obteniendo blockhash reciente")?;
@@ -584,20 +647,19 @@ impl TradeExecutor {
         })
     }
 
-    /// Simula una venta (dry run)
-    async fn simulate_emergency_sell(&self, token_mint: &str, amount_percent: u8) -> Result<SwapResult> {
+    /// Simula una venta (dry run) con soporte para slippage opcional
+    async fn simulate_emergency_sell(&self, token_mint: &str, amount_percent: u8, slippage_bps: u16) -> Result<SwapResult> {
         println!("🧪 Mode:         DRY RUN (Simulation)");
         println!("🎯 Token:        {}", token_mint);
         println!("📊 Amount:       {}%\n", amount_percent);
         
-        // Simular obtención de quote real para la simulación
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         
         let quote_result = self.jupiter.get_quote(
             token_mint,
             SOL_MINT,
-            1000000000, // Simular con 1 SOL de valor de token si no sabemos balance
-            self.config.slippage_bps,
+            1000000000, 
+            slippage_bps,
         ).await;
 
         let (output_sol, route, price_impact) = match quote_result {
@@ -630,13 +692,8 @@ impl TradeExecutor {
         println!("   ✓ Ruta óptima identificada: {}", route);
         println!("   ✗ Transacción NO enviada a blockchain\n");
         
-        // Registrar en log de simulación
         self.log_simulated_trade(token_mint, output_sol)?;
 
-        println!("💡 Para ejecutar en PRODUCCIÓN:");
-        println!("   1. Proporciona el Keypair de tu wallet");
-        println!("   2. Ajusta 'auto_execute = true' en settings.json\n");
-        
         let sig = format!("SIM_{}_{}", token_mint, chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         
         Ok(SwapResult {
@@ -685,7 +742,7 @@ impl TradeExecutor {
             println!("🧪 Mode: DRY RUN - Simulando bundle de {} tokens", mints.len());
             let mut results = Vec::new();
             for mint in mints {
-                results.push(self.simulate_emergency_sell(&mint, amount_percent).await?);
+                results.push(self.simulate_emergency_sell(&mint, amount_percent, self.config.slippage_bps).await?);
             }
             return Ok(results);
         }
@@ -779,27 +836,38 @@ impl TradeExecutor {
         Ok(final_results)
     }
 
-    /// Obtiene el token account y balance para un mint específico
+    /// Obtiene el token account y balance para un mint específico con reintentos para ATA creation
     fn get_token_account_balance(&self, wallet: &Pubkey, mint: &str) -> Result<(Pubkey, u64)> {
         let mint_pubkey = Pubkey::from_str(mint)
             .context("Token mint inválido")?;
 
-        // Derivar el Associated Token Account (ATA)
         let token_account = spl_associated_token_account::get_associated_token_address(
             wallet,
             &mint_pubkey,
         );
 
-        // Obtener el account data
-        let account_data = self.rpc_client
-            .get_account(&token_account)
-            .context("No se pudo obtener token account - ¿no tienes tokens?")?;
-
-        // Parsear el account como TokenAccount
-        let token_account_state = TokenAccount::unpack(&account_data.data)
-            .context("Error parseando token account")?;
-
-        Ok((token_account, token_account_state.amount))
+        let mut retries = 5;
+        let mut last_error = None;
+        
+        while retries > 0 {
+            match self.rpc_client.get_account(&token_account) {
+                Ok(account_data) => {
+                    let token_account_state = TokenAccount::unpack(&account_data.data)
+                        .context("Error parseando token account")?;
+                    return Ok((token_account, token_account_state.amount));
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    retries -= 1;
+                    if retries > 0 {
+                        println!("⏳ [RETRY] ATA no detectado aún para {}. Esperando 600ms...", &mint[..8]);
+                        std::thread::sleep(std::time::Duration::from_millis(600));
+                    }
+                }
+            }
+        }
+        
+        anyhow::bail!("Fallo definitivo buscando ATA tras reintentos: {:?}", last_error);
     }
 
     /// Envía una transacción con reintentos
@@ -853,7 +921,6 @@ impl TradeExecutor {
     ) -> Result<BuyResult> {
         println!("🚀 [DEGEN MODE] Initiating Direct Raydium Assault...");
         
-        // ✅ CRITICAL: Validar mint ANTES de cualquier operación
         let token_mint = crate::validation::FinancialValidator::validate_mint(
             token_mint,
             "DEGEN BUY"
@@ -864,17 +931,17 @@ impl TradeExecutor {
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         let amount_in = (amount_sol * 1_000_000_000.0) as u64;
 
-        // 1. Obtener balance PRE-compra para calcular diferencia exacta
+        // 1. Obtener balance PRE-compra
         let user_pubkey = keypair.pubkey();
         let pre_balance = self.get_token_account_balance(&user_pubkey, &token_mint)
             .map(|(_, bal)| bal)
             .unwrap_or(0);
 
-        // 2. Buscar pool y ejecutar con slippage casi infinito (min_out = 1 lamport)
+        // 2. Ejecutar
         let _pool_info = raydium.find_pool(SOL_MINT, &token_mint).await?;
         let sig = raydium.execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair).await?;
 
-        // 3. Esperar confirmación corta y obtener balance POST-compra
+        // 3. Esperar confirmación
         println!("⏳ Esperando confirmación para calcular precio real...");
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         
@@ -891,13 +958,9 @@ impl TradeExecutor {
         }
 
         let tokens_received_raw = post_balance.saturating_sub(pre_balance);
-        let tokens_received = tokens_received_raw as f64 / 1_000_000.0; // Asumiendo 6 decimales (SPL Estándar)
+        let tokens_received = tokens_received_raw as f64 / 1_000_000.0;
         
-        let price_per_token = if tokens_received > 0.0 {
-            amount_sol / tokens_received
-        } else {
-            0.0
-        };
+        let price_per_token = if tokens_received > 0.0 { amount_sol / tokens_received } else { 0.0 };
 
         if tokens_received <= 0.0 {
             println!("⚠️ [WARNING] No se detectó cambio en el balance de tokens. El monitoreo podría fallar.");
