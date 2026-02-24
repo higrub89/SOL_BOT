@@ -95,6 +95,7 @@ impl PriceScanner {
                 volume_24h,
                 price_change_24h,
                 symbol: pair.base_token.symbol.clone(),
+                pair_address: pair.pair_address.clone(),
             })
         } else {
             anyhow::bail!("No trading pairs found for token")
@@ -171,6 +172,7 @@ pub struct TokenPrice {
     pub volume_24h: f64,
     pub price_change_24h: f64,
     pub symbol: String,
+    pub pair_address: String,
 }
 
 // Estructuras para parsear respuesta de Dexscreener
@@ -182,6 +184,7 @@ struct DexScreenerResponse {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DexPair {
+    pair_address: String,
     price_usd: Option<String>,
     price_native: Option<String>,
     liquidity: Option<Liquidity>,

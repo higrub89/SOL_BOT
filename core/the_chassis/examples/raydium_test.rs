@@ -6,7 +6,8 @@ use the_chassis::raydium::RaydiumClient;
 use dotenv::dotenv;
 use std::env;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     
     println!("╔════════════════════════════════════════════════════════════╗");
@@ -35,7 +36,7 @@ fn main() -> anyhow::Result<()> {
     let sol_mint = "So11111111111111111111111111111111111111112";
     let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
     
-    match client.find_pool(sol_mint, usdc_mint) {
+    match client.find_pool(sol_mint, usdc_mint).await {
         Ok(pool) => {
             println!("✅ Pool encontrado: {}", pool.name);
             println!("   AMM ID: {}", pool.amm_id);
@@ -50,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     println!("🔍 TEST 2: Buscando pool SOL/USDT...");
     let usdt_mint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
     
-    match client.find_pool(sol_mint, usdt_mint) {
+    match client.find_pool(sol_mint, usdt_mint).await {
         Ok(pool) => {
             println!("✅ Pool encontrado: {}", pool.name);
             println!("   AMM ID: {}", pool.amm_id);
@@ -65,7 +66,7 @@ fn main() -> anyhow::Result<()> {
     println!("🔍 TEST 3: Buscando pool no cacheado (debería fallar)...");
     let fake_mint = "FakeTokenMint1111111111111111111111111111111";
     
-    match client.find_pool(sol_mint, fake_mint) {
+    match client.find_pool(sol_mint, fake_mint).await {
         Ok(pool) => {
             println!("✅ Pool encontrado: {}", pool.name);
         }

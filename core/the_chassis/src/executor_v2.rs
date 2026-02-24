@@ -389,7 +389,7 @@ impl TradeExecutor {
         if let Some(raydium) = &self.raydium {
             let amount_in = (amount_sol * 1_000_000_000.0) as u64;
             
-            if let Ok(pool_info) = raydium.find_pool(SOL_MINT, &token_mint) {
+            if let Ok(pool_info) = raydium.find_pool(SOL_MINT, &token_mint).await {
                 println!("⚡ [ULTRA-FAST PATH] Pool detectado: {}", pool_info.name);
                 println!("🚀 Intentando ejecución directa en Raydium...");
 
@@ -410,7 +410,7 @@ impl TradeExecutor {
                     1 // 1 lamport mínimo
                 };
 
-                match raydium.execute_swap(SOL_MINT, &token_mint, amount_in, min_out, keypair) {
+                match raydium.execute_swap(SOL_MINT, &token_mint, amount_in, min_out, keypair).await {
                     Ok(sig) => {
                         println!("✅ RAYDIUM SUCCESS: {}", sig);
                         
@@ -854,8 +854,8 @@ impl TradeExecutor {
             .unwrap_or(0);
 
         // 2. Buscar pool y ejecutar con slippage casi infinito (min_out = 1 lamport)
-        let _pool_info = raydium.find_pool(SOL_MINT, &token_mint)?;
-        let sig = raydium.execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair)?;
+        let _pool_info = raydium.find_pool(SOL_MINT, &token_mint).await?;
+        let sig = raydium.execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair).await?;
 
         // 3. Esperar confirmación corta y obtener balance POST-compra
         println!("⏳ Esperando confirmación para calcular precio real...");

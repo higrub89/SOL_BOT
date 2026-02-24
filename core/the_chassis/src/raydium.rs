@@ -114,6 +114,7 @@ pub struct RaydiumClient {
     program_id: Pubkey,
     serum_program_id: Pubkey,
     pool_cache: HashMap<String, PoolInfo>, // Clave: "BASE_MINT-QUOTE_MINT"
+    scanner: crate::scanner::PriceScanner,
 }
 
 impl RaydiumClient {
@@ -136,6 +137,7 @@ impl RaydiumClient {
             program_id,
             serum_program_id,
             pool_cache,
+            scanner: crate::scanner::PriceScanner::new(),
         })
     }
 
@@ -169,8 +171,8 @@ impl RaydiumClient {
         Ok(map)
     }
 
-    /// Encuentra un pool por par de mints (primero intenta cache, luego RPC)
-    pub fn find_pool(&self, base_mint: &str, quote_mint: &str) -> Result<PoolInfo> {
+    /// Encuentra un pool por par de mints (primero intenta cache, luego DexScreener, luego RPC)
+    pub async fn find_pool(&self, base_mint: &str, quote_mint: &str) -> Result<PoolInfo> {
         // Intentar ambas direcciones (SOL/USDC y USDC/SOL)
         let key1 = format!("{}-{}", base_mint, quote_mint);
         let key2 = format!("{}-{}", quote_mint, base_mint);
@@ -184,9 +186,35 @@ impl RaydiumClient {
             println!("✅ Pool encontrado en cache (reversed): {}", pool.name);
             return Ok(pool.clone());
         }
+
+        // 1. Intentar vía DexScreener (Rápido, no consume RPC)
+        println!("🔍 Buscando pool en DexScreener...");
+        let target_mint = if base_mint == "So11111111111111111111111111111111111111112" {
+            quote_mint
+        } else {
+            base_mint
+        };
+
+        if let Ok(price_data) = self.scanner.get_token_price(target_mint).await {
+            println!("✅ Pool detectado en DexScreener: {}", price_data.pair_address);
+            if let Ok(amm_id) = Pubkey::from_str(&price_data.pair_address) {
+                if let Ok(account) = self.rpc_client.get_account(&amm_id) {
+                    // Determinar si es reversed basado en los mints del account data
+                    let data = &account.data;
+                    if data.len() >= 432 + 32 {
+                        let coin_mint_on_chain = Pubkey::new_from_array(data[400..432].try_into().unwrap()).to_string();
+                        let is_reversed = coin_mint_on_chain != base_mint;
+                        
+                        if let Ok(pool) = self.parse_pool_account(&amm_id, &account, is_reversed) {
+                            return Ok(pool);
+                        }
+                    }
+                }
+            }
+        }
         
-        // Si no está en cache, buscar en chain (SLOW PATH)
-        println!("⚠️  Pool no está en cache. Buscando on-chain...");
+        // Si no está en cache ni DexScreener, buscar en chain (SLOW PATH - PROPENSO A FAIL EN HELIUS)
+        println!("⚠️  Pool no encontrado en cache ni DexScreener. Buscando on-chain via getProgramAccounts...");
         self.discover_pool_on_chain(base_mint, quote_mint)
     }
 
@@ -206,6 +234,7 @@ impl RaydiumClient {
         // - Offset 400: coin_mint (base)
         // - Offset 432: pc_mint (quote)
         let filters = vec![
+            RpcFilterType::DataSize(752),
             RpcFilterType::Memcmp(Memcmp::new(
                 400,
                 MemcmpEncodedBytes::Base58(base_mint_pubkey.to_string()),
@@ -236,6 +265,7 @@ impl RaydiumClient {
             // Intentar con los mints invertidos
             println!("⚠️  No se encontró pool. Intentando con mints invertidos...");
             let filters_reversed = vec![
+                RpcFilterType::DataSize(752),
                 RpcFilterType::Memcmp(Memcmp::new(
                     400,
                     MemcmpEncodedBytes::Base58(quote_mint_pubkey.to_string()),
@@ -440,7 +470,7 @@ impl RaydiumClient {
     }
 
     /// Ejecuta un swap completo (construcción + firma + envío)
-    pub fn execute_swap(
+    pub async fn execute_swap(
         &self,
         base_mint: &str,
         quote_mint: &str,
@@ -454,7 +484,7 @@ impl RaydiumClient {
         println!("   Min Amount Out: {}", min_amount_out);
 
         // 1. Encontrar pool
-        let pool_info = self.find_pool(base_mint, quote_mint)?;
+        let pool_info = self.find_pool(base_mint, quote_mint).await?;
         let pool_keys = pool_info.to_pubkeys()?;
 
         // 2. Derivar token accounts del usuario
@@ -525,14 +555,14 @@ mod tests {
         assert!(client.pool_cache.len() > 0);
     }
 
-    #[test]
-    fn test_find_sol_usdc_pool() {
+    #[tokio::test]
+    async fn test_find_sol_usdc_pool() {
         let client = RaydiumClient::new("https://api.mainnet-beta.solana.com".to_string()).unwrap();
         
         let pool = client.find_pool(
             "So11111111111111111111111111111111111111112",
             "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        );
+        ).await;
         
         assert!(pool.is_ok());
         assert_eq!(pool.unwrap().name, "SOL/USDC");
