@@ -23,8 +23,12 @@ impl Default for JupiterClient {
 impl JupiterClient {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
-            base_url: "https://quote-api.jup.ag/v6".to_string(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .user_agent("TheChassis/2.0")
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+            base_url: "https://api.jup.ag/swap/v6".to_string(),
             api_key: std::env::var("JUPITER_API_KEY").ok(),
         }
     }
@@ -42,20 +46,21 @@ impl JupiterClient {
             self.base_url, input_mint, output_mint, amount, slippage_bps
         );
 
-        let mut request = self.client.get(&url);
+        let mut request_builder = self.client.get(&url);
         
-        if let Some(api_key) = &self.api_key {
-            request = request.header("x-api-key", api_key);
+        if let Some(key) = &self.api_key {
+            request_builder = request_builder.header("x-api-key", key);
         }
 
-        let response = request
+        let response = request_builder
             .send()
             .await
-            .context("Error al obtener quote de Jupiter")?;
+            .map_err(|e| anyhow::anyhow!("Network Error (Jupiter Connect): {}", e))?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Jupiter API error: {}", error_text);
+            anyhow::bail!("Jupiter API Error [{}]: {}", status, error_text);
         }
 
         let quote: QuoteResponse = response
