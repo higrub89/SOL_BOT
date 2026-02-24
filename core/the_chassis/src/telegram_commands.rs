@@ -235,42 +235,51 @@ impl CommandHandler {
                     } else {
                         let mint = parts[1];
                         let amount: f64 = parts[2].parse().unwrap_or(0.0);
-                        self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<i>Bypassing all guards...</i>", mint, amount)).await?;
                         
-                        let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
-                        match executor.execute_raydium_buy(mint, kp_opt.as_ref(), amount).await {
-                            Ok(res) => {
-                                self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
+                        // ✅ CRITICAL: Validar mint antes de ejecutar
+                        match crate::validation::FinancialValidator::validate_mint(mint, "/rbuy command") {
+                            Ok(valid_mint) => {
+                                self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<i>Bypassing all guards...</i>", valid_mint, amount)).await?;
                                 
-                                // ARM MONITORING
-                                let pos = crate::state_manager::PositionState {
-                                    id: None,
-                                    token_mint: mint.to_string(),
-                                    symbol: "DEGEN".to_string(),
-                                    entry_price: res.price_per_token,
-                                    current_price: res.price_per_token,
-                                    amount_sol: res.sol_spent,
-                                    stop_loss_percent: -50.0,
-                                    trailing_enabled: true,
-                                    trailing_distance_percent: 25.0,
-                                    trailing_activation_threshold: 15.0,
-                                    trailing_highest_price: Some(res.price_per_token),
-                                    trailing_current_sl: Some(-50.0),
-                                    tp_percent: Some(100.0),
-                                    tp_amount_percent: Some(50.0),
-                                    tp_triggered: false,
-                                    tp2_percent: Some(200.0),
-                                    tp2_amount_percent: Some(100.0),
-                                    tp2_triggered: false,
-                                    active: true,
-                                    created_at: chrono::Utc::now().timestamp(),
-                                    updated_at: chrono::Utc::now().timestamp(),
-                                };
-                                let _ = state_manager.upsert_position(pos).await;
-                                self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger.").await?;
-                            }
+                                let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+                                match executor.execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount).await {
+                                    Ok(res) => {
+                                        self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
+                                        
+                                        // ARM MONITORING
+                                        let pos = crate::state_manager::PositionState {
+                                            id: None,
+                                            token_mint: valid_mint.to_string(),
+                                            symbol: "DEGEN".to_string(),
+                                            entry_price: res.price_per_token,
+                                            current_price: res.price_per_token,
+                                            amount_sol: res.sol_spent,
+                                            stop_loss_percent: -50.0,
+                                            trailing_enabled: true,
+                                            trailing_distance_percent: 25.0,
+                                            trailing_activation_threshold: 15.0,
+                                            trailing_highest_price: Some(res.price_per_token),
+                                            trailing_current_sl: Some(-50.0),
+                                            tp_percent: Some(100.0),
+                                            tp_amount_percent: Some(50.0),
+                                            tp_triggered: false,
+                                            tp2_percent: Some(200.0),
+                                            tp2_amount_percent: Some(100.0),
+                                            tp2_triggered: false,
+                                            active: true,
+                                            created_at: chrono::Utc::now().timestamp(),
+                                            updated_at: chrono::Utc::now().timestamp(),
+                                        };
+                                        let _ = state_manager.upsert_position(pos).await;
+                                        self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger.").await?;
+                                    },
+                                    Err(e) => {
+                                        self.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e)).await?;
+                                    }
+                                }
+                            },
                             Err(e) => {
-                                self.send_message(&format!("❌ <b>DEGEN FAIL:</b> {}", e)).await?;
+                                self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
                             }
                         }
                     }
@@ -386,8 +395,17 @@ impl CommandHandler {
             self.send_message("❌ <b>Error:</b> Minimum allocation is 0.01 SOL").await?;
             return Ok(());
         }
+        
+        // ✅ CRITICAL: Validar mint antes de ejecutar
+        let valid_mint = match crate::validation::FinancialValidator::validate_mint(mint, "/buy command") {
+            Ok(m) => m,
+            Err(e) => {
+                self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
+                return Ok(());
+            }
+        };
 
-        self.send_message(&format!("<b>🚀 TACTICAL ENTRY INITIATED</b>\n<b>⬢ Asset:</b> <code>{}</code>\n<b>⬢ Allocation:</b> <code>{} SOL</code>\n<i>Executing payload...</i>", mint, amount)).await?;
+        self.send_message(&format!("<b>🚀 TACTICAL ENTRY INITIATED</b>\n<b>⬢ Asset:</b> <code>{}</code>\n<b>⬢ Allocation:</b> <code>{} SOL</code>\n<i>Executing payload...</i>", valid_mint, amount)).await?;
 
         // Cargar keypair temporalmente
         let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
@@ -399,7 +417,7 @@ impl CommandHandler {
         };
 
         // Ejecutar compra
-        match executor.execute_buy(mint, kp_opt.as_ref(), amount).await {
+        match executor.execute_buy(&valid_mint, kp_opt.as_ref(), amount).await {
             Ok(res) => {
                 let msg = format!(
                     "<b>✅ ACQUISITION SUCCESSFUL</b>\n\
@@ -414,7 +432,7 @@ impl CommandHandler {
 
                 // Intentar obtener el símbolo para el monitor
                 let scanner = crate::scanner::PriceScanner::new();
-                let symbol = match scanner.get_token_price(mint).await {
+                let symbol = match scanner.get_token_price(&valid_mint).await {
                     Ok(p) => p.symbol,
                     Err(_) => "BOUGHT".to_string(),
                 };
@@ -422,7 +440,7 @@ impl CommandHandler {
                 // Guardar en base de datos para monitoreo automático al reiniciar
                 let pos = crate::state_manager::PositionState {
                     id: None,
-                    token_mint: mint.to_string(),
+                    token_mint: valid_mint.to_string(),
                     symbol,
                     entry_price: res.price_per_token,
                     current_price: res.price_per_token,
@@ -464,6 +482,16 @@ impl CommandHandler {
         }
 
         let mint = parts[1];
+        
+        // ✅ CRITICAL: Validar mint antes de procesar
+        let valid_mint = match crate::validation::FinancialValidator::validate_mint(mint, "/track command") {
+            Ok(m) => m,
+            Err(e) => {
+                self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
+                return Ok(());
+            }
+        };
+        
         let symbol = parts[2];
         let sol: f64 = parts[3].parse().unwrap_or(0.0);
         let sl: f64 = parts[4].parse().unwrap_or(-50.0);
@@ -472,11 +500,11 @@ impl CommandHandler {
         self.send_message(&format!("🔍 <b>Indexing Asset: {}...</b>", symbol)).await?;
 
         let scanner = crate::scanner::PriceScanner::new();
-        match scanner.get_token_price(mint).await {
+        match scanner.get_token_price(&valid_mint).await {
             Ok(price_data) => {
                 let pos = crate::state_manager::PositionState {
                     id: None,
-                    token_mint: mint.to_string(),
+                    token_mint: valid_mint.to_string(),
                     symbol: symbol.to_string(),
                     entry_price: price_data.price_usd,
                     current_price: price_data.price_usd,

@@ -7,6 +7,8 @@ use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use reqwest::Client;
 
+use crate::validation::FinancialValidator;
+
 /// Cliente para interactuar con Jupiter Aggregator
 pub struct JupiterClient {
     client: Client,
@@ -41,6 +43,13 @@ impl JupiterClient {
         amount: u64,
         slippage_bps: u16, // Basis points (100 = 1%)
     ) -> Result<QuoteResponse> {
+        // ✅ CRITICAL: Validar mints ANTES de hacer la solicitud
+        FinancialValidator::validate_mint_pair(
+            input_mint,
+            output_mint,
+            "Jupiter Quote"
+        )?;
+        
         let input_mint = input_mint.trim();
         let output_mint = output_mint.trim();
         
@@ -63,7 +72,28 @@ impl JupiterClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Jupiter Quote Error [{}]: {}", status, error_text);
+            
+            // Mejorar mensaje de error para tokens no tradeables
+            let error_msg = if error_text.contains("is not tradeable") {
+                format!(
+                    "Token {} no es soportado por Jupiter. Posibles causas:\n\
+                     • Token no existe\n\
+                     • Token sin liquidez suficiente\n\
+                     • Token ha sido blocklisted\n\
+                     Error: {}",
+                    output_mint, error_text
+                )
+            } else if error_text.contains("cannot be parsed") {
+                format!(
+                    "Mint inválido. El mint '{}' no es un formato válido de Solana.\n\
+                     Error: {}",
+                    output_mint, error_text
+                )
+            } else {
+                error_text
+            };
+            
+            anyhow::bail!("Jupiter Quote Error [{}]: {}", status, error_msg);
         }
 
         let quote: QuoteResponse = response

@@ -110,9 +110,17 @@ impl TradeExecutor {
         println!("║           ⚡ EMERGENCY SELL EXECUTOR V2 ⚡               ║");
         println!("╚════════════════════════════════════════════════════════════╝\n");
 
+        // ✅ CRITICAL: Validar mint ANTES de cualquier operación
+        let token_mint = crate::validation::FinancialValidator::validate_mint(
+            token_mint,
+            "EMERGENCY SELL"
+        )?;
+        
+        println!("✅ Mint validation passed: {}\n", token_mint);
+
         // Modo dry run si no se proporciona keypair
         if self.config.dry_run || wallet_keypair.is_none() {
-            return self.simulate_emergency_sell(token_mint, amount_percent).await;
+            return self.simulate_emergency_sell(&token_mint, amount_percent).await;
         }
 
         let keypair = wallet_keypair
@@ -130,7 +138,7 @@ impl TradeExecutor {
         
         // 1. Obtener token account y balance
         println!("📊 Verificando balance de tokens...");
-        let (token_account, token_balance) = self.get_token_account_balance(&user_pubkey, token_mint)?;
+        let (token_account, token_balance) = self.get_token_account_balance(&user_pubkey, &token_mint)?;
         
         let amount_to_sell = (token_balance as f64 * (amount_percent as f64 / 100.0)) as u64;
         
@@ -148,7 +156,7 @@ impl TradeExecutor {
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         
         let quote = self.jupiter.get_quote(
-            token_mint,
+            &token_mint,
             SOL_MINT,
             amount_to_sell,
             self.config.slippage_bps,
@@ -362,8 +370,16 @@ impl TradeExecutor {
         println!("║              💰 BUY EXECUTOR V2 (HYBRID) 💰               ║");
         println!("╚════════════════════════════════════════════════════════════╝\n");
 
+        // ✅ CRITICAL: Validar mint ANTES de cualquier operación
+        let token_mint = crate::validation::FinancialValidator::validate_mint(
+            token_mint,
+            "BUY EXECUTOR"
+        )?;
+        
+        println!("✅ Mint validation passed: {}\n", token_mint);
+
         if self.config.dry_run || wallet_keypair.is_none() {
-            return self.simulate_buy(token_mint, amount_sol).await;
+            return self.simulate_buy(&token_mint, amount_sol).await;
         }
 
         let keypair = wallet_keypair.unwrap();
@@ -373,12 +389,12 @@ impl TradeExecutor {
         if let Some(raydium) = &self.raydium {
             let amount_in = (amount_sol * 1_000_000_000.0) as u64;
             
-            if let Ok(pool_info) = raydium.find_pool(SOL_MINT, token_mint) {
+            if let Ok(pool_info) = raydium.find_pool(SOL_MINT, &token_mint) {
                 println!("⚡ [ULTRA-FAST PATH] Pool detectado: {}", pool_info.name);
                 println!("🚀 Intentando ejecución directa en Raydium...");
 
                 // Intentar obtener un estimado rápido para protección básica, pero no bloquear si falla
-                let oracle_quote = self.jupiter.get_quote(SOL_MINT, token_mint, amount_in, 500).await;
+                let oracle_quote = self.jupiter.get_quote(SOL_MINT, &token_mint, amount_in, 500).await;
                 
                 let (estimated_out, found_oracle) = match oracle_quote {
                     Ok(q) => (FinancialValidator::parse_amount_safe(&q.out_amount, "Jup Estimate").unwrap_or(0), true),
@@ -394,7 +410,7 @@ impl TradeExecutor {
                     1 // 1 lamport mínimo
                 };
 
-                match raydium.execute_swap(SOL_MINT, token_mint, amount_in, min_out, keypair) {
+                match raydium.execute_swap(SOL_MINT, &token_mint, amount_in, min_out, keypair) {
                     Ok(sig) => {
                         println!("✅ RAYDIUM SUCCESS: {}", sig);
                         
@@ -435,7 +451,7 @@ impl TradeExecutor {
         
         let quote = self.jupiter.get_quote(
             SOL_MINT,
-            token_mint,
+            &token_mint,
             amount_lamports,
             self.config.slippage_bps,
         ).await?;
@@ -820,16 +836,22 @@ impl TradeExecutor {
     ) -> Result<BuyResult> {
         println!("🚀 [DEGEN MODE] Initiating Direct Raydium Assault...");
         
+        // ✅ CRITICAL: Validar mint ANTES de cualquier operación
+        let token_mint = crate::validation::FinancialValidator::validate_mint(
+            token_mint,
+            "DEGEN BUY"
+        )?;
+        
         let raydium = self.raydium.as_ref().context("Raydium engine not initialized")?;
         let keypair = wallet_keypair.context("Wallet keypair required for Degen Mode")?;
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         let amount_in = (amount_sol * 1_000_000_000.0) as u64;
 
         // Buscar pool
-        let _pool_info = raydium.find_pool(SOL_MINT, token_mint)?;
+        let _pool_info = raydium.find_pool(SOL_MINT, &token_mint)?;
         
         // Ejecutar con slippage casi infinito (min_out = 1 lamport)
-        let sig = raydium.execute_swap(SOL_MINT, token_mint, amount_in, 1, keypair)?;
+        let sig = raydium.execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair)?;
 
         Ok(BuyResult {
             signature: sig,

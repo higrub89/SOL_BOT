@@ -151,6 +151,75 @@ impl FinancialValidator {
         
         Self::validate_amount(amount, context)
     }
+    
+    /// Valida que un mint sea un address de Solana válido
+    /// 
+    /// Verifica:
+    /// - Longitud correcta (43-44 caracteres en base58)
+    /// - Caracteres válidos de base58
+    /// - No contiene espacios ni caracteres especiales
+    /// - No es un mint WSOL (para compras)
+    pub fn validate_mint(mint: &str, context: &str) -> Result<String> {
+        let mint = mint.trim();
+        
+        // Validar que no esté vacío
+        if mint.is_empty() {
+            anyhow::bail!("{}: Mint está vacío", context);
+        }
+        
+        // Validar longitud típica de mints de Solana (43-44 caracteres en base58)
+        if mint.len() < 43 || mint.len() > 44 {
+            anyhow::bail!(
+                "{}: Mint tiene longitud inválida ({} caracteres). \
+                 Los mints de Solana tienen 43-44 caracteres. Mint: {}",
+                context, mint.len(), mint
+            );
+        }
+        
+        // Validar caracteres base58 válidos (no contiene '0', 'O', 'I', 'l')
+        // Los caracteres válidos son: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
+        let valid_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        for c in mint.chars() {
+            if !valid_chars.contains(c) {
+                anyhow::bail!(
+                    "{}: Mint contiene caracteres inválidos para base58 '{}'. \
+                     Mint: {}. Caracteres válidos: {}",
+                    context, c, mint, valid_chars
+                );
+            }
+        }
+        
+        // Validar que no sea el WSOL mint
+        const WSOL_MINT: &str = "So11111111111111111111111111111111111111112";
+        if mint == WSOL_MINT {
+            anyhow::bail!(
+                "{}: No puedes comprar WSOL (wrapped SOL nativo). \
+                 Usa el SOL nativo directamente.",
+                context
+            );
+        }
+        
+        Ok(mint.to_string())
+    }
+    
+    /// Valida un par de mints para swaps (input y output no pueden ser iguales)
+    pub fn validate_mint_pair(
+        input_mint: &str,
+        output_mint: &str,
+        context: &str,
+    ) -> Result<()> {
+        Self::validate_mint(input_mint, &format!("{} (input)", context))?;
+        Self::validate_mint(output_mint, &format!("{} (output)", context))?;
+        
+        if input_mint == output_mint {
+            anyhow::bail!(
+                "{}: Input y output mints no pueden ser iguales: {}",
+                context, input_mint
+            );
+        }
+        
+        Ok(())
+    }
 }
 
 // ============================================================================
