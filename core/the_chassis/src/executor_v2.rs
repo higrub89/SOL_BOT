@@ -847,17 +847,52 @@ impl TradeExecutor {
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         let amount_in = (amount_sol * 1_000_000_000.0) as u64;
 
-        // Buscar pool
+        // 1. Obtener balance PRE-compra para calcular diferencia exacta
+        let user_pubkey = keypair.pubkey();
+        let pre_balance = self.get_token_account_balance(&user_pubkey, &token_mint)
+            .map(|(_, bal)| bal)
+            .unwrap_or(0);
+
+        // 2. Buscar pool y ejecutar con slippage casi infinito (min_out = 1 lamport)
         let _pool_info = raydium.find_pool(SOL_MINT, &token_mint)?;
-        
-        // Ejecutar con slippage casi infinito (min_out = 1 lamport)
         let sig = raydium.execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair)?;
+
+        // 3. Esperar confirmación corta y obtener balance POST-compra
+        println!("⏳ Esperando confirmación para calcular precio real...");
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        
+        let mut post_balance = pre_balance;
+        for i in 0..5 {
+             if let Ok((_, bal)) = self.get_token_account_balance(&user_pubkey, &token_mint) {
+                 if bal > pre_balance {
+                     post_balance = bal;
+                     break;
+                 }
+             }
+             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+             println!("   Reintentando lectura de balance ({} / 5)...", i+1);
+        }
+
+        let tokens_received_raw = post_balance.saturating_sub(pre_balance);
+        let tokens_received = tokens_received_raw as f64 / 1_000_000.0; // Asumiendo 6 decimales (SPL Estándar)
+        
+        let price_per_token = if tokens_received > 0.0 {
+            amount_sol / tokens_received
+        } else {
+            0.0
+        };
+
+        if tokens_received <= 0.0 {
+            println!("⚠️ [WARNING] No se detectó cambio en el balance de tokens. El monitoreo podría fallar.");
+        } else {
+            println!("📊 [REAL DATA] Recibido: {:.4} tokens | Precio: {:.8} SOL/token", tokens_received, price_per_token);
+        }
 
         Ok(BuyResult {
             signature: sig,
             sol_spent: amount_sol,
-            tokens_received: 0.0,
-            price_per_token: 0.0,
+            tokens_received,
+            price_per_token,
             route: "Raydium Direct (Degen Mode)".to_string(),
             price_impact_pct: 0.0,
         })

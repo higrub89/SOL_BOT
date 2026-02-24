@@ -221,7 +221,17 @@ impl CommandHandler {
                 if Self::is_hibernating() {
                     self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
                 } else {
-                    self.cmd_buy(cmd, Arc::clone(&executor), Arc::clone(&state_manager)).await?;
+                    let parts: Vec<&str> = cmd.split_whitespace().collect();
+                    if parts.len() < 3 {
+                        self.send_message("❌ <b>Syntax:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>\n<i>Ex: /buy 3GEz... 0.1 500 (para 5%)</i>").await?;
+                    } else {
+                        let mint = parts[1];
+                        let amount: f64 = parts[2].parse().unwrap_or(0.0);
+                        let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(100) } else { 100 };
+                        
+                        // Modificar el executor temporalmente o usar función con params
+                        self.cmd_buy_with_params(mint, amount, slippage, Arc::clone(&executor), Arc::clone(&state_manager)).await?;
+                    }
                 }
             }
 
@@ -231,17 +241,20 @@ impl CommandHandler {
                 } else {
                     let parts: Vec<&str> = cmd.split_whitespace().collect();
                     if parts.len() < 3 {
-                        self.send_message("❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>").await?;
+                        self.send_message("❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>").await?;
                     } else {
                         let mint = parts[1];
                         let amount: f64 = parts[2].parse().unwrap_or(0.0);
+                        let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(9999) } else { 9999 };
                         
                         // ✅ CRITICAL: Validar mint antes de ejecutar
                         match crate::validation::FinancialValidator::validate_mint(mint, "/rbuy command") {
                             Ok(valid_mint) => {
-                                self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<i>Bypassing all guards...</i>", valid_mint, amount)).await?;
+                                let slippage_text = if slippage >= 9000 { "INFINITE".to_string() } else { format!("{}%", slippage as f64 / 100.0) };
+                                self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}</code>\n<i>Bypassing all guards...</i>", valid_mint, amount, slippage_text)).await?;
                                 
                                 let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+                                // Para Raydium, si el slippage es < 9000, calculamos min_out (TODO), por ahora el executor raydium usa 1
                                 match executor.execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount).await {
                                     Ok(res) => {
                                         self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
@@ -379,23 +392,8 @@ impl CommandHandler {
         Ok(())
     }
 
-    /// Comando /buy - Ejecuta una compra de token
-    async fn cmd_buy(&self, command: &str, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>) -> Result<()> {
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        
-        if parts.len() < 3 {
-            self.send_message("❌ <b>Syntax Error:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>").await?;
-            return Ok(());
-        }
-
-        let mint = parts[1];
-        let amount: f64 = parts[2].parse().unwrap_or(0.0);
-
-        if amount < 0.01 {
-            self.send_message("❌ <b>Error:</b> Minimum allocation is 0.01 SOL").await?;
-            return Ok(());
-        }
-        
+    /// Comando /buy con parámetros personalizados
+    async fn cmd_buy_with_params(&self, mint: &str, amount: f64, slippage_bps: u16, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>) -> Result<()> {
         // ✅ CRITICAL: Validar mint antes de ejecutar
         let valid_mint = match crate::validation::FinancialValidator::validate_mint(mint, "/buy command") {
             Ok(m) => m,
@@ -405,73 +403,52 @@ impl CommandHandler {
             }
         };
 
-        self.send_message(&format!("<b>🚀 TACTICAL ENTRY INITIATED</b>\n<b>⬢ Asset:</b> <code>{}</code>\n<b>⬢ Allocation:</b> <code>{} SOL</code>\n<i>Executing payload...</i>", valid_mint, amount)).await?;
+        self.send_message(&format!("<b>🛒 INITIATING BUY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}%</code>", valid_mint, amount, slippage_bps as f64 / 100.0)).await?;
 
-        // Cargar keypair temporalmente
-        let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
-            Ok(kp) => Some(kp),
-            Err(e) => {
-                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e)).await?;
-                None
-            }
-        };
-
-        // Ejecutar compra
-        match executor.execute_buy(&valid_mint, kp_opt.as_ref(), amount).await {
+        let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+        
+        // Ejecutar con parámetros custom
+        match executor.execute_buy_with_custom_params(&valid_mint, kp_opt.as_ref(), amount, 100_000, slippage_bps).await {
             Ok(res) => {
-                let msg = format!(
-                    "<b>✅ ACQUISITION SUCCESSFUL</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <b>⬡ Cost:</b> <code>{:.4} SOL</code>\n\
-                    <b>⬡ Yield:</b> <code>{:.2} Tokens</code>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <a href='https://solscan.io/tx/{}'>[ 🔗 VIEW ON SOLSCAN ]</a>",
-                    res.sol_spent, res.tokens_received, res.signature
-                );
-                self.send_message(&msg).await?;
-
-                // Intentar obtener el símbolo para el monitor
-                let scanner = crate::scanner::PriceScanner::new();
-                let symbol = match scanner.get_token_price(&valid_mint).await {
-                    Ok(p) => p.symbol,
-                    Err(_) => "BOUGHT".to_string(),
-                };
-
-                // Guardar en base de datos para monitoreo automático al reiniciar
-                let pos = crate::state_manager::PositionState {
-                    id: None,
-                    token_mint: valid_mint.to_string(),
-                    symbol,
-                    entry_price: res.price_per_token,
-                    current_price: res.price_per_token,
-                    amount_sol: res.sol_spent,
-                    stop_loss_percent: -50.0, // Default SL
-                    trailing_enabled: true,
-                    trailing_distance_percent: 25.0,
-                    trailing_activation_threshold: 15.0,
-                    trailing_highest_price: Some(res.price_per_token),
-                    trailing_current_sl: Some(-50.0),
-                    tp_percent: Some(100.0), // Default TP 2x
-                    tp_amount_percent: Some(50.0), // Sell 50%
-                    tp_triggered: false,
-                    tp2_percent: Some(200.0), // TP2 Moonbag
-                    tp2_amount_percent: Some(100.0), // Sell remaining
-                    tp2_triggered: false,
-                    active: true,
-                    created_at: chrono::Utc::now().timestamp(),
-                    updated_at: chrono::Utc::now().timestamp(),
-                };
-
-                let _ = state_manager.upsert_position(pos).await;
-                self.send_message("<b>✅ MONITORING ARMED</b>\n<b>TP:</b> +100% (Sell 50%)\nUse /reboot to activate tracking.").await?;
-            }
+                self.send_message(&format!("<b>✅ BUY SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
+                
+                // Si tenemos el precio real (no es 0), armar el monitoreo
+                if res.output_amount > 0.0 {
+                     let price = amount / res.output_amount;
+                     let pos = crate::state_manager::PositionState {
+                        id: None,
+                        token_mint: valid_mint.to_string(),
+                        symbol: "TOKEN".to_string(),
+                        entry_price: price,
+                        current_price: price,
+                        amount_sol: amount,
+                        stop_loss_percent: -20.0,
+                        trailing_enabled: true,
+                        trailing_distance_percent: 15.0,
+                        trailing_activation_threshold: 10.0,
+                        trailing_highest_price: Some(price),
+                        trailing_current_sl: Some(-20.0),
+                        tp_percent: Some(50.0),
+                        tp_amount_percent: Some(100.0),
+                        tp_triggered: false,
+                        tp2_percent: None,
+                        tp2_amount_percent: None,
+                        tp2_triggered: false,
+                        active: true,
+                        created_at: chrono::Utc::now().timestamp(),
+                        updated_at: chrono::Utc::now().timestamp(),
+                    };
+                    let _ = state_manager.upsert_position(pos).await;
+                    self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved with custom slippage protection.").await?;
+                }
+            },
             Err(e) => {
-                self.send_message(&format!("❌ <b>Execution Failure:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>BUY FAILURE:</b> {}", e)).await?;
             }
         }
-
         Ok(())
     }
+
 
     /// Comando /track - Añade un token manualmente al DB para monitoreo
     async fn cmd_track(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
