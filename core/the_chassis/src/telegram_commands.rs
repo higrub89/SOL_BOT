@@ -81,6 +81,7 @@ impl CommandHandler {
             // Obtener actualizaciones recientes de Telegram usando el offset
             match self.get_updates(next_offset).await {
                 Ok(updates) => {
+                    let mut should_reboot = false;
                     for update in updates {
                         // Actualizar offset para no leer el mismo mensaje de nuevo
                         if let Some(update_id) = update.get("update_id").and_then(|u| u.as_i64()) {
@@ -93,7 +94,7 @@ impl CommandHandler {
                         {
                             println!("📩 CMD RECIBIDO: {}", command); // LOGUEAMOS EL COMANDO
 
-                            self.handle_command(
+                            if self.handle_command(
                                 command,
                                 Arc::clone(&emergency_monitor),
                                 Arc::clone(&wallet_monitor),
@@ -101,8 +102,17 @@ impl CommandHandler {
                                 Arc::clone(&config),
                                 Arc::clone(&state_manager),
                                 feed_tx.clone(),
-                            ).await?;
+                            ).await? {
+                                should_reboot = true;
+                            }
                         }
+                    }
+
+                    if should_reboot {
+                        println!("🔄 REBOOT: Acknowledging messages and exiting...");
+                        // One last call with the latest offset to acknowledge all messages processed
+                        let _ = self.get_updates(next_offset).await;
+                        std::process::exit(0);
                     }
                 }
                 Err(e) => {
@@ -125,7 +135,8 @@ impl CommandHandler {
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
         feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let mut is_reboot = false;
         match command.trim() {
             "/start" => {
                 self.send_message("<b>⚜️ THE CHASSIS v2.0.0 ⚜️</b>\n\
@@ -242,7 +253,7 @@ impl CommandHandler {
 
             "/reboot" => {
                 self.send_message("<b>🔄 SYSTEM REBOOT INITIATED</b>\nRestarting process...").await?;
-                std::process::exit(0);
+                is_reboot = true;
             }
 
             cmd if cmd.starts_with("/panic ") => {
@@ -258,7 +269,7 @@ impl CommandHandler {
             }
         }
 
-        Ok(())
+        Ok(is_reboot)
     }
 
     /// Comando /ping - Health Check institucional
