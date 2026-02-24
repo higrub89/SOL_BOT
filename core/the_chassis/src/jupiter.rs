@@ -24,7 +24,7 @@ impl JupiterClient {
     pub fn new() -> Self {
         Self {
             client: Client::new(),
-            base_url: "https://api.jup.ag".to_string(),
+            base_url: "https://quote-api.jup.ag/v6".to_string(),
             api_key: std::env::var("JUPITER_API_KEY").ok(),
         }
     }
@@ -37,19 +37,18 @@ impl JupiterClient {
         amount: u64,
         slippage_bps: u16, // Basis points (100 = 1%)
     ) -> Result<QuoteResponse> {
-        let api_key = self
-            .api_key
-            .as_ref()
-            .context("JUPITER_API_KEY no configurada en el entorno")?;
-
         let url = format!(
-            "{}/swap/v1/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
+            "{}/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
             self.base_url, input_mint, output_mint, amount, slippage_bps
         );
 
-        let response = self.client
-            .get(&url)
-            .header("x-api-key", api_key)
+        let mut request = self.client.get(&url);
+        
+        if let Some(api_key) = &self.api_key {
+            request = request.header("x-api-key", api_key);
+        }
+
+        let response = request
             .send()
             .await
             .context("Error al obtener quote de Jupiter")?;
@@ -74,12 +73,7 @@ impl JupiterClient {
         user_public_key: &str,
         wrap_unwrap_sol: bool,
     ) -> Result<SwapTransactionResponse> {
-        let api_key = self
-            .api_key
-            .as_ref()
-            .context("JUPITER_API_KEY no configurada en el entorno")?;
-
-        let url = format!("{}/swap/v1/swap", self.base_url);
+        let url = format!("{}/swap", self.base_url);
 
         let request = SwapRequest {
             quote_response: quote.clone(),
@@ -89,10 +83,13 @@ impl JupiterClient {
             as_legacy_transaction: Some(false),
         };
 
-        let response = self.client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .header("x-api-key", api_key)
+        let mut request_builder = self.client.post(&url);
+        
+        if let Some(api_key) = &self.api_key {
+            request_builder = request_builder.header("x-api-key", api_key);
+        }
+
+        let response = request_builder
             .json(&request)
             .send()
             .await
