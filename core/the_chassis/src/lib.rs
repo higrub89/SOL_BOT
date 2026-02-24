@@ -527,7 +527,38 @@ async fn run_monitor_mode() -> Result<()> {
         // Actualizar EmergencyMonitor con precios NATIVOS (SOL) para consistencia en PnL
         {
             let mut monitor = monitor_clone.lock().unwrap();
-            monitor.update_position(&target.symbol, price_update.price_native, current_value);
+            
+            // 🆕 INYECCIÓN DINÁMICA: Si es un token nuevo comprado por Telegram, añadirlo!
+            if monitor.get_position(&target.token_mint).is_none() {
+                println!("➕ [Monitor] Inyección dinámica de nueva posición: {} ({})", target.symbol, target.token_mint);
+                monitor.add_position(crate::emergency::Position {
+                    token_mint: target.token_mint.clone(),
+                    symbol: target.symbol.clone(),
+                    entry_price: target.entry_price,
+                    amount_invested: target.amount_sol,
+                    current_price: price_update.price_native,
+                    current_value: current_value,
+                });
+            }
+            
+            // 🚨 BUGFIX: Pasando target.token_mint en lugar de symbol a emergency.rs
+            monitor.update_position(&target.token_mint, price_update.price_native, current_value);
+        }
+
+        // 🆕 Dinámicamente inicializar Trailing SL & Liquidez si no existen (compras Telegram)
+        if target.trailing_enabled && !trailing_monitors.contains_key(&target.symbol) {
+             let mut tsl = TrailingStopLoss::new(
+                 target.entry_price,
+                 target.stop_loss_percent,
+                 target.trailing_distance_percent,
+                 target.trailing_activation_threshold,
+             );
+             if let Some(peak) = target.trailing_highest_price { tsl.peak_price = tsl.peak_price.max(peak); }
+             if let Some(curr_sl) = target.trailing_current_sl { tsl.current_sl_percent = curr_sl; tsl.enabled = true; }
+             trailing_monitors.insert(target.symbol.clone(), tsl);
+        }
+        if !liquidity_monitors.contains_key(&target.symbol) {
+             liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
         }
 
         // Actualizar estado persistente con precio NATIVO (SOL)
@@ -538,7 +569,8 @@ async fn run_monitor_mode() -> Result<()> {
         // Obtener datos de la posición para evaluar
         let position_data = {
             let monitor = monitor_clone.lock().unwrap();
-            monitor.get_position(&target.symbol).cloned()
+            // 🚨 BUGFIX: Pasando target.token_mint en lugar de symbol
+            monitor.get_position(&target.token_mint).cloned()
         };
         
         if let Some(pos) = position_data {
