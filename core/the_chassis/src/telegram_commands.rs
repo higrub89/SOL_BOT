@@ -133,6 +133,7 @@ impl CommandHandler {
                     ⬡ /balance - Vault Status\n\n\
                     <b>⬢ TRADING</b>\n\
                     ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
+                    ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>
                     ⬡ <code>/panic &lt;MINT&gt;</code>\n\n\
                     <b>⬢ MONITORING</b>\n\
                     ⬡ /positions - Live Ledger\n\
@@ -221,6 +222,31 @@ impl CommandHandler {
                     self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
                 } else {
                     self.cmd_buy(cmd, Arc::clone(&executor), Arc::clone(&state_manager)).await?;
+                }
+            }
+
+            cmd if cmd.starts_with("/rbuy ") => {
+                if Self::is_hibernating() {
+                    self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
+                } else {
+                    let parts: Vec<&str> = cmd.split_whitespace().collect();
+                    if parts.len() < 3 {
+                        self.send_message("❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>").await?;
+                    } else {
+                        let mint = parts[1];
+                        let amount: f64 = parts[2].parse().unwrap_or(0.0);
+                        self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<i>Bypassing all guards...</i>", mint, amount)).await?;
+                        
+                        let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+                        match executor.execute_raydium_buy(mint, kp_opt.as_ref(), amount).await {
+                            Ok(res) => {
+                                self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
+                            }
+                            Err(e) => {
+                                self.send_message(&format!("❌ <b>DEGEN FAIL:</b> {}", e)).await?;
+                            }
+                        }
+                    }
                 }
             }
 

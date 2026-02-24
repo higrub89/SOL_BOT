@@ -360,82 +360,50 @@ impl TradeExecutor {
         let keypair = wallet_keypair.unwrap();
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
 
-        // 1. INTENTO VÍA RAYDIUM DIRECT (Low Latency)
-        // Solo si tenemos cliente y el pool está en caché
+        // 1. INTENTO VÍA RAYDIUM DIRECT (Prioridad Absoluta)
         if let Some(raydium) = &self.raydium {
-            // Amount in lamports (SOL)
             let amount_in = (amount_sol * 1_000_000_000.0) as u64;
             
-            // Slippage calculation simple para intento directo
-            // Asumimos precio jupiter momentáneamente para calcular min_out o usamos oráculo interno
-            // Por simplicidad en V1 híbrida: Si el pool existe, intentamos quote rápido
-            
-                if let Ok(pool_info) = raydium.find_pool(SOL_MINT, token_mint) {
-                println!("⚡ [FAST PATH] Pool detectado en caché: {}", pool_info.name);
+            if let Ok(pool_info) = raydium.find_pool(SOL_MINT, token_mint) {
+                println!("⚡ [ULTRA-FAST PATH] Pool detectado: {}", pool_info.name);
                 println!("🚀 Intentando ejecución directa en Raydium...");
 
-                // Estrategia Híbrida:
-                // 1. Consultar precio rápido en Jupiter (Oracle Check)
-                // 2. Ejecutar en Raydium (Execution Layer)
+                // Intentar obtener un estimado rápido para protección básica, pero no bloquear si falla
+                let oracle_quote = self.jupiter.get_quote(SOL_MINT, token_mint, amount_in, 500).await;
                 
-                // Paso 1: Obtener precio de referencia para slippage protection
-                let quote_check = self.jupiter.get_quote(
-                    SOL_MINT,
-                    token_mint,
-                    amount_in, // Input exacto
-                    self.config.slippage_bps,
-                ).await;
-
-                if let Ok(quote) = quote_check {
-                    let estimated_out = FinancialValidator::parse_amount_safe(
-                        &quote.out_amount,
-                        "Jupiter estimated tokens"
-                    )?;
-                    
-                    if estimated_out > 0 {
-                        // Calcular mínimo aceptable basado en el slippage configurado
-                        let min_amount_out = raydium.calculate_min_amount_out(estimated_out, self.config.slippage_bps);
-                        
-                        println!("   Price Check (Jup): {} tokens", estimated_out);
-                        println!("   Min Out (Ray):     {} tokens ({}% slip)", min_amount_out, self.config.slippage_bps as f64 / 100.0);
-
-                        // Paso 2: Ejecutar Swap en Raydium
-                        if let Some(kp) = wallet_keypair {
-                             match raydium.execute_swap(
-                                SOL_MINT,
-                                token_mint,
-                                amount_in,
-                                min_amount_out,
-                                kp
-                            ) {
-                                Ok(sig) => {
-                                    println!("✅ RAYDIUM SWAP COMPLETADO: {}", sig);
-                                    
-                                    // Devolver resultado exitoso construido manualmente
-                                    let tokens_received = estimated_out as f64; // Estimado, real se ve en explorer
-                                    let price_per_token = amount_sol / (tokens_received / 1_000_000.0); // Ajustar decimales según token (asumiendo 6)
-                                    
-                                    return Ok(BuyResult {
-                                        signature: sig,
-                                        sol_spent: amount_sol,
-                                        tokens_received: tokens_received / 1_000_000.0, // TODO: Usar decimales reales del token
-                                        price_per_token,
-                                        route: "Raydium Direct (V4)".to_string(),
-                                        price_impact_pct: 0.0, // No calculado localmente aun
-                                    });
-                                },
-                                Err(e) => {
-                                    eprintln!("❌ Error en ejecución Raydium: {}", e);
-                                    println!("⚠️  Fallback a Jupiter activado...");
-                                }
-                            }
-                        } else {
-                             println!("🧪 DRY RUN: Ejecución Raydium simulada con éxito.");
-                             return self.simulate_buy(token_mint, amount_sol).await;
-                        }
+                let (estimated_out, found_oracle) = match oracle_quote {
+                    Ok(q) => (FinancialValidator::parse_amount_safe(&q.out_amount, "Jup Estimate").unwrap_or(0), true),
+                    Err(_) => {
+                        println!("⚠️ [ORACLE FAIL] Jupiter no conoce el token. Usando ejecución DEGEN...");
+                        (0, false)
                     }
+                };
+
+                let min_out = if found_oracle && estimated_out > 0 {
+                    raydium.calculate_min_amount_out(estimated_out, self.config.slippage_bps)
                 } else {
-                    println!("⚠️  No se pudo obtener precio de referencia. Abortando Fast Path por seguridad.");
+                    1 // 1 lamport mínimo
+                };
+
+                match raydium.execute_swap(SOL_MINT, token_mint, amount_in, min_out, keypair) {
+                    Ok(sig) => {
+                        println!("✅ RAYDIUM SUCCESS: {}", sig);
+                        
+                        let tokens_received = if estimated_out > 0 { estimated_out as f64 / 1_000_000.0 } else { 0.0 };
+                        let price_per_token = if tokens_received > 0.0 { amount_sol / tokens_received } else { 0.0 };
+
+                        return Ok(BuyResult {
+                            signature: sig,
+                            sol_spent: amount_sol,
+                            tokens_received,
+                            price_per_token,
+                            route: format!("Raydium Direct (Oracle: {})", if found_oracle { "OK" } else { "BYPASSED" }),
+                            price_impact_pct: 0.0,
+                        });
+                    },
+                    Err(e) => {
+                        eprintln!("❌ Raydium Swap failed: {}. Continuing to Jupiter...", e);
+                    }
                 }
             }
         }
@@ -835,6 +803,36 @@ impl TradeExecutor {
             }
             None => Ok(false),
         }
+    }
+
+    /// Ejecuta una compra DEGENERATE (Pure Raydium, Zero Safety Check)
+    pub async fn execute_raydium_buy(
+        &self,
+        token_mint: &str,
+        wallet_keypair: Option<&Keypair>,
+        amount_sol: f64,
+    ) -> Result<BuyResult> {
+        println!("🚀 [DEGEN MODE] Initiating Direct Raydium Assault...");
+        
+        let raydium = self.raydium.as_ref().context("Raydium engine not initialized")?;
+        let keypair = wallet_keypair.context("Wallet keypair required for Degen Mode")?;
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+        let amount_in = (amount_sol * 1_000_000_000.0) as u64;
+
+        // Buscar pool
+        let _pool_info = raydium.find_pool(SOL_MINT, token_mint)?;
+        
+        // Ejecutar con slippage casi infinito (min_out = 1 lamport)
+        let sig = raydium.execute_swap(SOL_MINT, token_mint, amount_in, 1, keypair)?;
+
+        Ok(BuyResult {
+            signature: sig,
+            sol_spent: amount_sol,
+            tokens_received: 0.0,
+            price_per_token: 0.0,
+            route: "Raydium Direct (Degen Mode)".to_string(),
+            price_impact_pct: 0.0,
+        })
     }
 }
 
