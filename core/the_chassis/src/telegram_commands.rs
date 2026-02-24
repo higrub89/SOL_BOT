@@ -58,6 +58,7 @@ impl CommandHandler {
         executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
+        feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
     ) -> Result<()> {
         println!("🚀 INICIANDO SISTEMA DE TELEGRAM COMMANDS (POLLING MANUAL)...");
 
@@ -99,6 +100,7 @@ impl CommandHandler {
                                 Arc::clone(&executor),
                                 Arc::clone(&config),
                                 Arc::clone(&state_manager),
+                                feed_tx.clone(),
                             ).await?;
                         }
                     }
@@ -122,6 +124,7 @@ impl CommandHandler {
         executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
+        feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
     ) -> Result<()> {
         match command.trim() {
             "/start" => {
@@ -133,7 +136,7 @@ impl CommandHandler {
                     ⬡ /balance - Vault Status\n\n\
                     <b>⬢ TRADING</b>\n\
                     ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
-                    ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>
+                    ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
                     ⬡ <code>/panic &lt;MINT&gt;</code>\n\n\
                     <b>⬢ MONITORING</b>\n\
                     ⬡ /positions - Live Ledger\n\
@@ -218,85 +221,11 @@ impl CommandHandler {
             }
 
             cmd if cmd.starts_with("/buy ") => {
-                if Self::is_hibernating() {
-                    self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
-                } else {
-                    let parts: Vec<&str> = cmd.split_whitespace().collect();
-                    if parts.len() < 3 {
-                        self.send_message("❌ <b>Syntax:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>\n<i>Ex: /buy 3GEz... 0.1 500 (para 5%)</i>").await?;
-                    } else {
-                        let mint = parts[1];
-                        let amount: f64 = parts[2].parse().unwrap_or(0.0);
-                        let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(100) } else { 100 };
-                        
-                        // Modificar el executor temporalmente o usar función con params
-                        self.cmd_buy_with_params(mint, amount, slippage, Arc::clone(&executor), Arc::clone(&state_manager)).await?;
-                    }
-                }
+                self.cmd_buy(cmd, executor, state_manager, feed_tx).await?;
             }
 
             cmd if cmd.starts_with("/rbuy ") => {
-                if Self::is_hibernating() {
-                    self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
-                } else {
-                    let parts: Vec<&str> = cmd.split_whitespace().collect();
-                    if parts.len() < 3 {
-                        self.send_message("❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>").await?;
-                    } else {
-                        let mint = parts[1];
-                        let amount: f64 = parts[2].parse().unwrap_or(0.0);
-                        let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(9999) } else { 9999 };
-                        
-                        // ✅ CRITICAL: Validar mint antes de ejecutar
-                        match crate::validation::FinancialValidator::validate_mint(mint, "/rbuy command") {
-                            Ok(valid_mint) => {
-                                let slippage_text = if slippage >= 9000 { "INFINITE".to_string() } else { format!("{}%", slippage as f64 / 100.0) };
-                                self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}</code>\n<i>Bypassing all guards...</i>", valid_mint, amount, slippage_text)).await?;
-                                
-                                let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
-                                // Para Raydium, si el slippage es < 9000, calculamos min_out (TODO), por ahora el executor raydium usa 1
-                                match executor.execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount).await {
-                                    Ok(res) => {
-                                        self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
-                                        
-                                        // ARM MONITORING
-                                        let pos = crate::state_manager::PositionState {
-                                            id: None,
-                                            token_mint: valid_mint.to_string(),
-                                            symbol: "DEGEN".to_string(),
-                                            entry_price: res.price_per_token,
-                                            current_price: res.price_per_token,
-                                            amount_sol: res.sol_spent,
-                                            stop_loss_percent: -50.0,
-                                            trailing_enabled: true,
-                                            trailing_distance_percent: 25.0,
-                                            trailing_activation_threshold: 15.0,
-                                            trailing_highest_price: Some(res.price_per_token),
-                                            trailing_current_sl: Some(-50.0),
-                                            tp_percent: Some(100.0),
-                                            tp_amount_percent: Some(50.0),
-                                            tp_triggered: false,
-                                            tp2_percent: Some(200.0),
-                                            tp2_amount_percent: Some(100.0),
-                                            tp2_triggered: false,
-                                            active: true,
-                                            created_at: chrono::Utc::now().timestamp(),
-                                            updated_at: chrono::Utc::now().timestamp(),
-                                        };
-                                        let _ = state_manager.upsert_position(pos).await;
-                                        self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger (Bypassing hibernation).").await?;
-                                    },
-                                    Err(e) => {
-                                        self.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e)).await?;
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
-                            }
-                        }
-                    }
-                }
+                self.cmd_rbuy(cmd, executor, state_manager, feed_tx).await?;
             }
 
             cmd if cmd.starts_with("/track ") => {
@@ -392,8 +321,103 @@ impl CommandHandler {
         Ok(())
     }
 
+    async fn cmd_rbuy(&self, command: &str, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>, feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>) -> Result<()> {
+        if Self::is_hibernating() {
+            self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
+            return Ok(());
+        }
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.len() < 3 {
+            self.send_message("❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>").await?;
+        } else {
+            let mint = parts[1];
+            let amount: f64 = parts[2].parse().unwrap_or(0.0);
+            let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(9999) } else { 9999 };
+            
+            // ✅ CRITICAL: Validar mint antes de ejecutar
+            match crate::validation::FinancialValidator::validate_mint(mint, "/rbuy command") {
+                Ok(valid_mint) => {
+                    let slippage_text = if slippage >= 9000 { "INFINITE".to_string() } else { format!("{}%", slippage as f64 / 100.0) };
+                    self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}</code>\n<i>Bypassing all guards...</i>", valid_mint, amount, slippage_text)).await?;
+                    
+                    let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+                    // Para Raydium, si el slippage es < 9000, calculamos min_out (TODO), por ahora el executor raydium usa 1
+                    match executor.execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount).await {
+                        Ok(res) => {
+                            self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
+                            
+                            // ARM MONITORING
+                            let pos = crate::state_manager::PositionState {
+                                id: None,
+                                token_mint: valid_mint.to_string(),
+                                symbol: "DEGEN".to_string(),
+                                entry_price: res.price_per_token,
+                                current_price: res.price_per_token,
+                                amount_sol: res.sol_spent,
+                                stop_loss_percent: -50.0,
+                                trailing_enabled: true,
+                                trailing_distance_percent: 25.0,
+                                trailing_activation_threshold: 15.0,
+                                trailing_highest_price: Some(res.price_per_token),
+                                trailing_current_sl: Some(-50.0),
+                                tp_percent: Some(100.0),
+                                tp_amount_percent: Some(50.0),
+                                tp_triggered: false,
+                                tp2_percent: Some(200.0),
+                                tp2_amount_percent: Some(100.0),
+                                tp2_triggered: false,
+                                active: true,
+                                created_at: chrono::Utc::now().timestamp(),
+                                updated_at: chrono::Utc::now().timestamp(),
+                            };
+                            if let Err(e) = state_manager.upsert_position(pos).await {
+                                    self.send_message(&format!("⚠️ DB Error: {}", e)).await?;
+                            } else {
+                                // 🔥 SUSCRIPCIÓN DINÁMICA
+                                let _ = feed_tx.send(crate::price_feed::FeedCommand::Subscribe(crate::price_feed::MonitoredToken {
+                                    mint: valid_mint.to_string(),
+                                    symbol: "DEGEN".to_string(),
+                                    pool_account: None,
+                                    coin_vault: None,
+                                    pc_vault: None,
+                                    token_decimals: 6,
+                                })).await;
+                                
+                                self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger (Dynamic subscription active).").await?;
+                            }
+                        },
+                        Err(e) => {
+                            self.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e)).await?;
+                        }
+                    }
+                },
+                Err(e) => {
+                    self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn cmd_buy(&self, command: &str, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>, feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>) -> Result<()> {
+        if Self::is_hibernating() {
+            self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
+            return Ok(());
+        }
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.len() < 3 {
+             self.send_message("❌ <b>Syntax:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>").await?;
+             return Ok(());
+        }
+        let mint = parts[1];
+        let amount: f64 = parts[2].parse().unwrap_or(0.0);
+        let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(100) } else { 100 };
+
+        self.cmd_buy_with_params(mint, amount, slippage, executor, state_manager, feed_tx).await
+    }
+
     /// Comando /buy con parámetros personalizados
-    async fn cmd_buy_with_params(&self, mint: &str, amount: f64, slippage_bps: u16, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_buy_with_params(&self, mint: &str, amount: f64, slippage_bps: u16, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>, feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>) -> Result<()> {
         // ✅ CRITICAL: Validar mint antes de ejecutar
         let valid_mint = match crate::validation::FinancialValidator::validate_mint(mint, "/buy command") {
             Ok(m) => m,
@@ -449,6 +473,16 @@ impl CommandHandler {
                     if let Err(e) = state_manager.upsert_position(pos).await {
                         self.send_message(&format!("⚠️ <b>DB Error:</b> {}\nTx: {}", e, res.signature)).await?;
                     } else {
+                        // 🔥 SUSCRIPCIÓN DINÁMICA
+                        let _ = feed_tx.send(crate::price_feed::FeedCommand::Subscribe(crate::price_feed::MonitoredToken {
+                            mint: valid_mint.to_string(),
+                            symbol: symbol.clone(),
+                            pool_account: None,
+                            coin_vault: None,
+                            pc_vault: None,
+                            token_decimals: 6,
+                        })).await;
+
                         self.send_message(&format!(
                             "<b>✅ BUY SUCCESS</b>\n\
                             <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
@@ -457,7 +491,7 @@ impl CommandHandler {
                             <b>⬢ Entry:</b>   <code>{:.8} SOL</code>\n\
                             <b>⬢ Tx:</b> <a href='https://solscan.io/tx/{}'>VIEW</a>\n\
                             <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                            <i>🛡️ MONITORING ARMED (Bypassing hibernation).</i>",
+                            <i>🛡️ MONITORING ARMED (Dynamic subscription active).</i>",
                             symbol, res.output_amount, price, res.signature
                         )).await?;
                     }
@@ -723,14 +757,21 @@ impl CommandHandler {
             let dd = pos.drawdown_percent();
             let status_emoji = if dd > 0.0 { "🟢" } else if dd > -20.0 { "🟡" } else { "🔴" };
             
+            let mint_display = if pos.token_mint.len() > 8 {
+                &pos.token_mint[..8]
+            } else {
+                &pos.token_mint
+            };
+
             response.push_str(&format!(
-                "{} <b>{}</b>\n\
-                <b>⋄ Price:</b>   <code>${:.8}</code>\n\
-                <b>⋄ Entry:</b>   <code>${:.8}</code>\n\
+                "{} <b>{}</b> (<code>{}...</code>)\n\
+                <b>⋄ Price:</b>   <code>{:.8} SOL</code>\n\
+                <b>⋄ Entry:</b>   <code>{:.8} SOL</code>\n\
                 <b>⋄ Yield:</b>   <b>{}{:.2}%</b>\n\
-                <b>⋄ Value:</b>   <code>{:.3} SOL</code>\n\n",
+                <b>⋄ Value:</b>   <code>{:.6} SOL</code>\n\n",
                 status_emoji,
-                &pos.token_mint[..8],
+                pos.symbol,
+                mint_display,
                 pos.current_price,
                 pos.entry_price,
                 if dd > 0.0 { "+" } else { "" },

@@ -45,12 +45,16 @@ pub struct PriceUpdate {
 /// Fuente del dato de precio
 #[derive(Debug, Clone, PartialEq)]
 pub enum PriceSource {
-    /// Geyser gRPC — ultra-baja latencia (~50ms), datos on-chain crudos. PAGADO.
     Geyser,
-    /// WebSocket nativo — baja latencia (~200-400ms), datos on-chain. GRATIS.
     WebSocket,
-    /// DexScreener HTTP — datos enriquecidos, mayor latencia (~5s). GRATIS.
     DexScreener,
+}
+
+/// Comandos para controlar el feed en caliente
+#[derive(Debug, Clone)]
+pub enum FeedCommand {
+    /// Añadir un nuevo token al monitoreo
+    Subscribe(MonitoredToken),
 }
 
 impl std::fmt::Display for PriceSource {
@@ -146,13 +150,32 @@ impl PriceFeed {
     pub fn start(
         config: PriceFeedConfig,
         tokens: Vec<MonitoredToken>,
-    ) -> (mpsc::Receiver<PriceUpdate>, PriceCache) {
+    ) -> (mpsc::Receiver<PriceUpdate>, PriceCache, mpsc::Sender<FeedCommand>) {
         let (tx, rx) = mpsc::channel::<PriceUpdate>(512);
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<FeedCommand>(32);
         let cache: PriceCache = Arc::new(RwLock::new(HashMap::new()));
+        let shared_tokens = Arc::new(RwLock::new(tokens.clone()));
         
-        // ── Tarea 1: DexScreener Poller (siempre activo, es el fallback) ──
+        // ── Tarea de Gestión de Comandos (Dynamic Subscription) ──
+        let cmd_tokens = Arc::clone(&shared_tokens);
+        tokio::spawn(async move {
+            while let Some(cmd) = cmd_rx.recv().await {
+                match cmd {
+                    FeedCommand::Subscribe(token) => {
+                        println!("⚡ [Feed] Dynamic Subscription: ${} ({})", token.symbol, token.mint);
+                        let mut t = cmd_tokens.write().await;
+                        // Avoid duplicates
+                        if !t.iter().any(|existing| existing.mint == token.mint) {
+                            t.push(token);
+                        }
+                    }
+                }
+            }
+        });
+        
+        // ── Tarea 1: DexScreener Poller ──
         let dex_tx = tx.clone();
-        let dex_tokens = tokens.clone();
+        let dex_tokens = Arc::clone(&shared_tokens);
         let dex_interval = config.dexscreener_interval;
         let dex_cache = Arc::clone(&cache);
         
@@ -164,7 +187,7 @@ impl PriceFeed {
         if config.geyser_enabled {
             if let (Some(endpoint), Some(token)) = (config.geyser_endpoint.clone(), config.geyser_token.clone()) {
                 let geyser_tx = tx.clone();
-                let geyser_tokens = tokens.clone();
+                let geyser_tokens = Arc::clone(&shared_tokens);
                 let geyser_cache = Arc::clone(&cache);
                 
                 tokio::spawn(async move {
@@ -204,19 +227,24 @@ impl PriceFeed {
             }
         }
         
-        (rx, cache)
+        (rx, cache, cmd_tx)
     }
 
     /// Loop de polling a DexScreener (la fuente lenta pero fiable)
     async fn dexscreener_loop(
         tx: mpsc::Sender<PriceUpdate>,
-        tokens: Vec<MonitoredToken>,
+        tokens_list: Arc<RwLock<Vec<MonitoredToken>>>,
         interval: Duration,
         cache: PriceCache,
     ) {
         let scanner = PriceScanner::new();
         
         loop {
+            let tokens = {
+                let r = tokens_list.read().await;
+                r.clone()
+            };
+
             for token in &tokens {
                 match scanner.get_token_price(&token.mint).await {
                     Ok(price_data) => {
@@ -280,7 +308,7 @@ impl PriceFeed {
     /// ```
     async fn geyser_stream_loop(
         tx: mpsc::Sender<PriceUpdate>,
-        tokens: Vec<MonitoredToken>,
+        tokens_list: Arc<RwLock<Vec<MonitoredToken>>>,
         endpoint: String,
         api_token: String,
         cache: PriceCache,
@@ -290,8 +318,14 @@ impl PriceFeed {
         let mut reconnect_delay = Duration::from_secs(2);
         let max_reconnect_delay = Duration::from_secs(60);
         
-        // ── Construir VaultPair tracker ──
-        let vault_pairs: Vec<VaultPair> = tokens.iter()
+        loop {
+            let tokens = {
+                let r = tokens_list.read().await;
+                r.clone()
+            };
+
+            // ── Construir VaultPair tracker ──
+            let vault_pairs: Vec<VaultPair> = tokens.iter()
             .filter(|t| t.coin_vault.is_some() && t.pc_vault.is_some())
             .map(|t| VaultPair {
                 token_mint: t.mint.clone(),
@@ -521,6 +555,7 @@ impl PriceFeed {
             tokio::time::sleep(reconnect_delay).await;
             reconnect_delay = (reconnect_delay * 2).min(max_reconnect_delay);
         }
+    }
     }
 }
 

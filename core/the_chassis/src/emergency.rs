@@ -37,6 +37,7 @@ impl Default for EmergencyConfig {
 #[derive(Debug, Clone)]
 pub struct Position {
     pub token_mint: String,
+    pub symbol: String,
     pub entry_price: f64,
     pub amount_invested: f64, // En SOL
     pub current_price: f64,
@@ -193,6 +194,7 @@ mod tests {
     fn test_position_drawdown() {
         let pos = Position {
             token_mint: "TEST".to_string(),
+            symbol: "TEST".to_string(),
             entry_price: 1.0,
             amount_invested: 0.1,
             current_price: 0.7,
@@ -211,6 +213,7 @@ mod tests {
         
         let pos = Position {
             token_mint: "TEST".to_string(),
+            symbol: "TEST".to_string(),
             entry_price: 1.0,
             amount_invested: 0.1,
             current_price: 0.7,

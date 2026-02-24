@@ -301,7 +301,8 @@ async fn run_monitor_mode() -> Result<()> {
     if let Ok(db_positions) = state_manager.get_active_positions().await {
         for target in &db_positions {
             emergency_monitor.lock().unwrap().add_position(Position {
-                token_mint: target.symbol.clone(),
+                token_mint: target.token_mint.clone(),
+                symbol: target.symbol.clone(),
                 entry_price: target.entry_price,
                 amount_invested: target.amount_sol,
                 current_price: target.entry_price,
@@ -352,51 +353,6 @@ async fn run_monitor_mode() -> Result<()> {
         println!("\n⚠️  ATENCIÓN: Auto-Execute está activado pero el Keypair no pudo ser cargado. El sistema operará en modo DRY-RUN o ALERTA como medida de seguridad.\n");
     }
 
-    println!("📣 Inicializando Telegram Notifier & Command Handler...");
-    // 3.5 Telegram Notifier & Command Handler Setup
-    let telegram = Arc::new(TelegramNotifier::new());
-    let command_handler = Arc::new(CommandHandler::new());
-    println!("✅ Telegram components creados");
-    
-    // Lanzar el receptor de comandos en segundo plano
-    let cmd_handler_clone = Arc::clone(&command_handler);
-    let cmd_emergency_monitor = Arc::clone(&emergency_monitor);
-    let cmd_wallet_monitor = Arc::clone(&wallet_monitor);
-    let cmd_config = Arc::new(app_config.clone());
-    let cmd_executor = Arc::clone(&executor);
-    let cmd_state_manager = Arc::clone(&state_manager);
-    
-    tokio::spawn(async move {
-        println!("📱 Telegram Command Handler: ACTIVADO");
-        let _ = cmd_handler_clone.process_commands(
-            cmd_emergency_monitor,
-            cmd_wallet_monitor,
-            cmd_executor,
-            cmd_config,
-            cmd_state_manager
-        ).await;
-    });
-    
-    println!("\n───────────────────────────────────────────────────────────\n");
-
-    // 4. Network Benchmark
-    println!("📡 NETWORK STATUS:");
-    let start = Instant::now();
-    let rpc_client = RpcClient::new(rpc_url.clone());
-    if let Ok(slot) = rpc_client.get_slot() {
-        let latency = start.elapsed().as_millis();
-        println!("   • Slot:     {}", slot);
-        println!("   • Latency:  {}ms (HTTP)", latency);
-    }
-
-    println!("\n═══════════════════════════════════════════════════════════");
-    println!("  🚀 INICIANDO MONITOR DINÁMICO v2.0.0 (PriceFeed)");
-    println!("═══════════════════════════════════════════════════════════\n");
-    println!("⏰ Start Time: {}", Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
-    println!("💡 Tip: Edita targets.json y reinicia para cambiar SL, Auto-Execute, etc.\n");
-    
-    println!("───────────────────────────────────────────────────────────\n");
-
     // 5. PriceFeed — Hub unificado de precios
     println!("📡 PRICE FEED SETUP:");
     let feed_config = PriceFeedConfig::from_env();
@@ -422,13 +378,12 @@ async fn run_monitor_mode() -> Result<()> {
     
     if feed_config.geyser_enabled {
         println!("   ⚡ Modo:       HFT (Geyser gRPC + DexScreener fallback)");
-        println!("   📡 DexScreener: cada {:?} (fallback)", feed_config.dexscreener_interval);
     } else {
         println!("   📡 Modo:       Standard (DexScreener HTTP)");
-        println!("   ⏱️  Intervalo:  cada {:?}", feed_config.dexscreener_interval);
     }
     
-    let (mut price_rx, price_cache) = PriceFeed::start(feed_config, monitored_tokens);
+    let (price_rx, price_cache, feed_tx) = PriceFeed::start(feed_config, monitored_tokens);
+    let mut price_rx = price_rx; // Re-bind to allow loop consumption
     println!("✅ PriceFeed inicializado");
 
     // 🧠 Inicializar AutoBuyer para seguimiento de Momentum Real
@@ -436,7 +391,34 @@ async fn run_monitor_mode() -> Result<()> {
         rpc_url.clone(),
         Some(Arc::clone(&price_cache))
     )?);
+
+    println!("📣 Inicializando Telegram Notifier & Command Handler...");
+    // 3.5 Telegram Notifier & Command Handler Setup
+    let telegram = Arc::new(TelegramNotifier::new());
+    let command_handler = Arc::new(CommandHandler::new());
+    println!("✅ Telegram components creados");
     
+    // Lanzar el receptor de comandos en segundo plano
+    let cmd_handler_clone = Arc::clone(&command_handler);
+    let cmd_emergency_monitor = Arc::clone(&emergency_monitor);
+    let cmd_wallet_monitor = Arc::clone(&wallet_monitor);
+    let cmd_config = Arc::new(app_config.clone());
+    let cmd_executor = Arc::clone(&executor);
+    let cmd_state_manager = Arc::clone(&state_manager);
+    let cmd_feed_tx = feed_tx.clone();
+    
+    tokio::spawn(async move {
+        println!("📱 Telegram Command Handler: ACTIVADO");
+        let _ = cmd_handler_clone.process_commands(
+            cmd_emergency_monitor,
+            cmd_wallet_monitor,
+            cmd_executor,
+            cmd_config,
+            cmd_state_manager,
+            cmd_feed_tx
+        ).await;
+    });
+
     println!("\n───────────────────────────────────────────────────────────\n");
 
     let monitor_clone = Arc::clone(&emergency_monitor);
