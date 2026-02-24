@@ -1,6 +1,5 @@
 use crate::strategy_engine::{Strategy, MarketData, TradeAction};
-use std::collections::HashMap;
-use anyhow::{Result, Context};
+use anyhow::Result;
 use std::time::Instant;
 
 /// Resultados detallados de una sesión de backtesting
@@ -51,7 +50,7 @@ impl MarketSimulator {
             let action = strategy.on_price_update(tick)?;
             
             match action {
-                TradeAction::Buy { confidence, .. } => {
+                TradeAction::Buy { confidence: _, .. } => {
                     if position.is_none() && balance > 0.01 {
                         // Simular compra con slippage de taker
                         let execution_price = tick.price * (1.0 + self.slippage_taker);
@@ -98,7 +97,7 @@ impl MarketSimulator {
         }
 
         // Cerrar posición al final si existe
-        if let Some((amount, entry)) = position {
+        if let Some((amount, _entry)) = position {
             let last_price = data.last().map(|d| d.price).unwrap_or(0.0);
             let revenue = amount * last_price;
             balance += revenue;

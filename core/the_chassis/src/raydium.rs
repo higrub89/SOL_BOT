@@ -5,7 +5,7 @@
 //! 
 //! Estado: PRODUCTION READY (Pool Discovery + Swap Execution)
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},

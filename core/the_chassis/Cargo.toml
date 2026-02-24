@@ -65,7 +65,3 @@ path = "src/bin/main.rs"
 
 [build-dependencies]
 tonic-build = "0.8"
-
-[profile.release]
-opt-level = 3
-lto = true

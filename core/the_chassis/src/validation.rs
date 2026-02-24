@@ -160,6 +160,11 @@ impl FinancialValidator {
     /// - No contiene espacios ni caracteres especiales
     /// - No es un mint WSOL (para compras)
     pub fn validate_mint(mint: &str, context: &str) -> Result<String> {
+        Self::validate_mint_internal(mint, context, false)
+    }
+
+    /// Valida un mint, con la opción de permitir WSOL internamente
+    fn validate_mint_internal(mint: &str, context: &str, allow_wsol: bool) -> Result<String> {
         let mint = mint.trim();
         
         // Validar que no esté vacío
@@ -189,9 +194,9 @@ impl FinancialValidator {
             }
         }
         
-        // Validar que no sea el WSOL mint
+        // Validar que no sea el WSOL mint (si no está explícitamente permitido)
         const WSOL_MINT: &str = "So11111111111111111111111111111111111111112";
-        if mint == WSOL_MINT {
+        if !allow_wsol && mint == WSOL_MINT {
             anyhow::bail!(
                 "{}: No puedes comprar WSOL (wrapped SOL nativo). \
                  Usa el SOL nativo directamente.",
@@ -208,8 +213,9 @@ impl FinancialValidator {
         output_mint: &str,
         context: &str,
     ) -> Result<()> {
-        Self::validate_mint(input_mint, &format!("{} (input)", context))?;
-        Self::validate_mint(output_mint, &format!("{} (output)", context))?;
+        // Permitimos WSOL en los pares internos porque Jupiter usa WSOL para rutar desde SOL nativo
+        Self::validate_mint_internal(input_mint, &format!("{} (input)", context), true)?;
+        Self::validate_mint_internal(output_mint, &format!("{} (output)", context), true)?;
         
         if input_mint == output_mint {
             anyhow::bail!(
