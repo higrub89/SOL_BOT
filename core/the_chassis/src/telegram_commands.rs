@@ -241,6 +241,33 @@ impl CommandHandler {
                         match executor.execute_raydium_buy(mint, kp_opt.as_ref(), amount).await {
                             Ok(res) => {
                                 self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
+                                
+                                // ARM MONITORING
+                                let pos = crate::state_manager::PositionState {
+                                    id: None,
+                                    token_mint: mint.to_string(),
+                                    symbol: "DEGEN".to_string(),
+                                    entry_price: res.price_per_token,
+                                    current_price: res.price_per_token,
+                                    amount_sol: res.sol_spent,
+                                    stop_loss_percent: -50.0,
+                                    trailing_enabled: true,
+                                    trailing_distance_percent: 25.0,
+                                    trailing_activation_threshold: 15.0,
+                                    trailing_highest_price: Some(res.price_per_token),
+                                    trailing_current_sl: Some(-50.0),
+                                    tp_percent: Some(100.0),
+                                    tp_amount_percent: Some(50.0),
+                                    tp_triggered: false,
+                                    tp2_percent: Some(200.0),
+                                    tp2_amount_percent: Some(100.0),
+                                    tp2_triggered: false,
+                                    active: true,
+                                    created_at: chrono::Utc::now().timestamp(),
+                                    updated_at: chrono::Utc::now().timestamp(),
+                                };
+                                let _ = state_manager.upsert_position(pos).await;
+                                self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger.").await?;
                             }
                             Err(e) => {
                                 self.send_message(&format!("❌ <b>DEGEN FAIL:</b> {}", e)).await?;
