@@ -337,12 +337,29 @@ impl TradeExecutor {
         };
         let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
+        // ✅ CRITICAL FIX: Extraer out_amount real del quote para que el StateManager registre la posición
+        let out_amount_raw = quote.out_amount.parse::<f64>().unwrap_or(0.0);
+        let price_impact = quote.price_impact_pct.parse::<f64>().unwrap_or(0.0);
+        
+        // Intentar obtener decimales vía RPC para normalizar el monto
+        let decimals = match solana_sdk::pubkey::Pubkey::from_str(token_mint) {
+            Ok(mint_pubkey) => {
+                match self.rpc_client.get_token_supply(&mint_pubkey) {
+                    Ok(supply) => supply.decimals,
+                    Err(_) => 6, // Fallback a 6 si falla el RPC (común en tokens muy nuevos)
+                }
+            },
+            Err(_) => 6,
+        };
+
+        let output_amount = out_amount_raw / 10f64.powi(decimals as i32);
+
         Ok(SwapResult {
             signature: signature.to_string(),
             input_amount: amount_sol,
-            output_amount: 0.0,
+            output_amount,
             route: "Jupiter Adjusted".to_string(),
-            price_impact_pct: 0.0,
+            price_impact_pct: price_impact,
         })
     }
 

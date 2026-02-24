@@ -232,7 +232,7 @@ impl AutoBuyer {
             token_mint: config.token_mint.clone(),
             amount_sol: swap_result.input_amount,
             tokens_received: swap_result.output_amount,
-            effective_price: swap_result.price_impact_pct,
+            effective_price: if swap_result.output_amount > 0.0 { swap_result.input_amount / swap_result.output_amount } else { 0.0 },
             route: "Jupiter (Optimized by DecisionEngine)".to_string(),
         })
     }

@@ -410,8 +410,6 @@ impl CommandHandler {
         // Ejecutar con parámetros custom
         match executor.execute_buy_with_custom_params(&valid_mint, kp_opt.as_ref(), amount, 100_000, slippage_bps).await {
             Ok(res) => {
-                self.send_message(&format!("<b>✅ BUY SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
-                
                 // REGISTRO OBLIGATORIO: Ignoramos la hibernación para el registro si la compra fue exitosa
                 if res.output_amount > 0.0 {
                      let price = amount / res.output_amount;
@@ -427,7 +425,7 @@ impl CommandHandler {
                      let pos = crate::state_manager::PositionState {
                         id: None,
                         token_mint: valid_mint.to_string(),
-                        symbol,
+                        symbol: symbol.clone(),
                         entry_price: price,
                         current_price: price,
                         amount_sol: amount,
@@ -447,8 +445,24 @@ impl CommandHandler {
                         created_at: chrono::Utc::now().timestamp(),
                         updated_at: chrono::Utc::now().timestamp(),
                     };
-                    let _ = state_manager.upsert_position(pos).await;
-                    self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to Ledger (Bypassing hibernation).").await?;
+                    
+                    if let Err(e) = state_manager.upsert_position(pos).await {
+                        self.send_message(&format!("⚠️ <b>DB Error:</b> {}\nTx: {}", e, res.signature)).await?;
+                    } else {
+                        self.send_message(&format!(
+                            "<b>✅ BUY SUCCESS</b>\n\
+                            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                            <b>⬢ Asset:</b>   <code>{}</code>\n\
+                            <b>⬢ Tokens:</b>  <code>{:.2}</code>\n\
+                            <b>⬢ Entry:</b>   <code>{:.8} SOL</code>\n\
+                            <b>⬢ Tx:</b> <a href='https://solscan.io/tx/{}'>VIEW</a>\n\
+                            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+                            <i>🛡️ MONITORING ARMED (Bypassing hibernation).</i>",
+                            symbol, res.output_amount, price, res.signature
+                        )).await?;
+                    }
+                } else {
+                    self.send_message(&format!("<b>✅ BUY SUCCESS</b> (Wait for confirm)\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
                 }
             },
             Err(e) => {
@@ -492,14 +506,14 @@ impl CommandHandler {
                     id: None,
                     token_mint: valid_mint.to_string(),
                     symbol: symbol.to_string(),
-                    entry_price: price_data.price_usd,
-                    current_price: price_data.price_usd,
+                    entry_price: price_data.price_native,
+                    current_price: price_data.price_native,
                     amount_sol: sol,
                     stop_loss_percent: sl,
                     trailing_enabled: true,
                     trailing_distance_percent: 25.0,
                     trailing_activation_threshold: 20.0,
-                    trailing_highest_price: Some(price_data.price_usd),
+                    trailing_highest_price: Some(price_data.price_native),
                     trailing_current_sl: Some(sl),
                     tp_percent: Some(tp),
                     tp_amount_percent: Some(50.0), // Default sell 50%
@@ -518,11 +532,11 @@ impl CommandHandler {
                     "<b>✅ ASSET TRACKED SUCCESSFULLY</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                     <b>⬢ Symbol:</b> <code>{}</code>\n\
-                    <b>⬢ Entry:</b> <code>${:.8}</code>\n\
+                    <b>⬢ Entry:</b> <code>{:.8} SOL</code>\n\
                     <b>⬢ SL / TP:</b> <code>{}% / {}%</code>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                     <i>🔄 Note: Restart tracking active once PriceFeed refreshes.</i>",
-                    symbol, price_data.price_usd, sl, tp
+                    symbol, price_data.price_native, sl, tp
                 )).await?;
             }
             Err(e) => {
@@ -852,8 +866,8 @@ impl CommandHandler {
 
                     response.push_str(&format!(
                         "{} <b>{}</b>\n\
-                        <b>⋄ Entry:</b>   <code>${:.8}</code>\n\
-                        <b>⋄ Price:</b>   <code>${:.8}</code>\n\
+                        <b>⋄ Entry:</b>   <code>{:.8} SOL</code>\n\
+                        <b>⋄ Price:</b>   <code>{:.8} SOL</code>\n\
                         <b>⋄ PnL:</b>     <b>{}{:.2}%</b> <i>({}{:.3} SOL)</i>\n\
                         <b>⋄ SL / TP:</b> <code>{:.0}% / {:.0}%</code>\n\n",
                         status_emoji,

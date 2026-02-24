@@ -540,16 +540,16 @@ async fn run_monitor_mode() -> Result<()> {
         buyer.record_price_tick(&price_update.token_mint, price_update.price_usd).await;
         
         let tokens_held = target.amount_sol / target.entry_price;
-        let current_value = tokens_held * price_update.price_usd;
+        let current_value = tokens_held * price_update.price_native;
         
-        // Actualizar EmergencyMonitor
+        // Actualizar EmergencyMonitor con precios NATIVOS (SOL) para consistencia en PnL
         {
             let mut monitor = monitor_clone.lock().unwrap();
-            monitor.update_position(&target.symbol, price_update.price_usd, current_value);
+            monitor.update_position(&target.symbol, price_update.price_native, current_value);
         }
 
-        // Actualizar estado persistente
-        if let Err(e) = state_manager.update_position_price(&target.token_mint, price_update.price_usd).await {
+        // Actualizar estado persistente con precio NATIVO (SOL)
+        if let Err(e) = state_manager.update_position_price(&target.token_mint, price_update.price_native).await {
             eprintln!("⚠️ Error updating persistent state for {}: {}", target.symbol, e);
         }
         
@@ -606,9 +606,9 @@ async fn run_monitor_mode() -> Result<()> {
             let tp_status = if tp_triggered && tp2_triggered {
                 "✅ ALL TP HIT".to_string()
             } else if tp_triggered {
-                format!("✅ TP1 HIT | TP2: {:.1}% (${:.6})", tp2_target_percent, tp2_price)
+                format!("✅ TP1 HIT | TP2: {:.1}% ({:.6} SOL)", tp2_target_percent, tp2_price)
             } else {
-                format!("TP1: {:.1}% (${:.6}) | TP2: {:.1}%", tp_target_percent, tp_price, tp2_target_percent)
+                format!("TP1: {:.1}% ({:.6} SOL) | TP2: {:.1}%", tp_target_percent, tp_price, tp2_target_percent)
             };
 
             // Limit LOG spam: solo imprimir la tarjeta una vez cada 15 segundos por token
@@ -619,7 +619,7 @@ async fn run_monitor_mode() -> Result<()> {
                 println!("┌────────────────────────────────────────────────────────┐");
                 println!("│ {} {} Status {:>30} │", status_emoji, target.symbol, source_tag);
                 println!("├────────────────────────────────────────────────────────┤");
-                println!("│   Price:    ${:.8}                         │", pos.current_price);
+                println!("│   Price:    {:.8} SOL                  │", pos.current_price);
                 println!("│   PnL:      {:.2}%                                  │", current_gain_percent);
                 println!("│   SL Limit: {:.1}% (Dist: {:.2}%)                    │", effective_sl_percent, dist_to_sl);
                 if !tsl_info.is_empty() {
