@@ -284,7 +284,7 @@ impl CommandHandler {
                                             updated_at: chrono::Utc::now().timestamp(),
                                         };
                                         let _ = state_manager.upsert_position(pos).await;
-                                        self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger.").await?;
+                                        self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger (Bypassing hibernation).").await?;
                                     },
                                     Err(e) => {
                                         self.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e)).await?;
@@ -359,7 +359,7 @@ impl CommandHandler {
         // Check Wallet
         let wallet_status = match wallet_monitor.get_sol_balance() {
             Ok(balance) => {
-                let emoji = if balance > 0.1 { "🟢" } else if balance > 0.05 { "🟡" } else { "🔴" };
+                let emoji = if balance > 0.05 { "🟢" } else if balance > 0.02 { "🟡" } else { "🔴" };
                 format!("{} Wallet: {:.4} SOL", emoji, balance)
             }
             Err(e) => format!("🔴 Wallet: ERROR ({})", e),
@@ -412,13 +412,22 @@ impl CommandHandler {
             Ok(res) => {
                 self.send_message(&format!("<b>✅ BUY SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
                 
-                // Si tenemos el precio real (no es 0), armar el monitoreo
+                // REGISTRO OBLIGATORIO: Ignoramos la hibernación para el registro si la compra fue exitosa
                 if res.output_amount > 0.0 {
                      let price = amount / res.output_amount;
+                     
+                     // Intentar obtener el símbolo real vía PriceScanner
+                     let scanner = crate::scanner::PriceScanner::new();
+                     let symbol = if let Ok(data) = scanner.get_token_price(&valid_mint).await {
+                         data.symbol
+                     } else {
+                         "TOKEN".to_string()
+                     };
+
                      let pos = crate::state_manager::PositionState {
                         id: None,
                         token_mint: valid_mint.to_string(),
-                        symbol: "TOKEN".to_string(),
+                        symbol,
                         entry_price: price,
                         current_price: price,
                         amount_sol: amount,
@@ -439,7 +448,7 @@ impl CommandHandler {
                         updated_at: chrono::Utc::now().timestamp(),
                     };
                     let _ = state_manager.upsert_position(pos).await;
-                    self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved with custom slippage protection.").await?;
+                    self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to Ledger (Bypassing hibernation).").await?;
                 }
             },
             Err(e) => {
