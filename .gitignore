@@ -1,40 +1,18 @@
-# Bot Trading - Gitignore
+# ============================================================================
+# THE CHASSIS — .gitignore (Clean Edition)
+# ============================================================================
 
-# ============================================================================
-# SEGURIDAD CRÍTICA - WALLETS Y CLAVES PRIVADAS
-# ============================================================================
+# SECURITY — NEVER COMMIT
+.env
 operational/wallets/*.key
 operational/wallets/*.json
 operational/wallets/*.txt
 operational/wallets/private_keys/
 operational/.rpc_config
-
-# KeePassXC database (si se crea en el proyecto)
 *.kdbx
 
-# ============================================================================
-# LOGS Y ARCHIVOS TEMPORALES
-# ============================================================================
-operational/logs/*.log
-operational/logs/*.txt
-*.log
-
-# ============================================================================
-# DATASETS Y MODELOS (muy grandes)
-# ============================================================================
-intelligence/datasets/*.csv
-intelligence/datasets/*.json
-intelligence/datasets/*.parquet
-intelligence/models/*.pkl
-intelligence/models/*.h5
-intelligence/models/*.pth
-
-# ============================================================================
-# BUILD ARTIFACTS (C++/Rust)
-# ============================================================================
-core/build/
-core/bin/
-core/lib/
+# BUILD ARTIFACTS
+**/target/
 *.o
 *.a
 *.so
@@ -42,47 +20,56 @@ core/lib/
 *.exe
 *.out
 
-# Rust
-**/target/
+# RUST
 Cargo.lock
 
-# ============================================================================
-# IDE Y EDITORES
-# ============================================================================
-.vscode/
-.idea/
+# DATABASES & STATE
+*.db
+*.db-shm
+*.db-wal
+trading_state.db*
+
+# LOGS
+*.log
+logs/
+operational/logs/
+
+# CACHE & TEMP
+*.bak
+*.tmp
 *.swp
 *.swo
 *~
+.cache/
 .DS_Store
+bot.pid
+result.json
+pools_cache.json
 
-# ============================================================================
+# IDE
+.vscode/
+.idea/
+.cursor/
+
 # PYTHON
-# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
 venv/
 env/
-.env
 
-# ============================================================================
-# NODE (si se usa)
-# ============================================================================
+# ML DATASETS & MODELS (large)
+intelligence/datasets/*.csv
+intelligence/datasets/*.json
+intelligence/datasets/*.parquet
+intelligence/models/*.pkl
+intelligence/models/*.h5
+intelligence/models/*.pth
+
+# NODE
 node_modules/
 package-lock.json
 
-# ============================================================================
-# SISTEMA
-# ============================================================================
-.cache/
-*.bak
-*.tmp
-
-bot.pid
-*.db
-pools_cache.json
-result.json
-logs/
-trading_state.db*
+# DOCKER (build context)
+*.zip

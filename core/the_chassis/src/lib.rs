@@ -19,7 +19,6 @@ pub mod amm_math;
 pub mod auto_buyer;
 pub mod config;
 pub mod emergency;
-pub mod executor_simple;
 pub mod executor_v2;
 pub mod geyser;
 pub mod jito;
