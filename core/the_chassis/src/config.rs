@@ -1,10 +1,10 @@
 //! # Configuration Manager
-//! 
+//!
 //! Carga y gestiona la configuración dinámica desde settings.json.
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use anyhow::{Result, Context};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
@@ -22,12 +22,12 @@ pub struct GlobalSettings {
 impl AppConfig {
     /// Carga la configuración desde settings.json
     pub fn load() -> Result<Self> {
-        let content = fs::read_to_string("settings.json")
-            .context("No se pudo leer settings.json")?;
-        
-        let config: AppConfig = serde_json::from_str(&content)
-            .context("Error parseando settings.json")?;
-            
+        let content =
+            fs::read_to_string("settings.json").context("No se pudo leer settings.json")?;
+
+        let config: AppConfig =
+            serde_json::from_str(&content).context("Error parseando settings.json")?;
+
         Ok(config)
     }
 

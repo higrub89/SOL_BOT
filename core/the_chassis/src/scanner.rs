@@ -1,13 +1,13 @@
 //! # Price Scanner
-//! 
+//!
 //! Módulo para obtener precios en tiempo real de tokens desde Dexscreener.
 //! Actualiza automáticamente las posiciones del Emergency Monitor.
 
-use anyhow::{Result, Context};
+use crate::validation::FinancialValidator;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
-use crate::validation::FinancialValidator;
 
 /// Cliente para obtener precios de tokens
 pub struct PriceScanner {
@@ -26,7 +26,7 @@ impl PriceScanner {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to create HTTP client - this should never fail");
-        
+
         Self { client }
     }
 
@@ -37,7 +37,8 @@ impl PriceScanner {
             token_address
         );
 
-        let response = self.client
+        let response = self
+            .client
             .get(&url)
             .send()
             .await
@@ -52,39 +53,41 @@ impl PriceScanner {
         let best_pair = data.pairs.iter().max_by(|a, b| {
             let liq_a = a.liquidity.as_ref().and_then(|l| l.usd).unwrap_or(0.0);
             let liq_b = b.liquidity.as_ref().and_then(|l| l.usd).unwrap_or(0.0);
-            liq_a.partial_cmp(&liq_b).unwrap_or(std::cmp::Ordering::Equal)
+            liq_a
+                .partial_cmp(&liq_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         if let Some(pair) = best_pair {
             // Extraer valores con validación estricta
-            let price_usd_str = pair.price_usd.as_ref()
+            let price_usd_str = pair
+                .price_usd
+                .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("DexScreener: price_usd missing"))?;
-            
-            let price_usd = FinancialValidator::parse_price_safe(
-                price_usd_str,
-                "DexScreener price_usd"
-            )?;
-                
-            let price_native = pair.price_native.as_ref()
+
+            let price_usd =
+                FinancialValidator::parse_price_safe(price_usd_str, "DexScreener price_usd")?;
+
+            let price_native = pair
+                .price_native
+                .as_ref()
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
-            
-            let liquidity_usd = pair.liquidity.as_ref()
-                .and_then(|l| l.usd)
-                .unwrap_or(0.0);
-            
+
+            let liquidity_usd = pair.liquidity.as_ref().and_then(|l| l.usd).unwrap_or(0.0);
+
             // Validar liquidez mínima (protección contra pools con liquidez muy baja)
             FinancialValidator::validate_liquidity(
                 liquidity_usd,
                 100.0, // Mínimo $100 de liquidez
-                "DexScreener liquidity"
+                "DexScreener liquidity",
             )?;
-                
-            let volume_24h = pair.volume.as_ref()
-                .and_then(|v| v.h24)
-                .unwrap_or(0.0);
-                
-            let price_change_24h = pair.price_change.as_ref()
+
+            let volume_24h = pair.volume.as_ref().and_then(|v| v.h24).unwrap_or(0.0);
+
+            let price_change_24h = pair
+                .price_change
+                .as_ref()
                 .and_then(|c| c.h24)
                 .unwrap_or(0.0);
 
@@ -111,7 +114,11 @@ impl PriceScanner {
         mut callback: impl FnMut(TokenPrice) -> bool,
     ) -> Result<()> {
         println!("🔍 Iniciando monitoreo de precio para ${}", symbol);
-        println!("   • Address: {}...{}", &token_address[..8], &token_address[token_address.len()-4..]);
+        println!(
+            "   • Address: {}...{}",
+            &token_address[..8],
+            &token_address[token_address.len() - 4..]
+        );
         println!("   • Intervalo: {}s\n", interval_secs);
 
         let mut iteration = 0;
@@ -123,7 +130,7 @@ impl PriceScanner {
                 Ok(price) => {
                     // Llamar al callback con el precio
                     let should_continue = callback(price.clone());
-                    
+
                     if !should_continue {
                         println!("\n🛑 Monitor detenido por callback");
                         break;
@@ -146,19 +153,40 @@ impl PriceScanner {
     }
 
     fn print_price_update(&self, price: &TokenPrice, iteration: usize) {
-        let change_emoji = if price.price_change_24h >= 0.0 { "🟢" } else { "🔴" };
-        
+        let change_emoji = if price.price_change_24h >= 0.0 {
+            "🟢"
+        } else {
+            "🔴"
+        };
+
         println!("┌────────────────────────────────────────────────────────┐");
-        println!("│ 📊 Price Update #{:<3}                                │", iteration);
+        println!(
+            "│ 📊 Price Update #{:<3}                                │",
+            iteration
+        );
         println!("├────────────────────────────────────────────────────────┤");
-        println!("│ {} Price:      ${:.8}                    │", price.symbol, price.price_usd);
-        println!("│ {} 24h Change: {}{:.2}%                      │", 
-            change_emoji, 
-            if price.price_change_24h >= 0.0 { "+" } else { "" },
+        println!(
+            "│ {} Price:      ${:.8}                    │",
+            price.symbol, price.price_usd
+        );
+        println!(
+            "│ {} 24h Change: {}{:.2}%                      │",
+            change_emoji,
+            if price.price_change_24h >= 0.0 {
+                "+"
+            } else {
+                ""
+            },
             price.price_change_24h
         );
-        println!("│ 💧 Liquidity:  ${:.0}                           │", price.liquidity_usd);
-        println!("│ 📈 Volume 24h: ${:.0}                           │", price.volume_24h);
+        println!(
+            "│ 💧 Liquidity:  ${:.0}                           │",
+            price.liquidity_usd
+        );
+        println!(
+            "│ 📈 Volume 24h: ${:.0}                           │",
+            price.volume_24h
+        );
         println!("└────────────────────────────────────────────────────────┘\n");
     }
 }

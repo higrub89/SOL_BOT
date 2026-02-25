@@ -1,18 +1,18 @@
 //! # Executor Trait - The Swiss Standard
-//! 
+//!
 //! Abstracción polimórfica para sistemas de ejecución de swaps.
 //! Permite cambiar entre DEXs (Jupiter, Raydium, Orca) sin modificar la lógica de negocio.
-//! 
+//!
 //! ## Filosofía
 //! "El que controla la abstracción, controla el sistema."
-//! 
+//!
 //! Este trait define el estándar de calidad suiza para ejecutores.
 //! Cualquier implementación debe cumplir con este contrato.
 
 use anyhow::Result;
 use async_trait::async_trait;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use serde::{Deserialize, Serialize};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
 /// Quote de un swap (cotización)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ impl SwapExecution {
 }
 
 /// Trait principal para ejecutores de swaps
-/// 
+///
 /// Cualquier DEX (Jupiter, Raydium, Orca) debe implementar este trait
 /// para ser compatible con The Chassis.
 #[async_trait]
@@ -81,13 +81,13 @@ pub trait Executor: Send + Sync {
     fn name(&self) -> &str;
 
     /// Obtener una cotización para un swap
-    /// 
+    ///
     /// # Argumentos
     /// * `input_mint` - Pubkey del token de entrada
     /// * `output_mint` - Pubkey del token de salida
     /// * `amount` - Cantidad a swappear (en unidades base)
     /// * `slippage_bps` - Slippage tolerado en basis points (100 = 1%)
-    /// 
+    ///
     /// # Returns
     /// Cotización con la mejor ruta encontrada
     async fn get_quote(
@@ -99,12 +99,12 @@ pub trait Executor: Send + Sync {
     ) -> Result<Quote>;
 
     /// Ejecutar un swap basado en una cotización
-    /// 
+    ///
     /// # Argumentos
     /// * `quote` - Cotización obtenida previamente
     /// * `wallet` - Keypair de la wallet que ejecutará el swap
     /// * `auto_unwrap` - Si es true, convierte WSOL → SOL nativo automáticamente
-    /// 
+    ///
     /// # Returns
     /// Resultado de la ejecución con signature y métricas
     async fn execute_swap(
@@ -115,19 +115,19 @@ pub trait Executor: Send + Sync {
     ) -> Result<SwapExecution>;
 
     /// Verificar si el executor está disponible (health check)
-    /// 
+    ///
     /// # Returns
     /// true si el executor puede procesar swaps, false si está caído
     async fn is_healthy(&self) -> bool;
 
     /// Obtener la latencia promedio del executor (ms)
-    /// 
+    ///
     /// Útil para elegir el executor más rápido en caso de múltiples opciones.
     async fn avg_latency_ms(&self) -> u64;
 }
 
 /// Executor compuesto que puede hacer fallback entre múltiples DEXs
-/// 
+///
 /// Ejemplo: Si Raydium falla, automáticamente intenta con Jupiter.
 pub struct FallbackExecutor {
     primary: Box<dyn Executor>,
@@ -153,11 +153,17 @@ impl Executor for FallbackExecutor {
         amount: u64,
         slippage_bps: u16,
     ) -> Result<Quote> {
-        match self.primary.get_quote(input_mint, output_mint, amount, slippage_bps).await {
+        match self
+            .primary
+            .get_quote(input_mint, output_mint, amount, slippage_bps)
+            .await
+        {
             Ok(quote) => Ok(quote),
             Err(e) => {
                 eprintln!("⚠️  Primary executor failed, trying fallback: {}", e);
-                self.fallback.get_quote(input_mint, output_mint, amount, slippage_bps).await
+                self.fallback
+                    .get_quote(input_mint, output_mint, amount, slippage_bps)
+                    .await
             }
         }
     }
@@ -267,7 +273,9 @@ mod tests {
         let sol_mint = Pubkey::new_unique();
         let usdc_mint = Pubkey::new_unique();
 
-        let quote = executor.get_quote(&sol_mint, &usdc_mint, 1000000000, 100).await;
+        let quote = executor
+            .get_quote(&sol_mint, &usdc_mint, 1000000000, 100)
+            .await;
         assert!(quote.is_ok());
     }
 }

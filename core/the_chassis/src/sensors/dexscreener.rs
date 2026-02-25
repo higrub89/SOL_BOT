@@ -1,17 +1,17 @@
 //! # DexScreener Sensor (Market Data)
-//! 
+//!
 //! Sensor para obtener datos de mercado en tiempo real.
 //! - Precio
 //! - Liquidez
 //! - Volumen (5m, 1h)
 //! - Pair Info (Raydium, Pump.fun, etc.)
-//! 
+//!
 //! ⚠️ RATE LIMITS: DexScreener permite 300 req/min. Usamos cache + throttling.
 
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
-use anyhow::{Result, anyhow};
-use std::time::{Duration, Instant};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex; // ⚡ CRÍTICO: Usar Mutex async para evitar deadlocks/pánicos con await
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,9 +103,14 @@ impl DexScreenerSensor {
             *last = Instant::now();
         }
 
-        let url = format!("https://api.dexscreener.com/latest/dex/tokens/{}", token_mint);
-        
-        let response = self.client.get(&url)
+        let url = format!(
+            "https://api.dexscreener.com/latest/dex/tokens/{}",
+            token_mint
+        );
+
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await?
             .json::<TokenPairsResponse>()
@@ -119,33 +124,29 @@ impl DexScreenerSensor {
 
         // Seleccionar el mejor par (Mayor liquidez en Solana)
         // Filtramos solo pares en 'solana'
-        let best_pair = pairs.into_iter()
+        let best_pair = pairs
+            .into_iter()
             .filter(|p| p.chain_id == "solana")
             .max_by(|a, b| {
                 let liq_a = a.liquidity.as_ref().and_then(|l| l.usd).unwrap_or(0.0);
                 let liq_b = b.liquidity.as_ref().and_then(|l| l.usd).unwrap_or(0.0);
-                liq_a.partial_cmp(&liq_b).unwrap_or(std::cmp::Ordering::Equal)
+                liq_a
+                    .partial_cmp(&liq_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .ok_or(anyhow!("No Solana pairs found"))?;
 
         // Parsear datos de forma segura
-        let price = best_pair.price_usd
+        let price = best_pair
+            .price_usd
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
-            
-        let liqudity = best_pair.liquidity
-            .and_then(|l| l.usd)
-            .unwrap_or(0.0);
 
-        let vol_5m = best_pair.volume
-            .as_ref()
-            .and_then(|v| v.m5)
-            .unwrap_or(0.0);
+        let liqudity = best_pair.liquidity.and_then(|l| l.usd).unwrap_or(0.0);
 
-        let vol_h1 = best_pair.volume
-            .as_ref()
-            .and_then(|v| v.h1)
-            .unwrap_or(0.0);
+        let vol_5m = best_pair.volume.as_ref().and_then(|v| v.m5).unwrap_or(0.0);
+
+        let vol_h1 = best_pair.volume.as_ref().and_then(|v| v.h1).unwrap_or(0.0);
 
         Ok(MarketData {
             price_usd: price,

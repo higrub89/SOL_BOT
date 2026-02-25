@@ -15,9 +15,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 
-
-use crate::scanner::PriceScanner;
 use crate::geyser::{GeyserClient, GeyserConfig};
+use crate::scanner::PriceScanner;
 
 /// Una actualización de precio normalizada, independiente de la fuente
 #[derive(Debug, Clone)]
@@ -76,7 +75,7 @@ pub struct MonitoredToken {
     pub pool_account: Option<String>,
     /// Coin vault (base token) del pool — para tracking de reserves
     pub coin_vault: Option<String>,
-    /// PC vault (quote/SOL) del pool — para tracking de reserves  
+    /// PC vault (quote/SOL) del pool — para tracking de reserves
     pub pc_vault: Option<String>,
     /// Decimales del token (default: 6)
     pub token_decimals: u8,
@@ -88,7 +87,7 @@ pub type PriceCache = Arc<RwLock<HashMap<String, PriceUpdate>>>;
 /// Configuración del PriceFeed
 #[derive(Debug, Clone)]
 pub struct PriceFeedConfig {
-    /// Intervalo de polling de DexScreener (fallback)  
+    /// Intervalo de polling de DexScreener (fallback)
     pub dexscreener_interval: Duration,
     /// Si Geyser está habilitado
     pub geyser_enabled: bool,
@@ -122,14 +121,14 @@ impl PriceFeedConfig {
         let geyser_token = std::env::var("HELIUS_API_KEY")
             .ok()
             .filter(|s| !s.trim().is_empty());
-        
+
         let geyser_enabled = geyser_endpoint.is_some();
 
         let dex_interval_secs: u64 = std::env::var("DEXSCREENER_INTERVAL_SEC")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(if geyser_enabled { 30 } else { 5 });
-        
+
         Self {
             dexscreener_interval: Duration::from_secs(dex_interval_secs),
             geyser_enabled,
@@ -150,19 +149,26 @@ impl PriceFeed {
     pub fn start(
         config: PriceFeedConfig,
         tokens: Vec<MonitoredToken>,
-    ) -> (mpsc::Receiver<PriceUpdate>, PriceCache, mpsc::Sender<FeedCommand>) {
+    ) -> (
+        mpsc::Receiver<PriceUpdate>,
+        PriceCache,
+        mpsc::Sender<FeedCommand>,
+    ) {
         let (tx, rx) = mpsc::channel::<PriceUpdate>(512);
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<FeedCommand>(32);
         let cache: PriceCache = Arc::new(RwLock::new(HashMap::new()));
         let shared_tokens = Arc::new(RwLock::new(tokens.clone()));
-        
+
         // ── Tarea de Gestión de Comandos (Dynamic Subscription) ──
         let cmd_tokens = Arc::clone(&shared_tokens);
         tokio::spawn(async move {
             while let Some(cmd) = cmd_rx.recv().await {
                 match cmd {
                     FeedCommand::Subscribe(token) => {
-                        println!("⚡ [Feed] Dynamic Subscription: ${} ({})", token.symbol, token.mint);
+                        println!(
+                            "⚡ [Feed] Dynamic Subscription: ${} ({})",
+                            token.symbol, token.mint
+                        );
                         let mut t = cmd_tokens.write().await;
                         // Avoid duplicates
                         if !t.iter().any(|existing| existing.mint == token.mint) {
@@ -172,28 +178,37 @@ impl PriceFeed {
                 }
             }
         });
-        
+
         // ── Tarea 1: DexScreener Poller ──
         let dex_tx = tx.clone();
         let dex_tokens = Arc::clone(&shared_tokens);
         let dex_interval = config.dexscreener_interval;
         let dex_cache = Arc::clone(&cache);
-        
+
         tokio::spawn(async move {
             Self::dexscreener_loop(dex_tx, dex_tokens, dex_interval, dex_cache).await;
         });
 
         // ── Tarea 2: Geyser Streaming (si está habilitado) ──
         if config.geyser_enabled {
-            if let (Some(endpoint), Some(token)) = (config.geyser_endpoint.clone(), config.geyser_token.clone()) {
+            if let (Some(endpoint), Some(token)) =
+                (config.geyser_endpoint.clone(), config.geyser_token.clone())
+            {
                 let geyser_tx = tx.clone();
                 let geyser_tokens = Arc::clone(&shared_tokens);
                 let geyser_cache = Arc::clone(&cache);
-                
+
                 tokio::spawn(async move {
-                    Self::geyser_stream_loop(geyser_tx, geyser_tokens, endpoint, token, geyser_cache).await;
+                    Self::geyser_stream_loop(
+                        geyser_tx,
+                        geyser_tokens,
+                        endpoint,
+                        token,
+                        geyser_cache,
+                    )
+                    .await;
                 });
-                
+
                 println!("   ⚡ Geyser gRPC: ACTIVADO (streaming en tiempo real)");
             } else {
                 eprintln!("   ⚠️  Geyser habilitado pero falta GEYSER_ENDPOINT o HELIUS_API_KEY");
@@ -201,20 +216,22 @@ impl PriceFeed {
         } else {
             // ── Tarea 2b: WebSocket nativo (alternativa GRATUITA a Geyser) ──
             // Se activa si hay vaults configuradas y tenemos API key para el WS
-            let has_vaults = tokens.iter().any(|t| t.coin_vault.is_some() && t.pc_vault.is_some());
+            let has_vaults = tokens
+                .iter()
+                .any(|t| t.coin_vault.is_some() && t.pc_vault.is_some());
             let helius_key = config.geyser_token.clone(); // Reusamos la Helius API key
-            
+
             if has_vaults {
                 if let Some(api_key) = helius_key {
                     let ws_url = format!("wss://mainnet.helius-rpc.com/?api-key={}", api_key);
                     let ws_tx = tx.clone();
                     let ws_tokens = tokens.clone();
                     let ws_cache = Arc::clone(&cache);
-                    
+
                     tokio::spawn(async move {
                         crate::ws_feed::ws_price_loop(ws_tx, ws_tokens, ws_url, ws_cache).await;
                     });
-                    
+
                     println!("   🔌 WebSocket RPC: ACTIVADO (on-chain pricing GRATIS)");
                     println!("   💡 Upgrade: Configura GEYSER_ENDPOINT para latencia ultra-baja");
                 } else {
@@ -226,7 +243,7 @@ impl PriceFeed {
                 println!("   💡 Tip: Usa 'cargo run --bin find_vaults' para configurar vaults");
             }
         }
-        
+
         (rx, cache, cmd_tx)
     }
 
@@ -238,7 +255,7 @@ impl PriceFeed {
         cache: PriceCache,
     ) {
         let scanner = PriceScanner::new();
-        
+
         loop {
             let tokens = {
                 let r = tokens_list.read().await;
@@ -259,13 +276,13 @@ impl PriceFeed {
                             source: PriceSource::DexScreener,
                             received_at: Instant::now(),
                         };
-                        
+
                         // Actualizar caché
                         {
                             let mut c = cache.write().await;
                             c.insert(token.mint.clone(), update.clone());
                         }
-                        
+
                         // Enviar al canal (non-blocking: si el buffer se llena, descartamos)
                         if tx.try_send(update).is_err() {
                             // Buffer lleno — el monitor no está consumiendo rápido.
@@ -276,17 +293,17 @@ impl PriceFeed {
                         eprintln!("⚠️  [DexScreener] Error fetching {}: {}", token.symbol, e);
                     }
                 }
-                
+
                 // Pequeña pausa entre tokens para no saturar la API
                 tokio::time::sleep(Duration::from_millis(300)).await;
             }
-            
+
             tokio::time::sleep(interval).await;
         }
     }
 
     /// Loop de streaming de Geyser gRPC (la fuente rápida) — V2 con cálculo de precio on-chain
-    /// 
+    ///
     /// Estrategia: Se suscribe a las vault accounts (SPL Token Accounts) del pool.
     /// Cuando una vault cambia → parseamos su `amount` → actualizamos reserves → calculamos precio.
     ///
@@ -313,11 +330,14 @@ impl PriceFeed {
         api_token: String,
         cache: PriceCache,
     ) {
-        use crate::amm_math::{VaultPair, build_vault_tracker, parse_spl_token_account_amount, SolPriceUsd, new_sol_price_tracker};
-        
+        use crate::amm_math::{
+            build_vault_tracker, new_sol_price_tracker, parse_spl_token_account_amount,
+            SolPriceUsd, VaultPair,
+        };
+
         let mut reconnect_delay = Duration::from_secs(2);
         let max_reconnect_delay = Duration::from_secs(60);
-        
+
         loop {
             let tokens = {
                 let r = tokens_list.read().await;
@@ -325,127 +345,135 @@ impl PriceFeed {
             };
 
             // ── Construir VaultPair tracker ──
-            let vault_pairs: Vec<VaultPair> = tokens.iter()
-            .filter(|t| t.coin_vault.is_some() && t.pc_vault.is_some())
-            .map(|t| VaultPair {
-                token_mint: t.mint.clone(),
-                symbol: t.symbol.clone(),
-                coin_vault: t.coin_vault.clone().unwrap(),
-                pc_vault: t.pc_vault.clone().unwrap(),
-                base_decimals: t.token_decimals,
-                quote_decimals: 9, // SOL siempre tiene 9 decimales
-                last_coin_reserve: None,
-                last_pc_reserve: None,
-            })
-            .collect();
-        
-        if vault_pairs.is_empty() {
-            // Fallback: si no hay vaults configuradas, intentar con pool_account (modo legacy)
-            let pool_accounts: Vec<String> = tokens.iter()
-                .filter_map(|t| t.pool_account.clone())
+            let vault_pairs: Vec<VaultPair> = tokens
+                .iter()
+                .filter(|t| t.coin_vault.is_some() && t.pc_vault.is_some())
+                .map(|t| VaultPair {
+                    token_mint: t.mint.clone(),
+                    symbol: t.symbol.clone(),
+                    coin_vault: t.coin_vault.clone().unwrap(),
+                    pc_vault: t.pc_vault.clone().unwrap(),
+                    base_decimals: t.token_decimals,
+                    quote_decimals: 9, // SOL siempre tiene 9 decimales
+                    last_coin_reserve: None,
+                    last_pc_reserve: None,
+                })
                 .collect();
-            
-            if pool_accounts.is_empty() {
-                eprintln!("⚠️  [Geyser] No hay vault accounts ni pool accounts configurados.");
-                eprintln!("   💡 Añade 'coin_vault' + 'pc_vault' a tus targets");
+
+            if vault_pairs.is_empty() {
+                // Fallback: si no hay vaults configuradas, intentar con pool_account (modo legacy)
+                let pool_accounts: Vec<String> = tokens
+                    .iter()
+                    .filter_map(|t| t.pool_account.clone())
+                    .collect();
+
+                if pool_accounts.is_empty() {
+                    eprintln!("⚠️  [Geyser] No hay vault accounts ni pool accounts configurados.");
+                    eprintln!("   💡 Añade 'coin_vault' + 'pc_vault' a tus targets");
+                    return;
+                }
+
+                eprintln!("⚠️  [Geyser] Solo pool_account configurado (sin vaults).");
+                eprintln!("   💡 Para cálculo de precio on-chain, configura coin_vault + pc_vault");
+                // Podríamos implementar el modo legacy aquí, pero por ahora retornamos
                 return;
             }
-            
-            eprintln!("⚠️  [Geyser] Solo pool_account configurado (sin vaults).");
-            eprintln!("   💡 Para cálculo de precio on-chain, configura coin_vault + pc_vault");
-            // Podríamos implementar el modo legacy aquí, pero por ahora retornamos
-            return;
-        }
-        
-        let (vault_tracker, vault_to_mint) = build_vault_tracker(vault_pairs);
-        
-        // Todas las vault addresses que necesitamos monitorear
-        let all_vault_addresses: Vec<String> = vault_to_mint.keys().cloned().collect();
-        
-        println!("   🔑 Vault accounts a monitorear: {}", all_vault_addresses.len());
-        for addr in &all_vault_addresses {
-            if let Some(mint) = vault_to_mint.get(addr) {
-                println!("      └─ {} → {}", &addr[..8], mint);
+
+            let (vault_tracker, vault_to_mint) = build_vault_tracker(vault_pairs);
+
+            // Todas las vault addresses que necesitamos monitorear
+            let all_vault_addresses: Vec<String> = vault_to_mint.keys().cloned().collect();
+
+            println!(
+                "   🔑 Vault accounts a monitorear: {}",
+                all_vault_addresses.len()
+            );
+            for addr in &all_vault_addresses {
+                if let Some(mint) = vault_to_mint.get(addr) {
+                    println!("      └─ {} → {}", &addr[..8], mint);
+                }
             }
-        }
-        
-        // SOL price tracker (se actualiza desde el caché de DexScreener)
-        let sol_price: SolPriceUsd = new_sol_price_tracker();
-        
-        loop {
-            println!("🔌 [Geyser] Conectando a {}...", endpoint);
-            
-            let config = GeyserConfig {
-                endpoint: endpoint.clone(),
-                token: Some(api_token.clone()),
-            };
-            let client = GeyserClient::new(config);
-            
-            match client.connect().await {
-                Ok(mut grpc_client) => {
-                    println!("✅ [Geyser] Conexión establecida");
-                    reconnect_delay = Duration::from_secs(2);
-                    
-                    // Crear suscripción a todas las vault accounts
-                    let (sub_tx, sub_rx) = mpsc::channel(100);
-                    
-                    let mut accounts_filter = std::collections::HashMap::new();
-                    accounts_filter.insert(
-                        "vault_monitor".to_string(),
-                        crate::generated::geyser::SubscribeRequestFilterAccounts {
-                            account: all_vault_addresses.clone(),
-                            owner: vec![],
-                            filters: vec![],
+
+            // SOL price tracker (se actualiza desde el caché de DexScreener)
+            let sol_price: SolPriceUsd = new_sol_price_tracker();
+
+            loop {
+                println!("🔌 [Geyser] Conectando a {}...", endpoint);
+
+                let config = GeyserConfig {
+                    endpoint: endpoint.clone(),
+                    token: Some(api_token.clone()),
+                };
+                let client = GeyserClient::new(config);
+
+                match client.connect().await {
+                    Ok(mut grpc_client) => {
+                        println!("✅ [Geyser] Conexión establecida");
+                        reconnect_delay = Duration::from_secs(2);
+
+                        // Crear suscripción a todas las vault accounts
+                        let (sub_tx, sub_rx) = mpsc::channel(100);
+
+                        let mut accounts_filter = std::collections::HashMap::new();
+                        accounts_filter.insert(
+                            "vault_monitor".to_string(),
+                            crate::generated::geyser::SubscribeRequestFilterAccounts {
+                                account: all_vault_addresses.clone(),
+                                owner: vec![],
+                                filters: vec![],
+                            },
+                        );
+
+                        let request = crate::generated::geyser::SubscribeRequest {
+                            accounts: accounts_filter,
+                            slots: std::collections::HashMap::new(),
+                            transactions: std::collections::HashMap::new(),
+                            blocks: std::collections::HashMap::new(),
+                            blocks_meta: std::collections::HashMap::new(),
+                            entry: None,
+                            commitment: Some(0), // PROCESSED — máxima velocidad
+                            accounts_data_slice: std::collections::HashMap::new(),
+                            ping: None,
+                        };
+
+                        if let Err(e) = sub_tx.send(request).await {
+                            eprintln!("❌ [Geyser] Error enviando suscripción: {}", e);
+                            tokio::time::sleep(reconnect_delay).await;
+                            continue;
                         }
-                    );
-                    
-                    let request = crate::generated::geyser::SubscribeRequest {
-                        accounts: accounts_filter,
-                        slots: std::collections::HashMap::new(),
-                        transactions: std::collections::HashMap::new(),
-                        blocks: std::collections::HashMap::new(),
-                        blocks_meta: std::collections::HashMap::new(),
-                        entry: None,
-                        commitment: Some(0), // PROCESSED — máxima velocidad
-                        accounts_data_slice: std::collections::HashMap::new(),
-                        ping: None,
-                    };
-                    
-                    if let Err(e) = sub_tx.send(request).await {
-                        eprintln!("❌ [Geyser] Error enviando suscripción: {}", e);
-                        tokio::time::sleep(reconnect_delay).await;
-                        continue;
-                    }
-                    
-                    let stream_result = grpc_client
-                        .subscribe(tokio_stream::wrappers::ReceiverStream::new(sub_rx))
-                        .await;
-                    
-                    match stream_result {
-                        Ok(response) => {
-                            let mut stream = response.into_inner();
-                            println!("📡 [Geyser] Stream activo — monitoreando {} vault accounts", all_vault_addresses.len());
-                            let mut update_count: u64 = 0;
-                            
-                            while let Ok(Some(update)) = stream.message().await {
-                                if let Some(event) = update.update_oneof {
-                                    match event {
+
+                        let stream_result = grpc_client
+                            .subscribe(tokio_stream::wrappers::ReceiverStream::new(sub_rx))
+                            .await;
+
+                        match stream_result {
+                            Ok(response) => {
+                                let mut stream = response.into_inner();
+                                println!(
+                                    "📡 [Geyser] Stream activo — monitoreando {} vault accounts",
+                                    all_vault_addresses.len()
+                                );
+                                let mut update_count: u64 = 0;
+
+                                while let Ok(Some(update)) = stream.message().await {
+                                    if let Some(event) = update.update_oneof {
+                                        match event {
                                         crate::generated::geyser::subscribe_update::UpdateOneof::Account(acc) => {
                                             if let Some(info) = acc.account {
                                                 let vault_address = bs58::encode(&info.pubkey).into_string();
-                                                
+
                                                 // ¿Esta vault pertenece a algún par que monitoreamos?
                                                 if let Some(token_mint) = vault_to_mint.get(&vault_address) {
                                                     // Parsear el amount del SPL Token Account
                                                     if let Some(amount) = parse_spl_token_account_amount(&info.data) {
                                                         update_count += 1;
-                                                        
+
                                                         // Actualizar reserve en el tracker
                                                         let price_update = {
                                                             let mut tracker = vault_tracker.write().await;
                                                             if let Some(pair) = tracker.get_mut(token_mint) {
                                                                 pair.update_reserve(&vault_address, amount);
-                                                                
+
                                                                 // Intentar calcular precio
                                                                 if pair.is_ready() {
                                                                     pair.calculate_price_in_quote().map(|price_sol| {
@@ -463,11 +491,11 @@ impl PriceFeed {
                                                                 None
                                                             }
                                                         };
-                                                        
+
                                                         if let Some((symbol, mint, price_sol, liq_sol)) = price_update {
                                                             // Obtener precio de SOL desde el caché
                                                             let sol_usd = *sol_price.read().await;
-                                                            
+
                                                             // Si no tenemos SOL price, intentar sacarlo del caché de DexScreener
                                                             let sol_usd = if sol_usd == 0.0 {
                                                                 // Buscar un precio de SOL en el caché general
@@ -480,15 +508,15 @@ impl PriceFeed {
                                                             } else {
                                                                 sol_usd
                                                             };
-                                                            
+
                                                             // Actualizar SOL tracker si obtuvimos un precio
                                                             if sol_usd > 0.0 {
                                                                 *sol_price.write().await = sol_usd;
                                                             }
-                                                            
+
                                                             let price_usd = price_sol * sol_usd;
                                                             let liquidity_usd = liq_sol * sol_usd;
-                                                            
+
                                                             // Obtener datos adicionales del caché (volume, change)
                                                             let (volume_24h, price_change_24h) = {
                                                                 let c = cache.read().await;
@@ -496,7 +524,7 @@ impl PriceFeed {
                                                                     .map(|p| (p.volume_24h, p.price_change_24h))
                                                                     .unwrap_or((0.0, 0.0))
                                                             };
-                                                            
+
                                                             let geyser_update = PriceUpdate {
                                                                 token_mint: mint.clone(),
                                                                 symbol: symbol.clone(),
@@ -508,17 +536,17 @@ impl PriceFeed {
                                                                 source: PriceSource::Geyser,
                                                                 received_at: Instant::now(),
                                                             };
-                                                            
+
                                                             // Actualizar caché con el dato de Geyser
                                                             {
                                                                 let mut c = cache.write().await;
                                                                 c.insert(mint.clone(), geyser_update.clone());
                                                             }
-                                                            
+
                                                             if tx.try_send(geyser_update).is_err() {
                                                                 // Buffer lleno, dato ya en caché
                                                             }
-                                                            
+
                                                             if update_count.is_multiple_of(50) {
                                                                 println!(
                                                                     "⚡ [Geyser] #{} {} = {:.10} SOL (${:.8}) | Liq: {:.1} SOL",
@@ -535,27 +563,26 @@ impl PriceFeed {
                                         },
                                         _ => {} // Ignorar otros eventos
                                     }
+                                    }
                                 }
+
+                                println!("⚠️  [Geyser] Stream cerrado por el servidor (recibidos {} updates)", update_count);
                             }
-                            
-                            println!("⚠️  [Geyser] Stream cerrado por el servidor (recibidos {} updates)", update_count);
-                        }
-                        Err(e) => {
-                            eprintln!("❌ [Geyser] Error iniciando stream: {}", e);
+                            Err(e) => {
+                                eprintln!("❌ [Geyser] Error iniciando stream: {}", e);
+                            }
                         }
                     }
+                    Err(e) => {
+                        eprintln!("❌ [Geyser] Error de conexión: {}", e);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("❌ [Geyser] Error de conexión: {}", e);
-                }
+
+                // Exponential backoff para reconexión
+                eprintln!("🔄 [Geyser] Reconectando en {:?}...", reconnect_delay);
+                tokio::time::sleep(reconnect_delay).await;
+                reconnect_delay = (reconnect_delay * 2).min(max_reconnect_delay);
             }
-            
-            // Exponential backoff para reconexión
-            eprintln!("🔄 [Geyser] Reconectando en {:?}...", reconnect_delay);
-            tokio::time::sleep(reconnect_delay).await;
-            reconnect_delay = (reconnect_delay * 2).min(max_reconnect_delay);
         }
     }
-    }
 }
-

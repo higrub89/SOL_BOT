@@ -1,8 +1,7 @@
 //! # Emergency Exit System
-//! 
+//!
 //! Sistema de stop-loss y panic sell para protección de capital.
 //! Usa Jito Bundles para garantizar ejecución ultra-rápida.
-
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,13 +10,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct EmergencyConfig {
     /// % de pérdida máxima antes de activar stop-loss (-30 = -30%)
     pub max_loss_percent: f64,
-    
+
     /// Balance mínimo de SOL en wallet antes de activar alerta
     pub min_sol_balance: f64,
-    
+
     /// Precio mínimo del activo (en USD) antes de panic sell
     pub min_asset_price: f64,
-    
+
     /// Activar modo emergencia
     pub enabled: bool,
 }
@@ -27,7 +26,7 @@ impl Default for EmergencyConfig {
         Self {
             max_loss_percent: -30.0,
             min_sol_balance: 0.01, // 0.01 SOL mínimo para fees
-            min_asset_price: 0.0,   // Sin límite por defecto
+            min_asset_price: 0.0,  // Sin límite por defecto
             enabled: true,
         }
     }
@@ -41,7 +40,7 @@ pub struct Position {
     pub entry_price: f64,
     pub amount_invested: f64, // En SOL
     pub current_price: f64,
-    pub current_value: f64,   // En SOL
+    pub current_value: f64, // En SOL
 }
 
 impl Position {
@@ -55,7 +54,7 @@ impl Position {
         if !config.enabled {
             return false;
         }
-        
+
         let dd = self.drawdown_percent();
         dd <= config.max_loss_percent
     }
@@ -65,7 +64,7 @@ impl Position {
         if !config.enabled || config.min_asset_price == 0.0 {
             return false;
         }
-        
+
         self.current_price < config.min_asset_price
     }
 }
@@ -93,13 +92,17 @@ impl EmergencyMonitor {
         println!("   • Entrada: ${:.8}", position.entry_price);
         println!("   • Inversión: {:.4} SOL", position.amount_invested);
         println!("   • Stop Loss: {:.1}%\n", self.config.max_loss_percent);
-        
+
         self.positions.push(position);
     }
 
     /// Actualiza el precio de una posición
     pub fn update_position(&mut self, token_mint: &str, current_price: f64, current_value: f64) {
-        if let Some(pos) = self.positions.iter_mut().find(|p| p.token_mint == token_mint) {
+        if let Some(pos) = self
+            .positions
+            .iter_mut()
+            .find(|p| p.token_mint == token_mint)
+        {
             pos.current_price = current_price;
             pos.current_value = current_value;
         }
@@ -119,14 +122,14 @@ impl EmergencyMonitor {
     pub fn check_emergencies(&mut self) -> Vec<EmergencyAlert> {
         let mut alerts = Vec::new();
         let now = Self::now();
-        
+
         // Solo verificar cada 5 segundos para no saturar
         if now - self.last_check < 5 {
             return alerts;
         }
-        
+
         self.last_check = now;
-        
+
         for pos in &self.positions {
             // Check Stop Loss
             if pos.needs_stop_loss(&self.config) {
@@ -137,11 +140,13 @@ impl EmergencyMonitor {
                     current_price: pos.current_price,
                     message: format!(
                         "⚠️ STOP LOSS ACTIVADO: {} @ ${:.8} (Drawdown: {:.1}%)",
-                        pos.token_mint, pos.current_price, pos.drawdown_percent()
+                        pos.token_mint,
+                        pos.current_price,
+                        pos.drawdown_percent()
                     ),
                 });
             }
-            
+
             // Check Panic Sell
             if pos.needs_panic_sell(&self.config) {
                 alerts.push(EmergencyAlert {
@@ -156,7 +161,7 @@ impl EmergencyMonitor {
                 });
             }
         }
-        
+
         alerts
     }
 
@@ -200,7 +205,7 @@ mod tests {
             current_price: 0.7,
             current_value: 0.07,
         };
-        
+
         assert_eq!(pos.drawdown_percent(), -30.0);
     }
 
@@ -210,7 +215,7 @@ mod tests {
             max_loss_percent: -30.0,
             ..Default::default()
         };
-        
+
         let pos = Position {
             token_mint: "TEST".to_string(),
             symbol: "TEST".to_string(),
@@ -219,7 +224,7 @@ mod tests {
             current_price: 0.7,
             current_value: 0.07,
         };
-        
+
         assert!(pos.needs_stop_loss(&config));
     }
 }

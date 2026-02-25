@@ -1,34 +1,34 @@
 //! # Trade Executor V2
-//! 
+//!
 //! Implementación completa del executor con Jupiter Aggregator integration.
 //! Soporte para ejecución automática de swaps con firma y broadcast.
 //! [HFT EDITION - Dynamic ECU Parameters]
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use base64::{engine::general_purpose, Engine as _};
+use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Keypair, Signer, Signature},
-    transaction::VersionedTransaction,
     commitment_config::CommitmentConfig,
     program_pack::Pack,
+    pubkey::Pubkey,
+    signature::{Keypair, Signature, Signer},
+    transaction::VersionedTransaction,
 };
-use solana_client::rpc_client::RpcClient;
 use spl_token::state::Account as TokenAccount;
 use std::str::FromStr;
-use base64::{Engine as _, engine::general_purpose};
 
-use crate::jupiter::{JupiterClient, SwapResult, BuyResult};
-use crate::validation::FinancialValidator;
 use crate::jito::JitoClient;
+use crate::jupiter::{BuyResult, JupiterClient, SwapResult};
 use crate::raydium::RaydiumClient;
+use crate::validation::FinancialValidator;
 
 /// Configuración del executor
 #[derive(Debug, Clone)]
 pub struct ExecutorConfig {
     pub rpc_url: String,
     pub dry_run: bool,
-    pub slippage_bps: u16,      // Basis points (100 = 1%)
-    pub priority_fee: u64,       // Micro lamports
+    pub slippage_bps: u16, // Basis points (100 = 1%)
+    pub priority_fee: u64, // Micro lamports
 }
 
 impl ExecutorConfig {
@@ -36,8 +36,8 @@ impl ExecutorConfig {
         Self {
             rpc_url,
             dry_run,
-            slippage_bps: 100,      // 1% slippage default
-            priority_fee: 50000,     // ~0.00005 SOL
+            slippage_bps: 100,   // 1% slippage default
+            priority_fee: 50000, // ~0.00005 SOL
         }
     }
 
@@ -57,30 +57,31 @@ pub struct TradeExecutor {
     config: ExecutorConfig,
     rpc_client: RpcClient,
     jupiter: JupiterClient,
-    raydium: Option<RaydiumClient>, 
+    raydium: Option<RaydiumClient>,
     jito_client: JitoClient,
 }
 
 impl TradeExecutor {
     pub fn new(config: ExecutorConfig) -> Self {
-        let rpc_client = RpcClient::new_with_commitment(
-            config.rpc_url.clone(),
-            CommitmentConfig::confirmed(),
-        );
+        let rpc_client =
+            RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::confirmed());
 
         // Intentar inicializar Raydium (Robust)
         let raydium = match RaydiumClient::new(config.rpc_url.clone()) {
             Ok(client) => {
                 println!("✅ Raydium Client: Activado (Modo Directo)");
                 Some(client)
-            },
+            }
             Err(e) => {
-                eprintln!("⚠️  Raydium Client fallback: No se pudo cargar caché ({}). Iniciando vacío...", e);
+                eprintln!(
+                    "⚠️  Raydium Client fallback: No se pudo cargar caché ({}). Iniciando vacío...",
+                    e
+                );
                 match RaydiumClient::new(config.rpc_url.clone()) {
                     Ok(c) => Some(c),
                     Err(_) => {
-                         eprintln!("❌ Raydium Client: Fallo fatal en inicialización.");
-                         None
+                        eprintln!("❌ Raydium Client: Fallo fatal en inicialización.");
+                        None
                     }
                 }
             }
@@ -94,7 +95,7 @@ impl TradeExecutor {
             jito_client: JitoClient::new(),
         }
     }
-    
+
     /// Actuador asíncrono con control de tracción para slippage dinámico y Jito Tips (Zero-Allocation)
     pub async fn execute_sell_with_retry(
         &self,
@@ -105,7 +106,7 @@ impl TradeExecutor {
     ) -> Result<SwapResult> {
         let mut attempt = 1;
         let max_attempts = if is_emergency { 5 } else { 3 };
-        
+
         // Configuración inicial de inyección
         let mut current_slippage_bps = self.config.slippage_bps;
         let mut current_jito_tip = crate::config::AppConfig::load()
@@ -114,60 +115,76 @@ impl TradeExecutor {
 
         loop {
             println!(
-                "🔄 [Intento {}/{}] Venta de {} | Tracción: {} bps | Tip: {} µL", 
+                "🔄 [Intento {}/{}] Venta de {} | Tracción: {} bps | Tip: {} µL",
                 attempt, max_attempts, token_mint, current_slippage_bps, current_jito_tip
             );
-            
+
             // ⚡ Llamada directa inyectando la sobrealimentación, sin reconstruir la instancia TCP
-            match self.execute_emergency_sell_with_params(
-                &token_mint, 
-                wallet_keypair.clone(), 
-                amount_percent, 
-                Some(current_slippage_bps), 
-                Some(current_jito_tip)
-            ).await {
+            match self
+                .execute_emergency_sell_with_params(
+                    &token_mint,
+                    wallet_keypair.clone(),
+                    amount_percent,
+                    Some(current_slippage_bps),
+                    Some(current_jito_tip),
+                )
+                .await
+            {
                 Ok(result) => {
-                    println!("✅ Maniobra HFT confirmada en red. [Tx: {}]", result.signature);
+                    println!(
+                        "✅ Maniobra HFT confirmada en red. [Tx: {}]",
+                        result.signature
+                    );
                     return Ok(result); // Maniobra exitosa, salimos del circuito
-                },
+                }
                 Err(e) => {
                     let error_msg = e.to_string().to_lowercase();
-                    
+
                     if attempt >= max_attempts {
                         eprintln!(
                             "💥 Motor calado. Abortando salida para {}. Fallo irrecuperable tras {} intentos: {}", 
                             token_mint, max_attempts, e
                         );
-                        return Err(anyhow::anyhow!("Fallo definitivo de Venta tras reintentos: {}", e));
+                        return Err(anyhow::anyhow!(
+                            "Fallo definitivo de Venta tras reintentos: {}",
+                            e
+                        ));
                     }
 
                     // --- SISTEMA DE TELEMETRÍA Y RESPUESTA ACTIVA ---
 
-                    if error_msg.contains("slippage") || error_msg.contains("0x11") 
-                       || error_msg.contains("insufficient") || error_msg.contains("error") {
+                    if error_msg.contains("slippage")
+                        || error_msg.contains("0x11")
+                        || error_msg.contains("insufficient")
+                        || error_msg.contains("error")
+                    {
                         // Pérdida de tracción. Duplicamos la tolerancia de precios.
-                        current_slippage_bps = (current_slippage_bps as f32 * 2.0) as u16; 
-                        
+                        current_slippage_bps = (current_slippage_bps as f32 * 2.0) as u16;
+
                         if is_emergency && attempt == max_attempts - 1 {
                             println!("☢️ [EMERGENCIA] Último ciclo para {}. Activando Modo Degen (Slippage MÁXIMO).", token_mint);
                             current_slippage_bps = 10000; // 100% Slippage
                         } else {
-                            println!("⚠️ Deslizamiento superado. Ajustando tracción a {} bps.", current_slippage_bps);
+                            println!(
+                                "⚠️ Deslizamiento superado. Ajustando tracción a {} bps.",
+                                current_slippage_bps
+                            );
                         }
-                    } 
-                    else if error_msg.contains("timeout") || error_msg.contains("blockhashnotfound") || error_msg.contains("0x0") {
+                    } else if error_msg.contains("timeout")
+                        || error_msg.contains("blockhashnotfound")
+                        || error_msg.contains("0x0")
+                    {
                         // Pérdida de presión en la red. Aumentamos el Tip un 50% para saltar la congestión.
                         current_jito_tip = (current_jito_tip as f64 * 1.5) as u64;
                         println!("⚡ Retraso de red detectado. Aumentando presión de inyección Jito a {} µLamports.", current_jito_tip);
-                    }
-                    else if error_msg.contains("toomanyrequests") {
+                    } else if error_msg.contains("toomanyrequests") {
                         println!("⏳ Restricción térmica del RPC. Enfriando conductos...");
                     }
 
                     // Backoff Exponencial (200ms, 400ms, 800ms...) para respetar ciclos del nodo
                     let delay = std::time::Duration::from_millis(200 * (2u64.pow(attempt as u32)));
                     tokio::time::sleep(delay).await;
-                    
+
                     attempt += 1;
                 }
             }
@@ -181,7 +198,14 @@ impl TradeExecutor {
         wallet_keypair: Option<&Keypair>,
         amount_percent: u8,
     ) -> Result<SwapResult> {
-        self.execute_emergency_sell_with_params(token_mint, wallet_keypair, amount_percent, None, None).await
+        self.execute_emergency_sell_with_params(
+            token_mint,
+            wallet_keypair,
+            amount_percent,
+            None,
+            None,
+        )
+        .await
     }
 
     /// Ejecuta una venta de emergencia completa inyectando parámetros dinámicos si se requiere
@@ -189,7 +213,7 @@ impl TradeExecutor {
         &self,
         token_mint: &str,
         wallet_keypair: Option<&Keypair>,
-        amount_percent: u8, // 100 = vender todo
+        amount_percent: u8,                // 100 = vender todo
         dynamic_slippage_bps: Option<u16>, // ⚡ Override de tracción
         dynamic_jito_tip: Option<u64>,     // ⚡ Override de presión
     ) -> Result<SwapResult> {
@@ -205,16 +229,16 @@ impl TradeExecutor {
         });
 
         // ✅ CRITICAL: Validar mint ANTES de cualquier operación
-        let token_mint = crate::validation::FinancialValidator::validate_mint(
-            token_mint,
-            "EMERGENCY SELL"
-        )?;
-        
+        let token_mint =
+            crate::validation::FinancialValidator::validate_mint(token_mint, "EMERGENCY SELL")?;
+
         println!("✅ Mint validation passed: {}\n", token_mint);
 
         // Modo dry run si no se proporciona keypair
         if self.config.dry_run || wallet_keypair.is_none() {
-            return self.simulate_emergency_sell(&token_mint, amount_percent, active_slippage).await;
+            return self
+                .simulate_emergency_sell(&token_mint, amount_percent, active_slippage)
+                .await;
         }
 
         let keypair = wallet_keypair
@@ -226,16 +250,20 @@ impl TradeExecutor {
         println!("📊 Amount:       {}%", amount_percent);
         println!("📉 Slippage:     {}%", active_slippage as f64 / 100.0);
         println!("⚙️  Mode:         PRODUCTION\n");
-        
+
         // 1. Obtener token account y balance
         println!("📊 Verificando balance de tokens...");
-        let (token_account, token_balance) = self.get_token_account_balance(&user_pubkey, &token_mint)?;
-        
+        let (token_account, token_balance) =
+            self.get_token_account_balance(&user_pubkey, &token_mint)?;
+
         let amount_to_sell = (token_balance as f64 * (amount_percent as f64 / 100.0)) as u64;
-        
+
         println!("   • Token Account: {}", token_account);
         println!("   • Balance:       {} tokens", token_balance);
-        println!("   • A vender:      {} tokens ({}%)\n", amount_to_sell, amount_percent);
+        println!(
+            "   • A vender:      {} tokens ({}%)\n",
+            amount_to_sell, amount_percent
+        );
 
         if amount_to_sell == 0 {
             anyhow::bail!("No hay suficiente balance para vender");
@@ -243,36 +271,43 @@ impl TradeExecutor {
 
         // 2. Obtener quote de Jupiter
         println!("🔍 Consultando Jupiter para mejor ruta...");
-        
+
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
-        
-        let quote = self.jupiter.get_quote(
-            &token_mint,
-            SOL_MINT,
-            amount_to_sell,
-            active_slippage, // ⚡ Inyección
-        ).await?;
+
+        let quote = self
+            .jupiter
+            .get_quote(
+                &token_mint,
+                SOL_MINT,
+                amount_to_sell,
+                active_slippage, // ⚡ Inyección
+            )
+            .await?;
 
         self.jupiter.print_quote_summary(&quote);
 
         // 3. Obtener transacción firmable
         println!("\n🔧 Generando transacción de swap...");
-        let swap_response = self.jupiter.get_swap_transaction(
-            &quote,
-            &user_pubkey.to_string(),
-            true, // unwrap WSOL a SOL nativo
-        ).await?;
+        let swap_response = self
+            .jupiter
+            .get_swap_transaction(
+                &quote,
+                &user_pubkey.to_string(),
+                true, // unwrap WSOL a SOL nativo
+            )
+            .await?;
 
         // 4. Deserializar transacción
         println!("🔐 Firmando transacción con keypair...");
         let tx_bytes = general_purpose::STANDARD
             .decode(&swap_response.swap_transaction)
             .context("Error decodificando transacción base64")?;
-        
-        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
-            .context("Error deserializando transacción")?;
 
-        let recent_blockhash = self.rpc_client
+        let mut transaction: VersionedTransaction =
+            bincode::deserialize(&tx_bytes).context("Error deserializando transacción")?;
+
+        let recent_blockhash = self
+            .rpc_client
             .get_latest_blockhash()
             .context("Error obteniendo blockhash reciente")?;
         transaction.message.set_recent_blockhash(recent_blockhash);
@@ -283,28 +318,35 @@ impl TradeExecutor {
         println!("📡 Broadcasting transacción a Solana...");
 
         let signature_str = if active_jito_tip > 0 {
-            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", active_jito_tip as f64 / 1_000_000_000.0);
-            
+            println!(
+                "🛡️  Preparando Jito Bundle con Tip ({} SOL)...",
+                active_jito_tip as f64 / 1_000_000_000.0
+            );
+
             let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, active_jito_tip); // ⚡ Inyección
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
             let versioned_tip_tx = VersionedTransaction::from(tip_tx);
-            
+
             let bundle = vec![signed_tx.clone(), versioned_tip_tx];
 
             match self.jito_client.send_bundle(bundle).await {
                 Ok(bundle_id) => {
                     println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
                     signed_tx.signatures[0].to_string()
-                },
+                }
                 Err(e) => {
                     eprintln!("⚠️  Jito falló: {}. Fallback a RPC standard...", e);
-                    self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+                    self.send_transaction_with_retry(&signed_tx, 3)
+                        .await?
+                        .to_string()
                 }
             }
         } else {
-            self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+            self.send_transaction_with_retry(&signed_tx, 3)
+                .await?
+                .to_string()
         };
         let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
@@ -313,23 +355,24 @@ impl TradeExecutor {
         println!("🔗 Solscan:   https://solscan.io/tx/{}\n", signature);
 
         // 6. Construir resultado con validación estricta
-        let sol_received = FinancialValidator::parse_price_safe(
-            &quote.out_amount,
-            "Jupiter out_amount"
-        )? / 1_000_000_000.0;
-        
+        let sol_received =
+            FinancialValidator::parse_price_safe(&quote.out_amount, "Jupiter out_amount")?
+                / 1_000_000_000.0;
+
         FinancialValidator::validate_sol_amount(sol_received, "SOL received")?;
-        
+
         let price_impact = FinancialValidator::parse_price_safe(
             &quote.price_impact_pct,
-            "Jupiter price_impact_pct"
+            "Jupiter price_impact_pct",
         )?;
-        
+
         let result = SwapResult {
             signature: signature.to_string(),
             input_amount: amount_to_sell as f64,
             output_amount: sol_received,
-            route: quote.route_plan.iter()
+            route: quote
+                .route_plan
+                .iter()
                 .map(|r| r.swap_info.label.clone())
                 .collect::<Vec<_>>()
                 .join(" → "),
@@ -350,7 +393,10 @@ impl TradeExecutor {
         priority_fee_lamports: u64,
         slippage_bps: u16,
     ) -> Result<SwapResult> {
-        println!("⚡ HFT EXECUTION | Tip: {} | Slip: {} bps", priority_fee_lamports, slippage_bps);
+        println!(
+            "⚡ HFT EXECUTION | Tip: {} | Slip: {} bps",
+            priority_fee_lamports, slippage_bps
+        );
 
         if self.config.dry_run || wallet_keypair.is_none() {
             return self.simulate_buy_v2(token_mint, amount_sol).await;
@@ -362,70 +408,75 @@ impl TradeExecutor {
 
         // 1. Obtener quote de Jupiter con slippage dinámico
         let amount_lamports = (amount_sol * 1_000_000_000.0) as u64;
-        
-        let quote = self.jupiter.get_quote(
-            SOL_MINT,
-            token_mint,
-            amount_lamports,
-            slippage_bps,
-        ).await?;
+
+        let quote = self
+            .jupiter
+            .get_quote(SOL_MINT, token_mint, amount_lamports, slippage_bps)
+            .await?;
 
         // 2. Obtener transacción optimizada
-        let swap_response = self.jupiter.get_swap_transaction(
-            &quote,
-            &user_pubkey.to_string(),
-            true,
-        ).await?;
+        let swap_response = self
+            .jupiter
+            .get_swap_transaction(&quote, &user_pubkey.to_string(), true)
+            .await?;
 
         // 3. Firmar y Enviar
         let tx_bytes = general_purpose::STANDARD
             .decode(&swap_response.swap_transaction)
             .context("Error decoding tx")?;
-        
+
         let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
-        
-        let recent_blockhash = self.rpc_client
+
+        let recent_blockhash = self
+            .rpc_client
             .get_latest_blockhash()
             .context("Error obteniendo blockhash reciente")?;
         transaction.message.set_recent_blockhash(recent_blockhash);
         let signed_tx = VersionedTransaction::try_new(transaction.message, &[keypair])
             .context("Error firmando transacción con keypair")?;
-        
+
         let signature_str = if priority_fee_lamports > 0 {
-            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", priority_fee_lamports as f64 / 1_000_000_000.0);
-            
+            println!(
+                "🛡️  Preparando Jito Bundle con Tip ({} SOL)...",
+                priority_fee_lamports as f64 / 1_000_000_000.0
+            );
+
             let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, priority_fee_lamports);
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
-            
+
             let bundle = vec![signed_tx.clone(), VersionedTransaction::from(tip_tx)];
 
             match self.jito_client.send_bundle(bundle).await {
                 Ok(bundle_id) => {
                     println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
                     signed_tx.signatures[0].to_string()
-                },
+                }
                 Err(e) => {
                     eprintln!("⚠️  Jito falló: {}. Fallback a RPC standard...", e);
-                    self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+                    self.send_transaction_with_retry(&signed_tx, 3)
+                        .await?
+                        .to_string()
                 }
             }
         } else {
-            self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+            self.send_transaction_with_retry(&signed_tx, 3)
+                .await?
+                .to_string()
         };
         let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
         let out_amount_raw = quote.out_amount.parse::<f64>().unwrap_or(0.0);
         let price_impact = quote.price_impact_pct.parse::<f64>().unwrap_or(0.0);
-        
+
         let decimals = match solana_sdk::pubkey::Pubkey::from_str(token_mint) {
             Ok(mint_pubkey) => {
                 match self.rpc_client.get_token_supply(&mint_pubkey) {
                     Ok(supply) => supply.decimals,
                     Err(_) => 6, // Fallback a 6
                 }
-            },
+            }
             Err(_) => 6,
         };
 
@@ -464,11 +515,9 @@ impl TradeExecutor {
         println!("║              💰 BUY EXECUTOR V2 (HYBRID) 💰               ║");
         println!("╚════════════════════════════════════════════════════════════╝\n");
 
-        let token_mint = crate::validation::FinancialValidator::validate_mint(
-            token_mint,
-            "BUY EXECUTOR"
-        )?;
-        
+        let token_mint =
+            crate::validation::FinancialValidator::validate_mint(token_mint, "BUY EXECUTOR")?;
+
         println!("✅ Mint validation passed: {}\n", token_mint);
 
         if self.config.dry_run || wallet_keypair.is_none() {
@@ -481,15 +530,22 @@ impl TradeExecutor {
         // 1. INTENTO VÍA RAYDIUM DIRECT (Prioridad Absoluta)
         if let Some(raydium) = &self.raydium {
             let amount_in = (amount_sol * 1_000_000_000.0) as u64;
-            
+
             if let Ok(pool_info) = raydium.find_pool(SOL_MINT, &token_mint).await {
                 println!("⚡ [ULTRA-FAST PATH] Pool detectado: {}", pool_info.name);
                 println!("🚀 Intentando ejecución directa en Raydium...");
 
-                let oracle_quote = self.jupiter.get_quote(SOL_MINT, &token_mint, amount_in, 500).await;
-                
+                let oracle_quote = self
+                    .jupiter
+                    .get_quote(SOL_MINT, &token_mint, amount_in, 500)
+                    .await;
+
                 let (estimated_out, found_oracle) = match oracle_quote {
-                    Ok(q) => (FinancialValidator::parse_amount_safe(&q.out_amount, "Jup Estimate").unwrap_or(0), true),
+                    Ok(q) => (
+                        FinancialValidator::parse_amount_safe(&q.out_amount, "Jup Estimate")
+                            .unwrap_or(0),
+                        true,
+                    ),
                     Err(_) => {
                         println!("⚠️ [ORACLE FAIL] Jupiter no conoce el token. Usando ejecución DEGEN...");
                         (0, false)
@@ -502,22 +558,36 @@ impl TradeExecutor {
                     1 // 1 lamport mínimo
                 };
 
-                match raydium.execute_swap(SOL_MINT, &token_mint, amount_in, min_out, keypair).await {
+                match raydium
+                    .execute_swap(SOL_MINT, &token_mint, amount_in, min_out, keypair)
+                    .await
+                {
                     Ok(sig) => {
                         println!("✅ RAYDIUM SUCCESS: {}", sig);
-                        
-                        let tokens_received = if estimated_out > 0 { estimated_out as f64 / 1_000_000.0 } else { 0.0 };
-                        let price_per_token = if tokens_received > 0.0 { amount_sol / tokens_received } else { 0.0 };
+
+                        let tokens_received = if estimated_out > 0 {
+                            estimated_out as f64 / 1_000_000.0
+                        } else {
+                            0.0
+                        };
+                        let price_per_token = if tokens_received > 0.0 {
+                            amount_sol / tokens_received
+                        } else {
+                            0.0
+                        };
 
                         return Ok(BuyResult {
                             signature: sig,
                             sol_spent: amount_sol,
                             tokens_received,
                             price_per_token,
-                            route: format!("Raydium Direct (Oracle: {})", if found_oracle { "OK" } else { "BYPASSED" }),
+                            route: format!(
+                                "Raydium Direct (Oracle: {})",
+                                if found_oracle { "OK" } else { "BYPASSED" }
+                            ),
                             price_impact_pct: 0.0,
                         });
-                    },
+                    }
                     Err(e) => {
                         eprintln!("❌ Raydium Swap failed: {}. Continuing to Jupiter...", e);
                     }
@@ -527,52 +597,53 @@ impl TradeExecutor {
 
         // 2. FALLBACK/STANDARD: JUPITER AGGREGATOR
         println!("🔄 [STANDARD PATH] Ruteando vía Jupiter Aggregator...");
-        
+
         let user_pubkey = keypair.pubkey();
         println!("🎯 Token:        {}", token_mint);
-        
+
         let amount_lamports = (amount_sol * 1_000_000_000.0) as u64;
 
         // 1. Obtener quote de Jupiter
         println!("🔍 Consultando Jupiter para mejor ruta...");
-        
-        let quote = self.jupiter.get_quote(
-            SOL_MINT,
-            &token_mint,
-            amount_lamports,
-            self.config.slippage_bps,
-        ).await?;
-        
+
+        let quote = self
+            .jupiter
+            .get_quote(
+                SOL_MINT,
+                &token_mint,
+                amount_lamports,
+                self.config.slippage_bps,
+            )
+            .await?;
+
         self.jupiter.print_quote_summary(&quote);
 
-        let tokens_to_receive = FinancialValidator::parse_price_safe(
-            &quote.out_amount,
-            "Jupiter tokens to receive"
-        )?;
-        
+        let tokens_to_receive =
+            FinancialValidator::parse_price_safe(&quote.out_amount, "Jupiter tokens to receive")?;
+
         if tokens_to_receive <= 0.0 {
             anyhow::bail!("Jupiter quote inválido: 0 tokens a recibir");
         }
-        
+
         let price_per_token = amount_sol / tokens_to_receive;
         let price_impact = quote.price_impact_pct.parse::<f64>().unwrap_or(0.0);
 
         println!("\n🔧 Generando transacción de swap...");
-        let swap_response = self.jupiter.get_swap_transaction(
-            &quote,
-            &user_pubkey.to_string(),
-            true,
-        ).await?;
+        let swap_response = self
+            .jupiter
+            .get_swap_transaction(&quote, &user_pubkey.to_string(), true)
+            .await?;
 
         println!("🔐 Firmando transacción con keypair...");
         let tx_bytes = general_purpose::STANDARD
             .decode(&swap_response.swap_transaction)
             .context("Error decodificando transacción base64")?;
-        
-        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
-            .context("Error deserializando transacción")?;
 
-        let recent_blockhash = self.rpc_client
+        let mut transaction: VersionedTransaction =
+            bincode::deserialize(&tx_bytes).context("Error deserializando transacción")?;
+
+        let recent_blockhash = self
+            .rpc_client
             .get_latest_blockhash()
             .context("Error obteniendo blockhash reciente")?;
         transaction.message.set_recent_blockhash(recent_blockhash);
@@ -585,38 +656,47 @@ impl TradeExecutor {
             .unwrap_or(100_000);
 
         let signature_str = if jito_tip_lamports > 0 {
-            println!("🛡️  Preparando Jito Bundle con Tip ({} SOL)...", jito_tip_lamports as f64 / 1_000_000_000.0);
+            println!(
+                "🛡️  Preparando Jito Bundle con Tip ({} SOL)...",
+                jito_tip_lamports as f64 / 1_000_000_000.0
+            );
             let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
-            
+
             let bundle = vec![signed_tx.clone(), VersionedTransaction::from(tip_tx)];
 
             match self.jito_client.send_bundle(bundle).await {
                 Ok(bundle_id) => {
                     println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
                     signed_tx.signatures[0].to_string()
-                },
+                }
                 Err(e) => {
                     eprintln!("⚠️  Jito falló: {}. Fallback a RPC standard...", e);
-                    self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+                    self.send_transaction_with_retry(&signed_tx, 3)
+                        .await?
+                        .to_string()
                 }
             }
         } else {
-            self.send_transaction_with_retry(&signed_tx, 3).await?.to_string()
+            self.send_transaction_with_retry(&signed_tx, 3)
+                .await?
+                .to_string()
         };
         let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
 
         println!("✅ Compra confirmada!\n");
         println!("🔗 Signature: {}", signature);
-        
+
         let result = BuyResult {
             signature: signature.to_string(),
             sol_spent: amount_sol,
             tokens_received: tokens_to_receive,
             price_per_token,
-            route: quote.route_plan.iter()
+            route: quote
+                .route_plan
+                .iter()
                 .map(|r| r.swap_info.label.clone())
                 .collect::<Vec<_>>()
                 .join(" → "),
@@ -631,12 +711,12 @@ impl TradeExecutor {
         println!("🧪 Mode:         DRY RUN (Simulation)");
         println!("🎯 Token:        {}", token_mint);
         println!("💰 Amount:       {} SOL\n", amount_sol);
-        
+
         println!("⚠️  SIMULACIÓN ACTIVA:");
         println!("   ✓ Quote calculado");
         println!("   ✓ Precio estimado");
         println!("   ✗ Transacción NO enviada\n");
-        
+
         Ok(BuyResult {
             signature: "SIMULATION_ONLY".to_string(),
             sol_spent: amount_sol,
@@ -648,41 +728,52 @@ impl TradeExecutor {
     }
 
     /// Simula una venta (dry run) con soporte para slippage opcional
-    async fn simulate_emergency_sell(&self, token_mint: &str, amount_percent: u8, slippage_bps: u16) -> Result<SwapResult> {
+    async fn simulate_emergency_sell(
+        &self,
+        token_mint: &str,
+        amount_percent: u8,
+        slippage_bps: u16,
+    ) -> Result<SwapResult> {
         println!("🧪 Mode:         DRY RUN (Simulation)");
         println!("🎯 Token:        {}", token_mint);
         println!("📊 Amount:       {}%\n", amount_percent);
-        
+
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
-        
-        let quote_result = self.jupiter.get_quote(
-            token_mint,
-            SOL_MINT,
-            1000000000, 
-            slippage_bps,
-        ).await;
+
+        let quote_result = self
+            .jupiter
+            .get_quote(token_mint, SOL_MINT, 1000000000, slippage_bps)
+            .await;
 
         let (output_sol, route, price_impact) = match quote_result {
             Ok(quote) => {
                 let sol = FinancialValidator::parse_price_safe(
                     &quote.out_amount,
-                    "Simulation out_amount"
-                ).unwrap_or(0.0) / 1_000_000_000.0;
-                
-                let route_str = quote.route_plan.iter()
+                    "Simulation out_amount",
+                )
+                .unwrap_or(0.0)
+                    / 1_000_000_000.0;
+
+                let route_str = quote
+                    .route_plan
+                    .iter()
                     .map(|r| r.swap_info.label.clone())
                     .collect::<Vec<_>>()
                     .join(" → ");
-                
+
                 let impact = FinancialValidator::parse_price_safe(
                     &quote.price_impact_pct,
-                    "Simulation price impact"
-                ).unwrap_or(0.0);
-                
+                    "Simulation price impact",
+                )
+                .unwrap_or(0.0);
+
                 (sol, route_str, impact)
-            },
+            }
             Err(e) => {
-                eprintln!("⚠️  No se pudo obtener quote de Jupiter para simulación: {}", e);
+                eprintln!(
+                    "⚠️  No se pudo obtener quote de Jupiter para simulación: {}",
+                    e
+                );
                 (0.0, "Simulation (No quote available)".to_string(), 0.0)
             }
         };
@@ -691,11 +782,15 @@ impl TradeExecutor {
         println!("   ✓ Quote de Jupiter calculado: {} SOL", output_sol);
         println!("   ✓ Ruta óptima identificada: {}", route);
         println!("   ✗ Transacción NO enviada a blockchain\n");
-        
+
         self.log_simulated_trade(token_mint, output_sol)?;
 
-        let sig = format!("SIM_{}_{}", token_mint, chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-        
+        let sig = format!(
+            "SIM_{}_{}",
+            token_mint,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+
         Ok(SwapResult {
             signature: sig,
             input_amount: 1000000000.0,
@@ -708,22 +803,22 @@ impl TradeExecutor {
     fn log_simulated_trade(&self, token: &str, amount_sol: f64) -> Result<()> {
         use std::fs::OpenOptions;
         use std::io::Write;
-        
+
         let log_path = "../../operational/logs/simulated_trades.csv";
         let file_exists = std::path::Path::new(log_path).exists();
-        
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_path)?;
-            
+
         if !file_exists {
             writeln!(file, "timestamp,token,type,amount_sol,status")?;
         }
-        
+
         let now = chrono::Utc::now().to_rfc3339();
         writeln!(file, "{},{},SELL,{:.6},SIMULATED", now, token, amount_sol)?;
-        
+
         Ok(())
     }
 
@@ -739,10 +834,16 @@ impl TradeExecutor {
         println!("╚════════════════════════════════════════════════════════════╝\n");
 
         if self.config.dry_run {
-            println!("🧪 Mode: DRY RUN - Simulando bundle de {} tokens", mints.len());
+            println!(
+                "🧪 Mode: DRY RUN - Simulando bundle de {} tokens",
+                mints.len()
+            );
             let mut results = Vec::new();
             for mint in mints {
-                results.push(self.simulate_emergency_sell(&mint, amount_percent, self.config.slippage_bps).await?);
+                results.push(
+                    self.simulate_emergency_sell(&mint, amount_percent, self.config.slippage_bps)
+                        .await?,
+                );
             }
             return Ok(results);
         }
@@ -755,7 +856,7 @@ impl TradeExecutor {
 
         for mint in &mints {
             println!("🔍 Procesando {}...", &mint[..8]);
-            
+
             // 1. Balance
             let (_, token_balance) = match self.get_token_account_balance(&user_pubkey, mint) {
                 Ok(b) => b,
@@ -765,10 +866,16 @@ impl TradeExecutor {
                 }
             };
             let amount_to_sell = (token_balance as f64 * (amount_percent as f64 / 100.0)) as u64;
-            if amount_to_sell == 0 { continue; }
+            if amount_to_sell == 0 {
+                continue;
+            }
 
             // 2. Quote
-            let quote = match self.jupiter.get_quote(mint, SOL_MINT, amount_to_sell, self.config.slippage_bps).await {
+            let quote = match self
+                .jupiter
+                .get_quote(mint, SOL_MINT, amount_to_sell, self.config.slippage_bps)
+                .await
+            {
                 Ok(q) => q,
                 Err(e) => {
                     eprintln!("   ⚠️ Error quote {}: {}", mint, e);
@@ -777,7 +884,11 @@ impl TradeExecutor {
             };
 
             // 3. Tx
-            let swap_response = match self.jupiter.get_swap_transaction(&quote, &user_pubkey.to_string(), true).await {
+            let swap_response = match self
+                .jupiter
+                .get_swap_transaction(&quote, &user_pubkey.to_string(), true)
+                .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("   ⚠️ Error swap tx {}: {}", mint, e);
@@ -788,11 +899,11 @@ impl TradeExecutor {
             // 4. Decode & Sign
             let tx_bytes = general_purpose::STANDARD.decode(&swap_response.swap_transaction)?;
             let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
-            
+
             let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
             transaction.message.set_recent_blockhash(recent_blockhash);
             let signed_tx = VersionedTransaction::try_new(transaction.message, &[wallet_keypair])?;
-            
+
             let sig = signed_tx.signatures[0].to_string();
             transactions.push(signed_tx);
             sell_infos.push((mint.clone(), quote, sig));
@@ -812,7 +923,7 @@ impl TradeExecutor {
         let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
         let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
         tip_tx.sign(&[wallet_keypair], recent_blockhash);
-        
+
         let mut bundle = transactions.clone();
         bundle.push(VersionedTransaction::from(tip_tx));
 
@@ -823,7 +934,8 @@ impl TradeExecutor {
         // 7. Results
         let mut final_results = Vec::new();
         for (_mint, quote, sig) in sell_infos {
-            let sol_received = FinancialValidator::parse_price_safe(&quote.out_amount, "Jup")? / 1_000_000_000.0;
+            let sol_received =
+                FinancialValidator::parse_price_safe(&quote.out_amount, "Jup")? / 1_000_000_000.0;
             final_results.push(SwapResult {
                 signature: sig,
                 input_amount: 0.0, // Simplificado
@@ -838,17 +950,14 @@ impl TradeExecutor {
 
     /// Obtiene el token account y balance para un mint específico con reintentos para ATA creation
     fn get_token_account_balance(&self, wallet: &Pubkey, mint: &str) -> Result<(Pubkey, u64)> {
-        let mint_pubkey = Pubkey::from_str(mint)
-            .context("Token mint inválido")?;
+        let mint_pubkey = Pubkey::from_str(mint).context("Token mint inválido")?;
 
-        let token_account = spl_associated_token_account::get_associated_token_address(
-            wallet,
-            &mint_pubkey,
-        );
+        let token_account =
+            spl_associated_token_account::get_associated_token_address(wallet, &mint_pubkey);
 
         let mut retries = 5;
         let mut last_error = None;
-        
+
         while retries > 0 {
             match self.rpc_client.get_account(&token_account) {
                 Ok(account_data) => {
@@ -860,14 +969,20 @@ impl TradeExecutor {
                     last_error = Some(e);
                     retries -= 1;
                     if retries > 0 {
-                        println!("⏳ [RETRY] ATA no detectado aún para {}. Esperando 600ms...", &mint[..8]);
+                        println!(
+                            "⏳ [RETRY] ATA no detectado aún para {}. Esperando 600ms...",
+                            &mint[..8]
+                        );
                         std::thread::sleep(std::time::Duration::from_millis(600));
                     }
                 }
             }
         }
-        
-        anyhow::bail!("Fallo definitivo buscando ATA tras reintentos: {:?}", last_error);
+
+        anyhow::bail!(
+            "Fallo definitivo buscando ATA tras reintentos: {:?}",
+            last_error
+        );
     }
 
     /// Envía una transacción con reintentos
@@ -878,7 +993,7 @@ impl TradeExecutor {
     ) -> Result<Signature> {
         for attempt in 1..=max_retries {
             println!("   Intento {}/{}...", attempt, max_retries);
-            
+
             match self.rpc_client.send_and_confirm_transaction(transaction) {
                 Ok(sig) => {
                     println!("   ✅ Confirmado en intento {}", attempt);
@@ -889,19 +1004,22 @@ impl TradeExecutor {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Err(e) => {
-                    anyhow::bail!("Error enviando transacción después de {} intentos: {}", max_retries, e);
+                    anyhow::bail!(
+                        "Error enviando transacción después de {} intentos: {}",
+                        max_retries,
+                        e
+                    );
                 }
             }
         }
-        
+
         unreachable!()
     }
 
     /// Verifica si una transacción fue confirmada
     pub fn verify_transaction(&self, signature: &str) -> Result<bool> {
-        let sig = Signature::from_str(signature)
-            .context("Signature inválida")?;
-        
+        let sig = Signature::from_str(signature).context("Signature inválida")?;
+
         match self.rpc_client.get_signature_status(&sig)? {
             Some(Ok(_)) => Ok(true),
             Some(Err(e)) => {
@@ -920,52 +1038,63 @@ impl TradeExecutor {
         amount_sol: f64,
     ) -> Result<BuyResult> {
         println!("🚀 [DEGEN MODE] Initiating Direct Raydium Assault...");
-        
-        let token_mint = crate::validation::FinancialValidator::validate_mint(
-            token_mint,
-            "DEGEN BUY"
-        )?;
-        
-        let raydium = self.raydium.as_ref().context("Raydium engine not initialized")?;
+
+        let token_mint =
+            crate::validation::FinancialValidator::validate_mint(token_mint, "DEGEN BUY")?;
+
+        let raydium = self
+            .raydium
+            .as_ref()
+            .context("Raydium engine not initialized")?;
         let keypair = wallet_keypair.context("Wallet keypair required for Degen Mode")?;
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         let amount_in = (amount_sol * 1_000_000_000.0) as u64;
 
         // 1. Obtener balance PRE-compra
         let user_pubkey = keypair.pubkey();
-        let pre_balance = self.get_token_account_balance(&user_pubkey, &token_mint)
+        let pre_balance = self
+            .get_token_account_balance(&user_pubkey, &token_mint)
             .map(|(_, bal)| bal)
             .unwrap_or(0);
 
         // 2. Ejecutar
         let _pool_info = raydium.find_pool(SOL_MINT, &token_mint).await?;
-        let sig = raydium.execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair).await?;
+        let sig = raydium
+            .execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair)
+            .await?;
 
         // 3. Esperar confirmación
         println!("⏳ Esperando confirmación para calcular precio real...");
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        
+
         let mut post_balance = pre_balance;
         for i in 0..5 {
-             if let Ok((_, bal)) = self.get_token_account_balance(&user_pubkey, &token_mint) {
-                 if bal > pre_balance {
-                     post_balance = bal;
-                     break;
-                 }
-             }
-             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-             println!("   Reintentando lectura de balance ({} / 5)...", i+1);
+            if let Ok((_, bal)) = self.get_token_account_balance(&user_pubkey, &token_mint) {
+                if bal > pre_balance {
+                    post_balance = bal;
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            println!("   Reintentando lectura de balance ({} / 5)...", i + 1);
         }
 
         let tokens_received_raw = post_balance.saturating_sub(pre_balance);
         let tokens_received = tokens_received_raw as f64 / 1_000_000.0;
-        
-        let price_per_token = if tokens_received > 0.0 { amount_sol / tokens_received } else { 0.0 };
+
+        let price_per_token = if tokens_received > 0.0 {
+            amount_sol / tokens_received
+        } else {
+            0.0
+        };
 
         if tokens_received <= 0.0 {
             println!("⚠️ [WARNING] No se detectó cambio en el balance de tokens. El monitoreo podría fallar.");
         } else {
-            println!("📊 [REAL DATA] Recibido: {:.4} tokens | Precio: {:.8} SOL/token", tokens_received, price_per_token);
+            println!(
+                "📊 [REAL DATA] Recibido: {:.4} tokens | Precio: {:.8} SOL/token",
+                tokens_received, price_per_token
+            );
         }
 
         Ok(BuyResult {
@@ -985,12 +1114,9 @@ mod tests {
 
     #[test]
     fn test_executor_config() {
-        let config = ExecutorConfig::new(
-            "https://api.mainnet-beta.solana.com".to_string(),
-            true,
-        )
-        .with_slippage(150)
-        .with_priority_fee(100000);
+        let config = ExecutorConfig::new("https://api.mainnet-beta.solana.com".to_string(), true)
+            .with_slippage(150)
+            .with_priority_fee(100000);
 
         assert_eq!(config.slippage_bps, 150);
         assert_eq!(config.priority_fee, 100000);
@@ -999,20 +1125,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_simulate_sell() {
-        let config = ExecutorConfig::new(
-            "https://api.mainnet-beta.solana.com".to_string(),
-            true,
-        );
+        let config = ExecutorConfig::new("https://api.mainnet-beta.solana.com".to_string(), true);
         let executor = TradeExecutor::new(config);
 
-        let result = executor.execute_emergency_sell(
-            "TEST_MINT",
-            None,
-            100,
-        ).await;
+        let result = executor
+            .execute_emergency_sell(
+                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Valid mint format
+                None,
+                100,
+            )
+            .await;
 
         assert!(result.is_ok());
         let swap_result = result.unwrap();
-        assert_eq!(swap_result.signature, "SIMULATION_ONLY");
+        assert!(swap_result.signature.starts_with("SIM_"));
     }
 }

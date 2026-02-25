@@ -11,13 +11,13 @@
 //! ```
 //!
 //! ## Estrategia de datos
-//! 
+//!
 //! En Raydium V4, las reserves reales están en SPL Token Accounts separadas
 //! (coin_vault y pc_vault). Pero para calcular precio podemos:
-//! 
+//!
 //! **Opción A (esta implementación):** Suscribirnos a las vault accounts via Geyser.
 //! Cuando un vault cambia → su `amount` field refleja la nueva reserve.
-//! 
+//!
 //! **Opción B:** Parsear el AMM state (752+ bytes) que tiene reserves parciales.
 //! Menos fiable porque las reserves on-chain del AMM incluyen fees acumulados.
 
@@ -33,62 +33,62 @@ use tokio::sync::RwLock;
 /// Referencia: https://github.com/raydium-io/raydium-amm
 pub mod raydium_v4_layout {
     // Header
-    pub const STATUS: usize = 0;              // u64 (8 bytes)
-    pub const NONCE: usize = 8;               // u64
-    pub const MAX_ORDER: usize = 16;          // u64
-    pub const DEPTH: usize = 24;              // u64
-    pub const BASE_DECIMAL: usize = 32;       // u64
-    pub const QUOTE_DECIMAL: usize = 40;      // u64
-    pub const STATE: usize = 48;              // u64
-    pub const RESET_FLAG: usize = 56;         // u64
-    pub const MIN_SIZE: usize = 64;           // u64
-    pub const VOL_MAX_CUT_RATIO: usize = 72;  // u64
-    pub const AMOUNT_WAVE_RATIO: usize = 80;  // u64
-    
+    pub const STATUS: usize = 0; // u64 (8 bytes)
+    pub const NONCE: usize = 8; // u64
+    pub const MAX_ORDER: usize = 16; // u64
+    pub const DEPTH: usize = 24; // u64
+    pub const BASE_DECIMAL: usize = 32; // u64
+    pub const QUOTE_DECIMAL: usize = 40; // u64
+    pub const STATE: usize = 48; // u64
+    pub const RESET_FLAG: usize = 56; // u64
+    pub const MIN_SIZE: usize = 64; // u64
+    pub const VOL_MAX_CUT_RATIO: usize = 72; // u64
+    pub const AMOUNT_WAVE_RATIO: usize = 80; // u64
+
     // Fees
-    pub const BASE_LOT_SIZE: usize = 88;      // u64
-    pub const QUOTE_LOT_SIZE: usize = 96;     // u64
+    pub const BASE_LOT_SIZE: usize = 88; // u64
+    pub const QUOTE_LOT_SIZE: usize = 96; // u64
     pub const MIN_PRICE_MULTIPLIER: usize = 104; // u64
     pub const MAX_PRICE_MULTIPLIER: usize = 112; // u64
-    
+
     // Key accounts (Pubkeys = 32 bytes each)
     pub const SYSTEM_DECIMAL_VALUE: usize = 120; // u64
     pub const MIN_SEPARATE_NUMERATOR: usize = 128; // u64
     pub const MIN_SEPARATE_DENOMINATOR: usize = 136; // u64
     pub const TRADE_FEE_NUMERATOR: usize = 144; // u64
-    pub const TRADE_FEE_DENOMINATOR: usize = 152; // u64 
-    pub const PNL_NUMERATOR: usize = 160;     // u64
-    pub const PNL_DENOMINATOR: usize = 168;   // u64
+    pub const TRADE_FEE_DENOMINATOR: usize = 152; // u64
+    pub const PNL_NUMERATOR: usize = 160; // u64
+    pub const PNL_DENOMINATOR: usize = 168; // u64
     pub const SWAP_FEE_NUMERATOR: usize = 176; // u64
     pub const SWAP_FEE_DENOMINATOR: usize = 184; // u64
-    
-    // Need/Pnl amounts
-    pub const BASE_NEED_TAKE_PNL: usize = 192;    // u64
-    pub const QUOTE_NEED_TAKE_PNL: usize = 200;   // u64
-    pub const QUOTE_TOTAL_PNL: usize = 208;       // u64
-    pub const BASE_TOTAL_PNL: usize = 216;        // u64 
-    // System info (u128 = 16 bytes each)
-    pub const QUOTE_TOTAL_DEPOSITED: usize = 224;  // u128
-    pub const BASE_TOTAL_DEPOSITED: usize = 240;   // u128
-    pub const SWAP_BASE_IN_AMOUNT: usize = 256;    // u128
-    pub const SWAP_QUOTE_OUT_AMOUNT: usize = 272;  // u128
-    
-    pub const SWAP_BASE2_QUOTE_FEE: usize = 288;   // u64
-    pub const SWAP_QUOTE_IN_AMOUNT: usize = 296;    // u128
-    pub const SWAP_BASE_OUT_AMOUNT: usize = 312;    // u128
-    pub const SWAP_QUOTE2_BASE_FEE: usize = 328;    // u64
-    
-    // Pool vault reserves (what we need!)
-    pub const POOL_COIN_AMOUNT: usize = 336;    // u64 - Base token reserve
-    pub const POOL_PC_AMOUNT: usize = 344;      // u64 - Quote token reserve
-    
-    // Pubkeys
-    pub const COIN_MINT: usize = 400;           // Pubkey (32 bytes)
-    pub const PC_MINT: usize = 432;             // Pubkey  
-    pub const COIN_VAULT: usize = 464;          // Pubkey
-    pub const PC_VAULT: usize = 496;            // Pubkey
 
-    pub const MIN_DATA_LEN: usize = 528;        // Mínimo para leer lo esencial
+    // Need/Pnl amounts
+    pub const BASE_NEED_TAKE_PNL: usize = 192; // u64
+    pub const QUOTE_NEED_TAKE_PNL: usize = 200; // u64
+    pub const QUOTE_TOTAL_PNL: usize = 208; // u64
+    pub const BASE_TOTAL_PNL: usize = 216; // u64
+                                           // System info (u128 = 16 bytes each)
+    pub const QUOTE_TOTAL_DEPOSITED: usize = 224; // u128
+    pub const BASE_TOTAL_DEPOSITED: usize = 240; // u128
+    pub const SWAP_BASE_IN_AMOUNT: usize = 256; // u128
+    pub const SWAP_QUOTE_OUT_AMOUNT: usize = 272; // u128
+
+    pub const SWAP_BASE2_QUOTE_FEE: usize = 288; // u64
+    pub const SWAP_QUOTE_IN_AMOUNT: usize = 296; // u128
+    pub const SWAP_BASE_OUT_AMOUNT: usize = 312; // u128
+    pub const SWAP_QUOTE2_BASE_FEE: usize = 328; // u64
+
+    // Pool vault reserves (what we need!)
+    pub const POOL_COIN_AMOUNT: usize = 336; // u64 - Base token reserve
+    pub const POOL_PC_AMOUNT: usize = 344; // u64 - Quote token reserve
+
+    // Pubkeys
+    pub const COIN_MINT: usize = 400; // Pubkey (32 bytes)
+    pub const PC_MINT: usize = 432; // Pubkey
+    pub const COIN_VAULT: usize = 464; // Pubkey
+    pub const PC_VAULT: usize = 496; // Pubkey
+
+    pub const MIN_DATA_LEN: usize = 528; // Mínimo para leer lo esencial
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -150,26 +150,26 @@ impl RaydiumPoolState {
     /// Parsea el estado de un pool desde los raw bytes de la cuenta AMM
     pub fn from_account_data(data: &[u8]) -> Option<Self> {
         use raydium_v4_layout as layout;
-        
+
         if data.len() < layout::MIN_DATA_LEN {
             return None;
         }
-        
+
         let read_u64 = |offset: usize| -> u64 {
             u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap())
         };
-        
+
         let read_pubkey = |offset: usize| -> [u8; 32] {
             let mut key = [0u8; 32];
             key.copy_from_slice(&data[offset..offset + 32]);
             key
         };
-        
+
         let base_decimals = read_u64(layout::BASE_DECIMAL) as u8;
         let quote_decimals = read_u64(layout::QUOTE_DECIMAL) as u8;
         let base_reserve_raw = read_u64(layout::POOL_COIN_AMOUNT);
         let quote_reserve_raw = read_u64(layout::POOL_PC_AMOUNT);
-        
+
         // Sanity checks
         if base_decimals > 18 || quote_decimals > 18 {
             return None;
@@ -177,7 +177,7 @@ impl RaydiumPoolState {
         if base_reserve_raw == 0 || quote_reserve_raw == 0 {
             return None; // Pool vacío o inválido
         }
-        
+
         Some(Self {
             base_decimals,
             quote_decimals,
@@ -191,36 +191,36 @@ impl RaydiumPoolState {
             trade_fee_denominator: read_u64(layout::TRADE_FEE_DENOMINATOR),
         })
     }
-    
+
     /// Reserva base ajustada con decimales (valor humano)
     pub fn base_reserve(&self) -> f64 {
         self.base_reserve_raw as f64 / 10f64.powi(self.base_decimals as i32)
     }
-    
+
     /// Reserva quote ajustada con decimales
     pub fn quote_reserve(&self) -> f64 {
         self.quote_reserve_raw as f64 / 10f64.powi(self.quote_decimals as i32)
     }
-    
+
     /// Precio de 1 unidad de base token en quote token
     /// Ejemplo: si base=ICEBEAR, quote=SOL → devuelve precio en SOL
     pub fn price_in_quote(&self) -> f64 {
         let base = self.base_reserve();
         let quote = self.quote_reserve();
-        
+
         if base == 0.0 {
             return 0.0;
         }
-        
+
         quote / base
     }
-    
+
     /// Liquidez total del pool en quote token (ambos lados)
     /// TVL ≈ 2 * quote_reserve (asumiendo precio equilibrado)
     pub fn liquidity_in_quote(&self) -> f64 {
         self.quote_reserve() * 2.0
     }
-    
+
     /// Constante K del pool (x * y = K)
     pub fn constant_product(&self) -> f64 {
         self.base_reserve() * self.quote_reserve()
@@ -230,16 +230,16 @@ impl RaydiumPoolState {
     pub fn price_impact_for_sell(&self, amount_in_base: f64) -> f64 {
         let base = self.base_reserve();
         let quote = self.quote_reserve();
-        
+
         if base == 0.0 || amount_in_base == 0.0 {
             return 0.0;
         }
-        
+
         let price_before = quote / base;
         let new_base = base + amount_in_base;
         let new_quote = (base * quote) / new_base; // K = constant
         let price_after = new_quote / new_base;
-        
+
         ((price_after - price_before) / price_before) * 100.0
     }
 }
@@ -265,7 +265,7 @@ pub struct VaultPair {
     pub quote_decimals: u8,
     /// Última reserve conocida del coin vault
     pub last_coin_reserve: Option<u64>,
-    /// Última reserve conocida del pc vault 
+    /// Última reserve conocida del pc vault
     pub last_pc_reserve: Option<u64>,
 }
 
@@ -274,7 +274,7 @@ impl VaultPair {
     pub fn is_ready(&self) -> bool {
         self.last_coin_reserve.is_some() && self.last_pc_reserve.is_some()
     }
-    
+
     /// Actualiza una de las reserves según la vault address que cambió.
     /// Retorna true si la reserve fue actualizada.
     pub fn update_reserve(&mut self, vault_address: &str, amount: u64) -> bool {
@@ -288,19 +288,19 @@ impl VaultPair {
             false
         }
     }
-    
+
     /// Calcula el precio en quote (ej: SOL) si ambas reserves están disponibles
     pub fn calculate_price_in_quote(&self) -> Option<f64> {
         let coin = self.last_coin_reserve? as f64 / 10f64.powi(self.base_decimals as i32);
         let pc = self.last_pc_reserve? as f64 / 10f64.powi(self.quote_decimals as i32);
-        
+
         if coin == 0.0 {
             return None;
         }
-        
+
         Some(pc / coin)
     }
-    
+
     /// Calcula la liquidez total en quote (≈ 2 * pc_reserve)
     pub fn calculate_liquidity_in_quote(&self) -> Option<f64> {
         let pc = self.last_pc_reserve? as f64 / 10f64.powi(self.quote_decimals as i32);
@@ -316,13 +316,13 @@ pub fn build_vault_tracker(pairs: Vec<VaultPair>) -> (VaultTracker, HashMap<Stri
     let mut tracker_map = HashMap::new();
     // vault_address → token_mint (para saber a qué par pertenece una vault)
     let mut vault_to_mint = HashMap::new();
-    
+
     for pair in pairs {
         vault_to_mint.insert(pair.coin_vault.clone(), pair.token_mint.clone());
         vault_to_mint.insert(pair.pc_vault.clone(), pair.token_mint.clone());
         tracker_map.insert(pair.token_mint.clone(), pair);
     }
-    
+
     (Arc::new(RwLock::new(tracker_map)), vault_to_mint)
 }
 
@@ -334,7 +334,7 @@ pub fn build_vault_tracker(pairs: Vec<VaultPair>) -> (VaultTracker, HashMap<Stri
 /// Thread-safe para compartir entre tasks.
 pub type SolPriceUsd = Arc<RwLock<f64>>;
 
-/// Crea un tracker del precio de SOL inicializado en 0 
+/// Crea un tracker del precio de SOL inicializado en 0
 pub fn new_sol_price_tracker() -> SolPriceUsd {
     Arc::new(RwLock::new(0.0))
 }
@@ -368,16 +368,16 @@ mod tests {
             last_coin_reserve: None,
             last_pc_reserve: None,
         };
-        
+
         assert!(!pair.is_ready());
         assert!(pair.calculate_price_in_quote().is_none());
-        
+
         // Simular: 1,000,000 tokens (6 dec), 10 SOL (9 dec)
         pair.update_reserve("vault_coin", 1_000_000_000_000); // 1M tokens
-        pair.update_reserve("vault_pc", 10_000_000_000);      // 10 SOL
-        
+        pair.update_reserve("vault_pc", 10_000_000_000); // 10 SOL
+
         assert!(pair.is_ready());
-        
+
         let price = pair.calculate_price_in_quote().unwrap();
         // price = 10 SOL / 1M tokens = 0.00001 SOL per token
         assert!((price - 0.00001).abs() < 0.0000001);
@@ -389,7 +389,7 @@ mod tests {
             base_decimals: 6,
             quote_decimals: 9,
             base_reserve_raw: 1_000_000_000_000, // 1M tokens
-            quote_reserve_raw: 10_000_000_000,    // 10 SOL
+            quote_reserve_raw: 10_000_000_000,   // 10 SOL
             coin_mint: [0; 32],
             pc_mint: [0; 32],
             coin_vault: [0; 32],
@@ -397,7 +397,7 @@ mod tests {
             trade_fee_numerator: 25,
             trade_fee_denominator: 10000,
         };
-        
+
         // Vender 1% del pool (10,000 tokens)
         let impact = state.price_impact_for_sell(10_000.0);
         // Debería ser aprox -1% (el precio baja cuando inyectas más tokens)
@@ -412,29 +412,33 @@ mod tests {
         // Escribir amount = 42 en offset 64
         let amount: u64 = 42;
         data[64..72].copy_from_slice(&amount.to_le_bytes());
-        
+
         assert_eq!(parse_spl_token_account_amount(&data), Some(42));
     }
 
     #[test]
     fn test_vault_tracker_lookup() {
-        let pairs = vec![
-            VaultPair {
-                token_mint: "TOKEN_A".to_string(),
-                symbol: "A".to_string(),
-                coin_vault: "vault_a_coin".to_string(),
-                pc_vault: "vault_a_pc".to_string(),
-                base_decimals: 6,
-                quote_decimals: 9,
-                last_coin_reserve: None,
-                last_pc_reserve: None,
-            },
-        ];
-        
+        let pairs = vec![VaultPair {
+            token_mint: "TOKEN_A".to_string(),
+            symbol: "A".to_string(),
+            coin_vault: "vault_a_coin".to_string(),
+            pc_vault: "vault_a_pc".to_string(),
+            base_decimals: 6,
+            quote_decimals: 9,
+            last_coin_reserve: None,
+            last_pc_reserve: None,
+        }];
+
         let (_tracker, vault_to_mint) = build_vault_tracker(pairs);
-        
-        assert_eq!(vault_to_mint.get("vault_a_coin"), Some(&"TOKEN_A".to_string()));
-        assert_eq!(vault_to_mint.get("vault_a_pc"), Some(&"TOKEN_A".to_string()));
+
+        assert_eq!(
+            vault_to_mint.get("vault_a_coin"),
+            Some(&"TOKEN_A".to_string())
+        );
+        assert_eq!(
+            vault_to_mint.get("vault_a_pc"),
+            Some(&"TOKEN_A".to_string())
+        );
         assert_eq!(vault_to_mint.get("unknown"), None);
     }
 }

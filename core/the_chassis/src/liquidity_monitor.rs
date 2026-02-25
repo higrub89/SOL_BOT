@@ -1,7 +1,6 @@
 //! # Liquidity Monitor - Detector de Ballenas y Movimientos Sospechosos
-//! 
+//!
 //! Monitorea cambios dramáticos en liquidez y volumen para detectar señales de peligro
-
 
 use serde::{Deserialize, Serialize};
 
@@ -17,10 +16,10 @@ pub struct LiquiditySnapshot {
 pub struct LiquidityMonitor {
     /// Historial de snapshots (últimos 10)
     history: Vec<LiquiditySnapshot>,
-    
+
     /// Umbral de caída de liquidez para alertar (porcentaje)
     liquidity_drop_threshold: f64,
-    
+
     /// Umbral de spike de volumen sospechoso (múltiplo del promedio)
     volume_spike_multiplier: f64,
 }
@@ -33,14 +32,14 @@ pub enum LiquidityAlert {
         to_usd: f64,
         percent: f64,
     },
-    
+
     /// Spike sospechoso de volumen
     VolumeSuspicious {
         current: f64,
         average: f64,
         multiplier: f64,
     },
-    
+
     /// Caída de precio + caída de liquidez = señal de rug pull potencial
     RugPullWarning {
         price_drop: f64,
@@ -65,8 +64,9 @@ impl LiquidityMonitor {
         if let Some(prev) = self.history.last() {
             // Detectar caída de liquidez
             if snapshot.liquidity_usd < prev.liquidity_usd {
-                let drop_percent = ((prev.liquidity_usd - snapshot.liquidity_usd) / prev.liquidity_usd) * 100.0;
-                
+                let drop_percent =
+                    ((prev.liquidity_usd - snapshot.liquidity_usd) / prev.liquidity_usd) * 100.0;
+
                 if drop_percent >= self.liquidity_drop_threshold {
                     alerts.push(LiquidityAlert::LiquidityDrop {
                         from_usd: prev.liquidity_usd,
@@ -77,8 +77,9 @@ impl LiquidityMonitor {
 
                 // Detectar rug pull potencial: caída de precio + caída de liquidez
                 if snapshot.price_usd < prev.price_usd {
-                    let price_drop = ((prev.price_usd - snapshot.price_usd) / prev.price_usd) * 100.0;
-                    
+                    let price_drop =
+                        ((prev.price_usd - snapshot.price_usd) / prev.price_usd) * 100.0;
+
                     if drop_percent > 20.0 && price_drop > 30.0 {
                         alerts.push(LiquidityAlert::RugPullWarning {
                             price_drop,
@@ -90,8 +91,9 @@ impl LiquidityMonitor {
 
             // Detectar spike de volumen sospechoso
             if self.history.len() >= 3 {
-                let avg_volume: f64 = self.history.iter().map(|s| s.volume_24h).sum::<f64>() / self.history.len() as f64;
-                
+                let avg_volume: f64 = self.history.iter().map(|s| s.volume_24h).sum::<f64>()
+                    / self.history.len() as f64;
+
                 if snapshot.volume_24h > avg_volume * self.volume_spike_multiplier {
                     alerts.push(LiquidityAlert::VolumeSuspicious {
                         current: snapshot.volume_24h,
@@ -133,7 +135,11 @@ impl LiquidityAlert {
     /// Convierte la alerta a un mensaje formateado para Telegram
     pub fn to_telegram_message(&self, token_symbol: &str) -> String {
         match self {
-            LiquidityAlert::LiquidityDrop { from_usd, to_usd, percent } => {
+            LiquidityAlert::LiquidityDrop {
+                from_usd,
+                to_usd,
+                percent,
+            } => {
                 format!(
                     "<b>⚠️ ALERTA DE LIQUIDEZ — {}</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
@@ -145,7 +151,11 @@ impl LiquidityAlert {
                 )
             }
 
-            LiquidityAlert::VolumeSuspicious { current, average, multiplier } => {
+            LiquidityAlert::VolumeSuspicious {
+                current,
+                average,
+                multiplier,
+            } => {
                 format!(
                     "<b>📊 VOLUMEN ANORMAL — {}</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
@@ -157,7 +167,10 @@ impl LiquidityAlert {
                 )
             }
 
-            LiquidityAlert::RugPullWarning { price_drop, liquidity_drop } => {
+            LiquidityAlert::RugPullWarning {
+                price_drop,
+                liquidity_drop,
+            } => {
                 format!(
                     "<b>🚨🚨 ADVERTENCIA DE RUG PULL — {} 🚨🚨</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
@@ -175,10 +188,22 @@ impl LiquidityAlert {
     pub fn severity(&self) -> u8 {
         match self {
             LiquidityAlert::LiquidityDrop { percent, .. } => {
-                if *percent > 50.0 { 3 } else if *percent > 30.0 { 2 } else { 1 }
+                if *percent > 50.0 {
+                    3
+                } else if *percent > 30.0 {
+                    2
+                } else {
+                    1
+                }
             }
             LiquidityAlert::VolumeSuspicious { multiplier, .. } => {
-                if *multiplier > 10.0 { 3 } else if *multiplier > 5.0 { 2 } else { 1 }
+                if *multiplier > 10.0 {
+                    3
+                } else if *multiplier > 5.0 {
+                    2
+                } else {
+                    1
+                }
             }
             LiquidityAlert::RugPullWarning { .. } => 3, // Máxima severidad
         }
@@ -230,13 +255,15 @@ mod tests {
         // Caída dramática de ambos
         let alerts = monitor.add_snapshot(LiquiditySnapshot {
             timestamp: 2000,
-            liquidity_usd: 50_000.0,  // -50%
+            liquidity_usd: 50_000.0, // -50%
             volume_24h: 50_000.0,
-            price_usd: 0.6,            // -40%
+            price_usd: 0.6, // -40%
             holders_count: None,
         });
 
         // Debería detectar rug pull warning
-        assert!(alerts.iter().any(|a| matches!(a, LiquidityAlert::RugPullWarning { .. })));
+        assert!(alerts
+            .iter()
+            .any(|a| matches!(a, LiquidityAlert::RugPullWarning { .. })));
     }
 }

@@ -1,11 +1,11 @@
 //! # Jupiter Aggregator Integration
-//! 
+//!
 //! Módulo para ejecutar swaps usando Jupiter Aggregator API v6.
 //! Proporciona las mejores rutas de intercambio con slippage mínimo.
 
-use anyhow::{Result, Context};
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 
 use crate::validation::FinancialValidator;
 
@@ -44,22 +44,18 @@ impl JupiterClient {
         slippage_bps: u16, // Basis points (100 = 1%)
     ) -> Result<QuoteResponse> {
         // ✅ CRITICAL: Validar mints ANTES de hacer la solicitud
-        FinancialValidator::validate_mint_pair(
-            input_mint,
-            output_mint,
-            "Jupiter Quote"
-        )?;
-        
+        FinancialValidator::validate_mint_pair(input_mint, output_mint, "Jupiter Quote")?;
+
         let input_mint = input_mint.trim();
         let output_mint = output_mint.trim();
-        
+
         let url = format!(
             "{}/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
             self.base_url, input_mint, output_mint, amount, slippage_bps
         );
 
         let mut request_builder = self.client.get(&url);
-        
+
         if let Some(key) = &self.api_key {
             request_builder = request_builder.header("x-api-key", key);
         }
@@ -72,7 +68,7 @@ impl JupiterClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            
+
             // Mejorar mensaje de error para tokens no tradeables
             let error_msg = if error_text.contains("is not tradeable") {
                 format!(
@@ -92,7 +88,7 @@ impl JupiterClient {
             } else {
                 error_text
             };
-            
+
             anyhow::bail!("Jupiter Quote Error [{}]: {}", status, error_msg);
         }
 
@@ -122,7 +118,7 @@ impl JupiterClient {
         };
 
         let mut request_builder = self.client.post(&url);
-        
+
         if let Some(api_key) = &self.api_key {
             request_builder = request_builder.header("x-api-key", api_key);
         }
@@ -167,21 +163,22 @@ impl JupiterClient {
             .context("JUPITER_API_KEY no configurada en el entorno")?;
 
         let url = format!("https://api.jup.ag/price/v2?ids={}", mint);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&url)
             .header("x-api-key", api_key)
             .send()
             .await
             .context("Error al obtener precio de Jupiter")?;
-            
+
         if !response.status().is_success() {
             anyhow::bail!("Jupiter Price API error: {}", response.status());
         }
-        
+
         // Parsear respuesta compleja: {"data": {"<MINT>": {"id": "...", "mintSymbol": "...", "vsToken": "...", "vsTokenSymbol": "...", "price": 1.23}}}
         let json: serde_json::Value = response.json().await?;
-        
+
         if let Some(data) = json.get("data") {
             if let Some(token_data) = data.get(mint) {
                 if let Some(price) = token_data.get("price") {
@@ -191,7 +188,7 @@ impl JupiterClient {
                 }
             }
         }
-        
+
         // Si no está en data, a veces devuelve directamente el objeto si es un solo ID (dependiendo de la versión API)
         // Intentar fallback
         anyhow::bail!("No se pudo parsear el precio de la respuesta de Jupiter")
@@ -204,15 +201,26 @@ impl JupiterClient {
         println!("╚════════════════════════════════════════════════════════════╝\n");
         println!("🔄 Route:");
         for (i, route) in quote.route_plan.iter().enumerate() {
-            println!("   {}. {} → {}", i + 1, route.swap_info.label, route.percent);
+            println!(
+                "   {}. {} → {}",
+                i + 1,
+                route.swap_info.label,
+                route.percent
+            );
         }
         println!("\n💰 Amounts:");
         println!("   • Input:       {} tokens", quote.in_amount);
         println!("   • Output:      {} tokens", quote.out_amount);
-        println!("   • Other fees:  {} lamports", quote.other_amount_threshold);
+        println!(
+            "   • Other fees:  {} lamports",
+            quote.other_amount_threshold
+        );
         println!("\n📉 Slippage:");
         println!("   • Configured:  {}%", quote.slippage_bps as f64 / 100.0);
-        println!("   • Price Impact: {:.2}%", quote.price_impact_pct.parse::<f64>().unwrap_or(0.0));
+        println!(
+            "   • Price Impact: {:.2}%",
+            quote.price_impact_pct.parse::<f64>().unwrap_or(0.0)
+        );
     }
 }
 
@@ -331,26 +339,28 @@ mod tests {
     #[tokio::test]
     async fn test_jupiter_client_creation() {
         let client = JupiterClient::new();
-        assert_eq!(client.base_url, "https://api.jup.ag");
+        assert_eq!(client.base_url, "https://api.jup.ag/swap/v1");
     }
 
     #[tokio::test]
     #[ignore] // Requiere conexión a internet
     async fn test_get_quote() {
         let client = JupiterClient::new();
-        
+
         // SOL mint address (wrapped SOL)
         let sol_mint = "So11111111111111111111111111111111111111112";
         // USDC mint address
         let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-        
-        let result = client.get_quote(
-            sol_mint,
-            usdc_mint,
-            1_000_000_000, // 1 SOL
-            50, // 0.5% de slippage
-        ).await;
-        
+
+        let result = client
+            .get_quote(
+                sol_mint,
+                usdc_mint,
+                1_000_000_000, // 1 SOL
+                50,            // 0.5% de slippage
+            )
+            .await;
+
         assert!(result.is_ok());
     }
 }

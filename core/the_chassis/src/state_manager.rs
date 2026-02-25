@@ -1,13 +1,13 @@
 //! # State Manager - Persistent Trading State
-//! 
+//!
 //! Sistema de persistencia para posiciones, configuración y historial de trades.
 //! Usa SQLite para garantizar que el bot nunca pierda información crítica.
 
-use anyhow::{Result, Context};
-use rusqlite::params;
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result};
 use chrono::Utc;
 use deadpool_sqlite::{Config, Pool, Runtime};
+use rusqlite::params;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 // ============================================================================
@@ -29,10 +29,10 @@ pub struct PositionState {
     pub trailing_activation_threshold: f64,
     pub trailing_highest_price: Option<f64>,
     pub trailing_current_sl: Option<f64>,
-    pub tp_percent: Option<f64>, // Take Profit Target %
+    pub tp_percent: Option<f64>,        // Take Profit Target %
     pub tp_amount_percent: Option<f64>, // % of stack to sell
     pub tp_triggered: bool,
-    pub tp2_percent: Option<f64>, // Moonbag TP Target %
+    pub tp2_percent: Option<f64>,        // Moonbag TP Target %
     pub tp2_amount_percent: Option<f64>, // % of stack to sell for TP2
     pub tp2_triggered: bool,
     pub active: bool,
@@ -78,7 +78,8 @@ impl StateManager {
     /// Inicializa el State Manager y crea las tablas si no existen
     pub async fn new(db_path: &str) -> Result<Self> {
         let cfg = Config::new(db_path);
-        let pool = cfg.create_pool(Runtime::Tokio1)
+        let pool = cfg
+            .create_pool(Runtime::Tokio1)
             .context("Failed to create SQLite connection pool")?;
 
         let manager = Self {
@@ -86,9 +87,13 @@ impl StateManager {
         };
 
         // Enable WAL mode
-        manager.pool.get().await?.interact(|conn| {
-            conn.execute_batch("PRAGMA journal_mode=WAL;")
-        }).await.map_err(|e| anyhow::anyhow!("tokio join error: {}", e))??;
+        manager
+            .pool
+            .get()
+            .await?
+            .interact(|conn| conn.execute_batch("PRAGMA journal_mode=WAL;"))
+            .await
+            .map_err(|e| anyhow::anyhow!("tokio join error: {}", e))??;
 
         manager.initialize_schema().await?;
         manager.run_migrations().await?;
@@ -101,7 +106,7 @@ impl StateManager {
     /// Crea las tablas necesarias
     async fn initialize_schema(&self) -> Result<()> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(|conn| -> Result<()> {
             // Tabla de posiciones activas
             conn.execute(
@@ -130,7 +135,7 @@ impl StateManager {
                 )",
                 [],
             )?;
-            
+
             // Tabla de historial de trades
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS trades (
@@ -150,7 +155,7 @@ impl StateManager {
                 )",
                 [],
             )?;
-            
+
             // Tabla de snapshots de configuración
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS config_snapshots (
@@ -160,23 +165,23 @@ impl StateManager {
                 )",
                 [],
             )?;
-            
+
             // Índices para búsquedas rápidas
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_positions_active ON positions(active)",
                 [],
             )?;
-            
+
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC)",
                 [],
             )?;
-            
+
             Ok(())
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
 
@@ -188,11 +193,23 @@ impl StateManager {
             // Migration: Add TP columns if they don't exist
             // Note: SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we catch errors
             let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_percent REAL", []);
-            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_amount_percent REAL", []);
-            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp_triggered INTEGER DEFAULT 0", []);
+            let _ = conn.execute(
+                "ALTER TABLE positions ADD COLUMN tp_amount_percent REAL",
+                [],
+            );
+            let _ = conn.execute(
+                "ALTER TABLE positions ADD COLUMN tp_triggered INTEGER DEFAULT 0",
+                [],
+            );
             let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_percent REAL", []);
-            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_amount_percent REAL", []);
-            let _ = conn.execute("ALTER TABLE positions ADD COLUMN tp2_triggered INTEGER DEFAULT 0", []);
+            let _ = conn.execute(
+                "ALTER TABLE positions ADD COLUMN tp2_amount_percent REAL",
+                [],
+            );
+            let _ = conn.execute(
+                "ALTER TABLE positions ADD COLUMN tp2_triggered INTEGER DEFAULT 0",
+                [],
+            );
 
             Ok(())
         })
@@ -201,17 +218,17 @@ impl StateManager {
 
         Ok(())
     }
-    
+
     // ========================================================================
     // POSITION OPERATIONS
     // ========================================================================
-    
+
     /// Guarda o actualiza una posición
     pub async fn upsert_position(&self, position: PositionState) -> Result<()> {
         let conn = self.pool.get().await?;
-        
+
         let now = Utc::now().timestamp();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "INSERT INTO positions (
@@ -264,14 +281,14 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     /// Obtiene todas las posiciones activas
     pub async fn get_active_positions(&self) -> Result<Vec<PositionState>> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(|conn| -> Result<Vec<PositionState>> {
             let mut stmt = conn.prepare(
                 "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
@@ -282,47 +299,48 @@ impl StateManager {
                         active, created_at, updated_at
                  FROM positions
                  WHERE active = 1
-                 ORDER BY created_at DESC"
+                 ORDER BY created_at DESC",
             )?;
-            
-            let positions = stmt.query_map([], |row| {
-                Ok(PositionState {
-                    id: Some(row.get(0)?),
-                    token_mint: row.get(1)?,
-                    symbol: row.get(2)?,
-                    entry_price: row.get(3)?,
-                    amount_sol: row.get(4)?,
-                    current_price: row.get(5)?,
-                    stop_loss_percent: row.get(6)?,
-                    trailing_enabled: row.get::<_, i32>(7)? != 0,
-                    trailing_distance_percent: row.get(8)?,
-                    trailing_activation_threshold: row.get(9)?,
-                    trailing_highest_price: row.get(10)?,
-                    trailing_current_sl: row.get(11)?,
-                    tp_percent: row.get(12).ok(),
-                    tp_amount_percent: row.get(13).ok(),
-                    tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                    tp2_percent: row.get(15).ok(),
-                    tp2_amount_percent: row.get(16).ok(),
-                    tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
-                    active: row.get::<_, i32>(18)? != 0,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-            
+
+            let positions = stmt
+                .query_map([], |row| {
+                    Ok(PositionState {
+                        id: Some(row.get(0)?),
+                        token_mint: row.get(1)?,
+                        symbol: row.get(2)?,
+                        entry_price: row.get(3)?,
+                        amount_sol: row.get(4)?,
+                        current_price: row.get(5)?,
+                        stop_loss_percent: row.get(6)?,
+                        trailing_enabled: row.get::<_, i32>(7)? != 0,
+                        trailing_distance_percent: row.get(8)?,
+                        trailing_activation_threshold: row.get(9)?,
+                        trailing_highest_price: row.get(10)?,
+                        trailing_current_sl: row.get(11)?,
+                        tp_percent: row.get(12).ok(),
+                        tp_amount_percent: row.get(13).ok(),
+                        tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                        tp2_percent: row.get(15).ok(),
+                        tp2_amount_percent: row.get(16).ok(),
+                        tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                        active: row.get::<_, i32>(18)? != 0,
+                        created_at: row.get(19)?,
+                        updated_at: row.get(20)?,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
             Ok(positions)
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
-    
+
     /// Obtiene una posición específica por mint
     pub async fn get_position(&self, token_mint: &str) -> Result<Option<PositionState>> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<Option<PositionState>> {
             let mut stmt = conn.prepare(
                 "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
@@ -332,11 +350,11 @@ impl StateManager {
                         tp2_percent, tp2_amount_percent, tp2_triggered,
                         active, created_at, updated_at
                  FROM positions
-                 WHERE token_mint = ?1"
+                 WHERE token_mint = ?1",
             )?;
-            
+
             let mut rows = stmt.query(params![tm])?;
-            
+
             if let Some(row) = rows.next()? {
                 Ok(Some(PositionState {
                     id: Some(row.get(0)?),
@@ -368,12 +386,12 @@ impl StateManager {
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
-    
+
     /// Marca el TP como disparado
     pub async fn mark_tp_triggered(&self, token_mint: &str) -> Result<()> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
@@ -383,7 +401,7 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
 
@@ -391,7 +409,7 @@ impl StateManager {
     pub async fn mark_tp2_triggered(&self, token_mint: &str) -> Result<()> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
@@ -401,15 +419,19 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
 
     /// Actualiza el monto invertido (útil para TP parciales)
-    pub async fn update_amount_invested(&self, token_mint: &str, new_amount_sol: f64) -> Result<()> {
+    pub async fn update_amount_invested(
+        &self,
+        token_mint: &str,
+        new_amount_sol: f64,
+    ) -> Result<()> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3",
@@ -419,15 +441,15 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     /// Marca una posición como inactiva (cerrada)
     pub async fn close_position(&self, token_mint: &str) -> Result<()> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2",
@@ -437,15 +459,15 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     /// Actualiza el precio actual de una posición
     pub async fn update_position_price(&self, token_mint: &str, current_price: f64) -> Result<()> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3",
@@ -455,10 +477,10 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     /// Actualiza el estado del Trailing Stop Loss
     pub async fn update_trailing_sl(
         &self,
@@ -468,7 +490,7 @@ impl StateManager {
     ) -> Result<()> {
         let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "UPDATE positions 
@@ -482,18 +504,18 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     // ========================================================================
     // TRADE HISTORY OPERATIONS
     // ========================================================================
-    
+
     /// Registra un trade ejecutado
     pub async fn record_trade(&self, trade: TradeRecord) -> Result<()> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "INSERT INTO trades (
@@ -520,14 +542,14 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     /// Obtiene el historial de trades (últimos N)
     pub async fn get_trade_history(&self, limit: usize) -> Result<Vec<TradeRecord>> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(move |conn| -> Result<Vec<TradeRecord>> {
             let mut stmt = conn.prepare(
                 "SELECT id, signature, token_mint, symbol, trade_type, amount_sol,
@@ -535,64 +557,64 @@ impl StateManager {
                         price_impact_pct, timestamp
                  FROM trades
                  ORDER BY timestamp DESC
-                 LIMIT ?1"
+                 LIMIT ?1",
             )?;
-            
-            let trades = stmt.query_map(params![limit], |row| {
-                Ok(TradeRecord {
-                    id: Some(row.get(0)?),
-                    signature: row.get(1)?,
-                    token_mint: row.get(2)?,
-                    symbol: row.get(3)?,
-                    trade_type: row.get(4)?,
-                    amount_sol: row.get(5)?,
-                    tokens_amount: row.get(6)?,
-                    price: row.get(7)?,
-                    pnl_sol: row.get(8)?,
-                    pnl_percent: row.get(9)?,
-                    route: row.get(10)?,
-                    price_impact_pct: row.get(11)?,
-                    timestamp: row.get(12)?,
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-            
+
+            let trades = stmt
+                .query_map(params![limit], |row| {
+                    Ok(TradeRecord {
+                        id: Some(row.get(0)?),
+                        signature: row.get(1)?,
+                        token_mint: row.get(2)?,
+                        symbol: row.get(3)?,
+                        trade_type: row.get(4)?,
+                        amount_sol: row.get(5)?,
+                        tokens_amount: row.get(6)?,
+                        price: row.get(7)?,
+                        pnl_sol: row.get(8)?,
+                        pnl_percent: row.get(9)?,
+                        route: row.get(10)?,
+                        price_impact_pct: row.get(11)?,
+                        timestamp: row.get(12)?,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
             Ok(trades)
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
-    
+
     /// Calcula PnL total de todos los trades
     pub async fn calculate_total_pnl(&self) -> Result<(f64, f64)> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(|conn| -> Result<(f64, f64)> {
             let mut stmt = conn.prepare(
                 "SELECT COALESCE(SUM(pnl_sol), 0.0), COUNT(*) 
                  FROM trades 
-                 WHERE pnl_sol IS NOT NULL"
+                 WHERE pnl_sol IS NOT NULL",
             )?;
-            
-            let (total_pnl, count): (f64, i64) = stmt.query_row([], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?;
-            
+
+            let (total_pnl, count): (f64, i64) =
+                stmt.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
             Ok((total_pnl, count as f64))
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
-    
+
     // ========================================================================
     // CONFIG SNAPSHOT OPERATIONS
     // ========================================================================
-    
+
     /// Guarda un snapshot de la configuración actual
     pub async fn save_config_snapshot(&self, config_json: &str) -> Result<()> {
         let conn = self.pool.get().await?;
         let cj = config_json.to_string();
-        
+
         conn.interact(move |conn| -> Result<()> {
             conn.execute(
                 "INSERT INTO config_snapshots (config_json, timestamp) VALUES (?1, ?2)",
@@ -602,24 +624,24 @@ impl StateManager {
         })
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
-        
+
         Ok(())
     }
-    
+
     /// Obtiene el último snapshot de configuración
     pub async fn get_latest_config_snapshot(&self) -> Result<Option<ConfigSnapshot>> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(|conn| -> Result<Option<ConfigSnapshot>> {
             let mut stmt = conn.prepare(
                 "SELECT id, config_json, timestamp 
                  FROM config_snapshots 
                  ORDER BY timestamp DESC 
-                 LIMIT 1"
+                 LIMIT 1",
             )?;
-            
+
             let mut rows = stmt.query([])?;
-            
+
             if let Some(row) = rows.next()? {
                 Ok(Some(ConfigSnapshot {
                     id: Some(row.get(0)?),
@@ -633,33 +655,30 @@ impl StateManager {
         .await
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
-    
+
     // ========================================================================
     // UTILITY OPERATIONS
     // ========================================================================
-    
+
     /// Obtiene estadísticas del estado actual
     pub async fn get_stats(&self) -> Result<StateStats> {
         let conn = self.pool.get().await?;
-        
+
         conn.interact(|conn| -> Result<StateStats> {
             let active_positions: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM positions WHERE active = 1",
                 [],
                 |row| row.get(0),
             )?;
-            
-            let total_trades: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM trades",
-                [],
-                |row| row.get(0),
-            )?;
+
+            let total_trades: i64 =
+                conn.query_row("SELECT COUNT(*) FROM trades", [], |row| row.get(0))?;
 
             let mut stmt = conn.prepare(
-                "SELECT COALESCE(SUM(pnl_sol), 0.0) FROM trades WHERE pnl_sol IS NOT NULL"
+                "SELECT COALESCE(SUM(pnl_sol), 0.0) FROM trades WHERE pnl_sol IS NOT NULL",
             )?;
             let total_pnl: f64 = stmt.query_row([], |row| row.get(0))?;
-            
+
             Ok(StateStats {
                 active_positions: active_positions as usize,
                 total_trades: total_trades as usize,
@@ -686,7 +705,7 @@ pub struct StateStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_state_manager_creation() {
         // Use an empty path or memory
@@ -698,12 +717,12 @@ mod tests {
         assert_eq!(stats.active_positions, 0);
         assert_eq!(stats.total_trades, 0);
     }
-    
+
     #[tokio::test]
     async fn test_position_lifecycle() {
         let db_path = "file:test_lifecycle?mode=memory&cache=shared";
         let manager = StateManager::new(db_path).await.unwrap();
-        
+
         let position = PositionState {
             id: None,
             token_mint: "TEST_MINT".to_string(),
@@ -727,15 +746,15 @@ mod tests {
             created_at: Utc::now().timestamp(),
             updated_at: Utc::now().timestamp(),
         };
-        
+
         manager.upsert_position(position).await.unwrap();
-        
+
         let retrieved = manager.get_position("TEST_MINT").await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().symbol, "TEST");
-        
+
         manager.close_position("TEST_MINT").await.unwrap();
-        
+
         let stats = manager.get_stats().await.unwrap();
         assert_eq!(stats.active_positions, 0);
     }

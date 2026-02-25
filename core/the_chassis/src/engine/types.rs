@@ -1,9 +1,9 @@
 //! # Tipos y Contratos del Engine
-//! 
+//!
 //! Define el lenguaje común que usan los sensores y los filtros para comunicarse.
 //! Este archivo es el "Manual de Protocolo" del sistema.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Etapa de madurez de un Token (Lifecycle)
@@ -83,7 +83,7 @@ pub struct TokenContext {
     pub liquidity_usd: f64,
     pub volume_5m: f64,
     pub price_usd: f64,
-    pub momentum_slope: f64,     // Calculado por MomentumSensor
+    pub momentum_slope: f64,       // Calculado por MomentumSensor
     pub unique_wallets_ratio: f64, // Calculado por WashTradingSensor
     pub top_10_holders_pct: f64,
     pub dev_wallet_pct: f64,

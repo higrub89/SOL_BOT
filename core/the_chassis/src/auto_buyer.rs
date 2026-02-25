@@ -16,18 +16,18 @@
 //!   [TradeExecutor]    → Jupiter / Raydium → On-Chain Trade
 //! ```
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use solana_sdk::signature::Keypair;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use std::collections::VecDeque;
 
 use crate::engine::{DecisionEngine, TokenContext};
-use crate::executor_v2::{TradeExecutor, ExecutorConfig};
-use crate::sensors::helius::HeliusSensor;
-use crate::sensors::dexscreener::DexScreenerSensor;
+use crate::executor_v2::{ExecutorConfig, TradeExecutor};
 use crate::price_feed::PriceCache;
+use crate::sensors::dexscreener::DexScreenerSensor;
+use crate::sensors::helius::HeliusSensor;
 
 /// Historial de precios para cálculo de momentum real
 /// (Guardamos los últimos N precios con timestamp)
@@ -87,8 +87,8 @@ impl AutoBuyer {
     pub fn new_with_cache(rpc_url: String, price_cache: Option<PriceCache>) -> Result<Self> {
         let config = ExecutorConfig {
             rpc_url: rpc_url.clone(),
-            slippage_bps: 200,       // 2% default base
-            priority_fee: 100_000,   // 0.0001 SOL base
+            slippage_bps: 200,     // 2% default base
+            priority_fee: 100_000, // 0.0001 SOL base
             dry_run: false,
         };
 
@@ -118,7 +118,10 @@ impl AutoBuyer {
             .or_insert_with(|| Arc::new(RwLock::new(VecDeque::new())));
 
         let mut buf = buffer.write().await;
-        buf.push_back(PriceTick { price, timestamp: Instant::now() });
+        buf.push_back(PriceTick {
+            price,
+            timestamp: Instant::now(),
+        });
 
         // Mantener solo los últimos 5 minutos de ticks
         let cutoff = Instant::now() - Duration::from_secs(300);
@@ -183,26 +186,30 @@ impl AutoBuyer {
     }
 
     /// Ejecuta el proceso completo de compra inteligente
-    pub async fn buy(
-        &self,
-        config: &AutoBuyConfig,
-        wallet: &Keypair,
-    ) -> Result<BuyResult> {
+    pub async fn buy(&self, config: &AutoBuyConfig, wallet: &Keypair) -> Result<BuyResult> {
         println!("🤖 AUTO-BUYER v2.0: Analizando {}...", config.token_mint);
 
         // 1. Construir Contexto con datos REALES
         let ctx = self.build_context_real(config).await?;
 
         println!("📊 CONTEXTO REAL:");
-        println!("   🔒 Authorities: mint={}, freeze={}",
+        println!(
+            "   🔒 Authorities: mint={}, freeze={}",
             ctx.mint_authority.as_deref().unwrap_or("✅ revocada"),
-            ctx.freeze_authority.as_deref().unwrap_or("✅ revocada"));
-        println!("   👥 Top10 Holders: {:.1}% | Dev: {:.1}%",
-            ctx.top_10_holders_pct, ctx.dev_wallet_pct);
-        println!("   📈 Momentum: {:.2}%/min | Wallets Ratio: {:.2}",
-            ctx.momentum_slope, ctx.unique_wallets_ratio);
-        println!("   ⏱️  Edad: {} min | Liq: ${:.0} | Vol5m: ${:.0}",
-            ctx.age_minutes, ctx.liquidity_usd, ctx.volume_5m);
+            ctx.freeze_authority.as_deref().unwrap_or("✅ revocada")
+        );
+        println!(
+            "   👥 Top10 Holders: {:.1}% | Dev: {:.1}%",
+            ctx.top_10_holders_pct, ctx.dev_wallet_pct
+        );
+        println!(
+            "   📈 Momentum: {:.2}%/min | Wallets Ratio: {:.2}",
+            ctx.momentum_slope, ctx.unique_wallets_ratio
+        );
+        println!(
+            "   ⏱️  Edad: {} min | Liq: ${:.0} | Vol5m: ${:.0}",
+            ctx.age_minutes, ctx.liquidity_usd, ctx.volume_5m
+        );
 
         // 2. Evaluar Decision Engine (Filtros + Actuadores)
         let exec_params = match self.engine.evaluate(&ctx) {
@@ -213,26 +220,33 @@ impl AutoBuyer {
             }
         };
 
-        println!("✅ AUTO-BUY APROBADO | Stage: {:?} | Tip: {} lamports | Slippage: {} bps",
-            exec_params.maturity_stage,
-            exec_params.priority_fee_lamports,
-            exec_params.slippage_bps);
+        println!(
+            "✅ AUTO-BUY APROBADO | Stage: {:?} | Tip: {} lamports | Slippage: {} bps",
+            exec_params.maturity_stage, exec_params.priority_fee_lamports, exec_params.slippage_bps
+        );
 
         // 3. Ejecución con parámetros optimizados del Engine
-        let swap_result = self.executor.execute_buy_with_custom_params(
-            &config.token_mint,
-            Some(wallet),
-            config.amount_sol,
-            exec_params.priority_fee_lamports,
-            exec_params.slippage_bps,
-        ).await?;
+        let swap_result = self
+            .executor
+            .execute_buy_with_custom_params(
+                &config.token_mint,
+                Some(wallet),
+                config.amount_sol,
+                exec_params.priority_fee_lamports,
+                exec_params.slippage_bps,
+            )
+            .await?;
 
         Ok(BuyResult {
             signature: swap_result.signature,
             token_mint: config.token_mint.clone(),
             amount_sol: swap_result.input_amount,
             tokens_received: swap_result.output_amount,
-            effective_price: if swap_result.output_amount > 0.0 { swap_result.input_amount / swap_result.output_amount } else { 0.0 },
+            effective_price: if swap_result.output_amount > 0.0 {
+                swap_result.input_amount / swap_result.output_amount
+            } else {
+                0.0
+            },
             route: "Jupiter (Optimized by DecisionEngine)".to_string(),
         })
     }
@@ -247,7 +261,14 @@ impl AutoBuyer {
         let helius_future = if config.fast_mode {
             // Para HFT: análisis rápido (solo mint info + heurísticas)
             let f = self.helius_sensor.analyze_token_fast(mint);
-            Box::pin(f) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<crate::sensors::helius::OnChainAnalysis>> + Send>>
+            Box::pin(f)
+                as std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<
+                                Output = Result<crate::sensors::helius::OnChainAnalysis>,
+                            > + Send,
+                    >,
+                >
         } else {
             // Para decisiones pausadas: análisis completo
             let f = self.helius_sensor.analyze_token_full(mint);
@@ -264,14 +285,19 @@ impl AutoBuyer {
         let helius_data = helius_result?;
         let market_data = dex_result?;
 
-        println!("   ⚡ On-Chain: Auth_mint={:?} | Auth_freeze={:?} | Edad={}min | Top10={:.1}%",
+        println!(
+            "   ⚡ On-Chain: Auth_mint={:?} | Auth_freeze={:?} | Edad={}min | Top10={:.1}%",
             helius_data.security.mint_authority,
             helius_data.security.freeze_authority,
             helius_data.estimated_age_minutes,
-            helius_data.top_10_holders_pct);
-        println!("   📈 Market:   ${:.6} | Liq=${:.0} | Vol5m=${:.0}",
-            market_data.price_usd, market_data.liquidity_usd, market_data.volume_5m);
-        println!("   📊 Momentum: {:.2}%/min (desde {} ticks de precio)",
+            helius_data.top_10_holders_pct
+        );
+        println!(
+            "   📈 Market:   ${:.6} | Liq=${:.0} | Vol5m=${:.0}",
+            market_data.price_usd, market_data.liquidity_usd, market_data.volume_5m
+        );
+        println!(
+            "   📊 Momentum: {:.2}%/min (desde {} ticks de precio)",
             momentum_slope,
             {
                 let h = self.momentum_history.read().await;
@@ -282,11 +308,15 @@ impl AutoBuyer {
                         b.try_read().map(|buf| buf.len()).unwrap_or(0)
                     })
                     .unwrap_or(0)
-            });
+            }
+        );
 
         Ok(TokenContext {
             mint: mint.to_string(),
-            symbol: config.symbol.clone().unwrap_or_else(|| "UNKNOWN".to_string()),
+            symbol: config
+                .symbol
+                .clone()
+                .unwrap_or_else(|| "UNKNOWN".to_string()),
             // ✅ REAL: Edad calculada desde primeras transacciones del mint
             age_minutes: helius_data.estimated_age_minutes,
             liquidity_usd: market_data.liquidity_usd,

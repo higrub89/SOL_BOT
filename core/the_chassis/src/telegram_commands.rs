@@ -1,17 +1,20 @@
 //! # Telegram Commands Handler
-//! 
+//!
 //! Sistema de comandos interactivos para controlar The Chassis desde Telegram
 //! Incluye Health Check (/ping) y modo hibernación.
 
-use anyhow::Result;
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
-use std::time::Instant;
-use crate::emergency::EmergencyMonitor;
-use crate::wallet::{WalletMonitor, load_keypair_from_env};
 use crate::config::AppConfig;
+use crate::emergency::EmergencyMonitor;
 use crate::executor_v2::TradeExecutor;
 use crate::state_manager::StateManager;
+use crate::wallet::{load_keypair_from_env, WalletMonitor};
+use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::time::Instant;
 
 /// Flag global de hibernación — cuando true, el bot no ejecuta trades
 pub static HIBERNATION_MODE: AtomicBool = AtomicBool::new(false);
@@ -33,9 +36,9 @@ impl CommandHandler {
     pub fn new() -> Self {
         let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
         let chat_id = std::env::var("TELEGRAM_CHAT_ID").unwrap_or_default();
-        
+
         let enabled = !bot_token.is_empty() && !chat_id.is_empty();
-        
+
         Self {
             bot_token,
             chat_id,
@@ -70,9 +73,9 @@ impl CommandHandler {
         // Test de Conexión Inicial (GetMe) para verificar token
         let token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
         if !token.is_empty() {
-             println!("📝 Token detectado: {}...", &token[..5]);
-             // Podríamos hacer un reqwest::get("getMe") aquí para validar, 
-             // pero el loop de abajo fallará rápido si no hay conexión.
+            println!("📝 Token detectado: {}...", &token[..5]);
+            // Podríamos hacer un reqwest::get("getMe") aquí para validar,
+            // pero el loop de abajo fallará rápido si no hay conexión.
         }
 
         let mut next_offset: i64 = 0;
@@ -100,7 +103,8 @@ impl CommandHandler {
                                     }
                                 }
                             }
-                            if let Some(data) = callback_query.get("data").and_then(|d| d.as_str()) {
+                            if let Some(data) = callback_query.get("data").and_then(|d| d.as_str())
+                            {
                                 data_to_process = Some(data.to_string());
                             }
                             if let Some(id) = callback_query.get("id").and_then(|i| i.as_str()) {
@@ -120,7 +124,10 @@ impl CommandHandler {
                         // Whitelist check: discard updates from unauthorized users
                         if let Some(req_chat_id) = sender_chat_id {
                             if req_chat_id != self.chat_id {
-                                println!("⚠️ Acceso denegado: chat_id no autorizado ({})", req_chat_id);
+                                println!(
+                                    "⚠️ Acceso denegado: chat_id no autorizado ({})",
+                                    req_chat_id
+                                );
                                 continue;
                             }
                         }
@@ -133,15 +140,18 @@ impl CommandHandler {
                                 println!("📩 CMD RECIBIDO: {}", command);
                             }
 
-                            if self.handle_command(
-                                &command,
-                                Arc::clone(&emergency_monitor),
-                                Arc::clone(&wallet_monitor),
-                                Arc::clone(&executor),
-                                Arc::clone(&config),
-                                Arc::clone(&state_manager),
-                                feed_tx.clone(),
-                            ).await? {
+                            if self
+                                .handle_command(
+                                    &command,
+                                    Arc::clone(&emergency_monitor),
+                                    Arc::clone(&wallet_monitor),
+                                    Arc::clone(&executor),
+                                    Arc::clone(&config),
+                                    Arc::clone(&state_manager),
+                                    feed_tx.clone(),
+                                )
+                                .await?
+                            {
                                 should_reboot = true;
                             }
                         }
@@ -258,7 +268,8 @@ impl CommandHandler {
             }
 
             "/targets" => {
-                self.cmd_targets(Arc::clone(&config), Arc::clone(&state_manager)).await?;
+                self.cmd_targets(Arc::clone(&config), Arc::clone(&state_manager))
+                    .await?;
             }
 
             "/positions" => {
@@ -275,23 +286,30 @@ impl CommandHandler {
 
             "/hibernate" => {
                 HIBERNATION_MODE.store(true, Ordering::Relaxed);
-                self.send_message("<b>🛑 SYSTEM HALTED: HIBERNATION</b>\n\
+                self.send_message(
+                    "<b>🛑 SYSTEM HALTED: HIBERNATION</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                     Execution engine suspended.\n\
                     Monitoring continues passively.\n\n\
-                    <i>Use /wake to resume operations.</i>").await?;
+                    <i>Use /wake to resume operations.</i>",
+                )
+                .await?;
             }
 
             "/wake" => {
                 HIBERNATION_MODE.store(false, Ordering::Relaxed);
-                self.send_message("<b>🟢 SYSTEM ONLINE: ENGAGED</b>\n\
+                self.send_message(
+                    "<b>🟢 SYSTEM ONLINE: ENGAGED</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                     Execution engine resumed.\n\
-                    All safety protocols active.").await?;
+                    All safety protocols active.",
+                )
+                .await?;
             }
 
             "/help" => {
-                self.send_message("<b>📚 PROTOCOL MANUAL</b>\n\
+                self.send_message(
+                    "<b>📚 PROTOCOL MANUAL</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
                     <b>⬢ SYSTEM</b>\n\
                     ⬡ /ping - Health Check\n\
@@ -313,7 +331,9 @@ impl CommandHandler {
                     <b>⬢ ENGINE</b>\n\
                     ⬡ /hibernate - Halt Ops\n\
                     ⬡ /wake - Active Mode\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
+                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
+                )
+                .await?;
             }
 
             cmd if cmd.starts_with("/buy ") => {
@@ -337,16 +357,19 @@ impl CommandHandler {
             }
 
             "/reboot" => {
-                self.send_message("<b>🔄 SYSTEM REBOOT INITIATED</b>\nRestarting process...").await?;
+                self.send_message("<b>🔄 SYSTEM REBOOT INITIATED</b>\nRestarting process...")
+                    .await?;
                 is_reboot = true;
             }
 
             cmd if cmd.starts_with("/panic ") => {
-                self.cmd_panic(cmd, Arc::clone(&executor)).await?;
+                self.cmd_panic(cmd, Arc::clone(&executor), Arc::clone(&state_manager))
+                    .await?;
             }
 
             "/panic_all" => {
-                self.cmd_panic_all(Arc::clone(&executor), Arc::clone(&state_manager)).await?;
+                self.cmd_panic_all(Arc::clone(&executor), Arc::clone(&state_manager))
+                    .await?;
             }
 
             _ => {
@@ -372,7 +395,13 @@ impl CommandHandler {
             match client.get_slot() {
                 Ok(slot) => {
                     let latency = start.elapsed().as_millis();
-                    let quality = if latency < 200 { "🟢" } else if latency < 500 { "🟡" } else { "🔴" };
+                    let quality = if latency < 200 {
+                        "🟢"
+                    } else if latency < 500 {
+                        "🟡"
+                    } else {
+                        "🔴"
+                    };
                     format!("{} Helius RPC: {}ms (Slot: {})", quality, latency, slot)
                 }
                 Err(e) => format!("🔴 Helius RPC: ERROR ({})", e),
@@ -384,7 +413,13 @@ impl CommandHandler {
         // Check Wallet
         let wallet_status = match wallet_monitor.get_sol_balance() {
             Ok(balance) => {
-                let emoji = if balance > 0.05 { "🟢" } else if balance > 0.02 { "🟡" } else { "🔴" };
+                let emoji = if balance > 0.05 {
+                    "🟢"
+                } else if balance > 0.02 {
+                    "🟡"
+                } else {
+                    "🔴"
+                };
                 format!("{} Wallet: {:.4} SOL", emoji, balance)
             }
             Err(e) => format!("🔴 Wallet: ERROR ({})", e),
@@ -407,41 +442,59 @@ impl CommandHandler {
             <b>⋄ Engine:</b> <code>v2.0.0-institutional</code>\n\
             <b>⋄ Marker:</b> <code>DIAG_CODE: b08ad</code>\n\n\
             <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
-            hours, minutes, secs,
-            rpc_status,
-            wallet_status,
-            hibernate_status
+            hours, minutes, secs, rpc_status, wallet_status, hibernate_status
         );
 
         self.send_message(&response).await?;
         Ok(())
     }
 
-    async fn cmd_rbuy(&self, command: &str, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>, feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>) -> Result<()> {
+    async fn cmd_rbuy(
+        &self,
+        command: &str,
+        executor: Arc<TradeExecutor>,
+        state_manager: Arc<StateManager>,
+        feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
+    ) -> Result<()> {
         if Self::is_hibernating() {
-            self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
+            self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.")
+                .await?;
             return Ok(());
         }
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.len() < 3 {
-            self.send_message("❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>").await?;
+            self.send_message(
+                "❌ <b>Syntax:</b> <code>/rbuy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>",
+            )
+            .await?;
         } else {
             let mint = parts[1];
             let amount: f64 = parts[2].parse().unwrap_or(0.0);
-            let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(9999) } else { 9999 };
-            
+            let slippage: u16 = if parts.len() > 3 {
+                parts[3].parse().unwrap_or(9999)
+            } else {
+                9999
+            };
+
             // ✅ CRITICAL: Validar mint antes de ejecutar
             match crate::validation::FinancialValidator::validate_mint(mint, "/rbuy command") {
                 Ok(valid_mint) => {
-                    let slippage_text = if slippage >= 9000 { "INFINITE".to_string() } else { format!("{}%", slippage as f64 / 100.0) };
+                    let slippage_text = if slippage >= 9000 {
+                        "INFINITE".to_string()
+                    } else {
+                        format!("{}%", slippage as f64 / 100.0)
+                    };
                     self.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}</code>\n<i>Bypassing all guards...</i>", valid_mint, amount, slippage_text)).await?;
-                    
+
                     let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
                     // Para Raydium, si el slippage es < 9000, calculamos min_out (TODO), por ahora el executor raydium usa 1
-                    match executor.execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount).await {
+                    match executor
+                        .execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount)
+                        .await
+                    {
                         Ok(res) => {
                             self.send_message(&format!("<b>✅ DEGEN SUCCESS</b>\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
-                            
+
                             // ARM MONITORING
                             let pos = crate::state_manager::PositionState {
                                 id: None,
@@ -467,82 +520,139 @@ impl CommandHandler {
                                 updated_at: chrono::Utc::now().timestamp(),
                             };
                             if let Err(e) = state_manager.upsert_position(pos).await {
-                                    self.send_message(&format!("⚠️ DB Error: {}", e)).await?;
-                            } else {
-                                // 🔥 SUSCRIPCIÓN DINÁMICA
-                                let _ = feed_tx.send(crate::price_feed::FeedCommand::Subscribe(crate::price_feed::MonitoredToken {
-                                    mint: valid_mint.to_string(),
+                                self.send_message(&format!("⚠️ DB Error: {}", e)).await?;
+                                // REGISTRAR TRADE
+                                let trade = crate::state_manager::TradeRecord {
+                                    id: None,
+                                    signature: res.signature.clone(),
+                                    token_mint: valid_mint.to_string(),
                                     symbol: "DEGEN".to_string(),
-                                    pool_account: None,
-                                    coin_vault: None,
-                                    pc_vault: None,
-                                    token_decimals: 6,
-                                })).await;
-                                
+                                    trade_type: "MANUAL_BUY".to_string(),
+                                    amount_sol: res.sol_spent,
+                                    tokens_amount: res.tokens_received,
+                                    price: res.price_per_token,
+                                    pnl_sol: None,
+                                    pnl_percent: None,
+                                    route: "Telegram Direct Raydium".to_string(),
+                                    price_impact_pct: res.price_impact_pct,
+                                    timestamp: chrono::Utc::now().timestamp(),
+                                };
+                                let _ = state_manager.record_trade(trade).await;
+
+                                // 🔥 SUSCRIPCIÓN DINÁMICA
+                                let _ = feed_tx
+                                    .send(crate::price_feed::FeedCommand::Subscribe(
+                                        crate::price_feed::MonitoredToken {
+                                            mint: valid_mint.to_string(),
+                                            symbol: "DEGEN".to_string(),
+                                            pool_account: None,
+                                            coin_vault: None,
+                                            pc_vault: None,
+                                            token_decimals: 6,
+                                        },
+                                    ))
+                                    .await;
+
                                 self.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger (Dynamic subscription active).").await?;
                             }
-                        },
+                        }
                         Err(e) => {
-                            self.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e)).await?;
+                            self.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e))
+                                .await?;
                         }
                     }
-                },
+                }
                 Err(e) => {
-                    self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
+                    self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e))
+                        .await?;
                 }
             }
         }
         Ok(())
     }
 
-    async fn cmd_buy(&self, command: &str, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>, feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>) -> Result<()> {
+    async fn cmd_buy(
+        &self,
+        command: &str,
+        executor: Arc<TradeExecutor>,
+        state_manager: Arc<StateManager>,
+        feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
+    ) -> Result<()> {
         if Self::is_hibernating() {
-            self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.").await?;
+            self.send_message("🛑 Bot en HIBERNACIÓN. Usa `/wake` primero.")
+                .await?;
             return Ok(());
         }
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.len() < 3 {
-             self.send_message("❌ <b>Syntax:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>").await?;
-             return Ok(());
+            self.send_message(
+                "❌ <b>Syntax:</b> <code>/buy &lt;MINT&gt; &lt;SOL&gt; [SLIPPAGE_BPS]</code>",
+            )
+            .await?;
+            return Ok(());
         }
         let mint = parts[1];
         let amount: f64 = parts[2].parse().unwrap_or(0.0);
-        let slippage: u16 = if parts.len() > 3 { parts[3].parse().unwrap_or(100) } else { 100 };
+        let slippage: u16 = if parts.len() > 3 {
+            parts[3].parse().unwrap_or(100)
+        } else {
+            100
+        };
 
-        self.cmd_buy_with_params(mint, amount, slippage, executor, state_manager, feed_tx).await
+        self.cmd_buy_with_params(mint, amount, slippage, executor, state_manager, feed_tx)
+            .await
     }
 
     /// Comando /buy con parámetros personalizados
-    async fn cmd_buy_with_params(&self, mint: &str, amount: f64, slippage_bps: u16, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>, feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>) -> Result<()> {
+    async fn cmd_buy_with_params(
+        &self,
+        mint: &str,
+        amount: f64,
+        slippage_bps: u16,
+        executor: Arc<TradeExecutor>,
+        state_manager: Arc<StateManager>,
+        feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
+    ) -> Result<()> {
         // ✅ CRITICAL: Validar mint antes de ejecutar
-        let valid_mint = match crate::validation::FinancialValidator::validate_mint(mint, "/buy command") {
-            Ok(m) => m,
-            Err(e) => {
-                self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
-                return Ok(());
-            }
-        };
+        let valid_mint =
+            match crate::validation::FinancialValidator::validate_mint(mint, "/buy command") {
+                Ok(m) => m,
+                Err(e) => {
+                    self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e))
+                        .await?;
+                    return Ok(());
+                }
+            };
 
         self.send_message(&format!("<b>🛒 INITIATING BUY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}%</code>", valid_mint, amount, slippage_bps as f64 / 100.0)).await?;
 
         let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
-        
+
         // Ejecutar con parámetros custom
-        match executor.execute_buy_with_custom_params(&valid_mint, kp_opt.as_ref(), amount, 100_000, slippage_bps).await {
+        match executor
+            .execute_buy_with_custom_params(
+                &valid_mint,
+                kp_opt.as_ref(),
+                amount,
+                100_000,
+                slippage_bps,
+            )
+            .await
+        {
             Ok(res) => {
                 // REGISTRO OBLIGATORIO: Ignoramos la hibernación para el registro si la compra fue exitosa
                 if res.output_amount > 0.0 {
-                     let price = amount / res.output_amount;
-                     
-                     // Intentar obtener el símbolo real vía PriceScanner
-                     let scanner = crate::scanner::PriceScanner::new();
-                     let symbol = if let Ok(data) = scanner.get_token_price(&valid_mint).await {
-                         data.symbol
-                     } else {
-                         "TOKEN".to_string()
-                     };
+                    let price = amount / res.output_amount;
 
-                     let pos = crate::state_manager::PositionState {
+                    // Intentar obtener el símbolo real vía PriceScanner
+                    let scanner = crate::scanner::PriceScanner::new();
+                    let symbol = if let Ok(data) = scanner.get_token_price(&valid_mint).await {
+                        data.symbol
+                    } else {
+                        "TOKEN".to_string()
+                    };
+
+                    let pos = crate::state_manager::PositionState {
                         id: None,
                         token_mint: valid_mint.to_string(),
                         symbol: symbol.clone(),
@@ -565,19 +675,45 @@ impl CommandHandler {
                         created_at: chrono::Utc::now().timestamp(),
                         updated_at: chrono::Utc::now().timestamp(),
                     };
-                    
+
                     if let Err(e) = state_manager.upsert_position(pos).await {
-                        self.send_message(&format!("⚠️ <b>DB Error:</b> {}\nTx: {}", e, res.signature)).await?;
+                        self.send_message(&format!(
+                            "⚠️ <b>DB Error:</b> {}\nTx: {}",
+                            e, res.signature
+                        ))
+                        .await?;
                     } else {
-                        // 🔥 SUSCRIPCIÓN DINÁMICA
-                        let _ = feed_tx.send(crate::price_feed::FeedCommand::Subscribe(crate::price_feed::MonitoredToken {
-                            mint: valid_mint.to_string(),
+                        // REGISTRAR TRADE
+                        let trade = crate::state_manager::TradeRecord {
+                            id: None,
+                            signature: res.signature.clone(),
+                            token_mint: valid_mint.to_string(),
                             symbol: symbol.clone(),
-                            pool_account: None,
-                            coin_vault: None,
-                            pc_vault: None,
-                            token_decimals: 6,
-                        })).await;
+                            trade_type: "MANUAL_BUY".to_string(),
+                            amount_sol: amount,
+                            tokens_amount: res.output_amount,
+                            price: price,
+                            pnl_sol: None,
+                            pnl_percent: None,
+                            route: "Telegram Base".to_string(), // Or get the actual route
+                            price_impact_pct: res.price_impact_pct,
+                            timestamp: chrono::Utc::now().timestamp(),
+                        };
+                        let _ = state_manager.record_trade(trade).await;
+
+                        // 🔥 SUSCRIPCIÓN DINÁMICA
+                        let _ = feed_tx
+                            .send(crate::price_feed::FeedCommand::Subscribe(
+                                crate::price_feed::MonitoredToken {
+                                    mint: valid_mint.to_string(),
+                                    symbol: symbol.clone(),
+                                    pool_account: None,
+                                    coin_vault: None,
+                                    pc_vault: None,
+                                    token_decimals: 6,
+                                },
+                            ))
+                            .await;
 
                         self.send_message(&format!(
                             "<b>✅ BUY SUCCESS</b>\n\
@@ -589,19 +725,20 @@ impl CommandHandler {
                             <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                             <i>🛡️ MONITORING ARMED (Dynamic subscription active).</i>",
                             symbol, res.output_amount, price, res.signature
-                        )).await?;
+                        ))
+                        .await?;
                     }
                 } else {
                     self.send_message(&format!("<b>✅ BUY SUCCESS</b> (Wait for confirm)\nTx: <a href='https://solscan.io/tx/{}'>VIEW</a>", res.signature)).await?;
                 }
-            },
+            }
             Err(e) => {
-                self.send_message(&format!("❌ <b>BUY FAILURE:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>BUY FAILURE:</b> {}", e))
+                    .await?;
             }
         }
         Ok(())
     }
-
 
     /// Comando /track - Añade un token manualmente al DB para monitoreo
     async fn cmd_track(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
@@ -612,22 +749,29 @@ impl CommandHandler {
         }
 
         let mint = parts[1];
-        
+
         // ✅ CRITICAL: Validar mint antes de procesar
-        let valid_mint = match crate::validation::FinancialValidator::validate_mint(mint, "/track command") {
-            Ok(m) => m,
-            Err(e) => {
-                self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e)).await?;
-                return Ok(());
-            }
-        };
-        
+        let valid_mint =
+            match crate::validation::FinancialValidator::validate_mint(mint, "/track command") {
+                Ok(m) => m,
+                Err(e) => {
+                    self.send_message(&format!("❌ <b>MINT VALIDATION ERROR:</b> {}", e))
+                        .await?;
+                    return Ok(());
+                }
+            };
+
         let symbol = parts[2];
         let sol: f64 = parts[3].parse().unwrap_or(0.0);
         let sl: f64 = parts[4].parse().unwrap_or(-50.0);
-        let tp: f64 = if parts.len() > 5 { parts[5].parse().unwrap_or(100.0) } else { 100.0 };
+        let tp: f64 = if parts.len() > 5 {
+            parts[5].parse().unwrap_or(100.0)
+        } else {
+            100.0
+        };
 
-        self.send_message(&format!("🔍 <b>Indexing Asset: {}...</b>", symbol)).await?;
+        self.send_message(&format!("🔍 <b>Indexing Asset: {}...</b>", symbol))
+            .await?;
 
         let scanner = crate::scanner::PriceScanner::new();
         match scanner.get_token_price(&valid_mint).await {
@@ -648,7 +792,7 @@ impl CommandHandler {
                     tp_percent: Some(tp),
                     tp_amount_percent: Some(50.0), // Default sell 50%
                     tp_triggered: false,
-                    tp2_percent: Some(200.0), // TP2 Moonbag default
+                    tp2_percent: Some(200.0),        // TP2 Moonbag default
                     tp2_amount_percent: Some(100.0), // Sell remaining
                     tp2_triggered: false,
                     active: true,
@@ -667,10 +811,12 @@ impl CommandHandler {
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                     <i>🔄 Note: Restart tracking active once PriceFeed refreshes.</i>",
                     symbol, price_data.price_native, sl, tp
-                )).await?;
+                ))
+                .await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>Tracking Error:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>Tracking Error:</b> {}", e))
+                    .await?;
             }
         }
 
@@ -681,7 +827,8 @@ impl CommandHandler {
     async fn cmd_untrack(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.len() < 2 {
-            self.send_message("❌ <b>Syntax Error:</b> <code>/untrack &lt;MINT&gt;</code>").await?;
+            self.send_message("❌ <b>Syntax Error:</b> <code>/untrack &lt;MINT&gt;</code>")
+                .await?;
             return Ok(());
         }
 
@@ -691,7 +838,8 @@ impl CommandHandler {
                 self.send_message(&format!("🔴 <b>ASSET UNTRACKED</b>\n<code>{}</code> will no longer trigger trading events.", mint)).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                    .await?;
             }
         }
         Ok(())
@@ -701,12 +849,15 @@ impl CommandHandler {
     async fn cmd_update(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.len() < 3 {
-            self.send_message("❌ <b>Syntax Error:</b> <code>/update &lt;MINT&gt; sl=-X tp=Y</code>").await?;
+            self.send_message(
+                "❌ <b>Syntax Error:</b> <code>/update &lt;MINT&gt; sl=-X tp=Y</code>",
+            )
+            .await?;
             return Ok(());
         }
 
         let mint = parts[1];
-        
+
         // Fetch current position and mutate in place
         match state_manager.get_position(mint).await {
             Ok(Some(mut pos)) => {
@@ -728,7 +879,8 @@ impl CommandHandler {
                 }
 
                 if let Err(e) = state_manager.upsert_position(pos.clone()).await {
-                    self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                    self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                        .await?;
                     return Ok(());
                 }
 
@@ -739,16 +891,29 @@ impl CommandHandler {
                      ⬡ <b>TP:</b> {}\n\
                      <i>Execution engine updated without reboot.</i>",
                     pos.symbol,
-                    if updated_sl { format!("<code>{:.1}%</code> ✅", pos.stop_loss_percent) } else { "Unchanged".to_string() },
-                    if updated_tp { format!("<code>{:.1}%</code> ✅", pos.tp_percent.unwrap_or(0.0)) } else { "Unchanged".to_string() }
+                    if updated_sl {
+                        format!("<code>{:.1}%</code> ✅", pos.stop_loss_percent)
+                    } else {
+                        "Unchanged".to_string()
+                    },
+                    if updated_tp {
+                        format!("<code>{:.1}%</code> ✅", pos.tp_percent.unwrap_or(0.0))
+                    } else {
+                        "Unchanged".to_string()
+                    }
                 );
                 self.send_message(&msg).await?;
             }
             Ok(None) => {
-                self.send_message(&format!("⚠️ <b>Position Not Found:</b> <code>{}</code>", mint)).await?;
+                self.send_message(&format!(
+                    "⚠️ <b>Position Not Found:</b> <code>{}</code>",
+                    mint
+                ))
+                .await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                    .await?;
             }
         }
 
@@ -756,51 +921,102 @@ impl CommandHandler {
     }
 
     /// Comando /panic - Vende TODO inmediatamente
-    async fn cmd_panic(&self, command: &str, executor: Arc<TradeExecutor>) -> Result<()> {
+    async fn cmd_panic(
+        &self,
+        command: &str,
+        executor: Arc<TradeExecutor>,
+        state_manager: Arc<StateManager>,
+    ) -> Result<()> {
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.len() < 2 {
-            self.send_message("❌ <b>Syntax Error:</b> <code>/panic &lt;MINT&gt;</code>").await?;
+            self.send_message("❌ <b>Syntax Error:</b> <code>/panic &lt;MINT&gt;</code>")
+                .await?;
             return Ok(());
         }
-        
+
         let mint = parts[1];
-        self.send_message(&format!("<b>🚨 EMERGENCY LIQUIDATION</b>\nLiquidating 100% of <code>{}</code> via Jito...", mint)).await?;
+        self.send_message(&format!(
+            "<b>🚨 EMERGENCY LIQUIDATION</b>\nLiquidating 100% of <code>{}</code> via Jito...",
+            mint
+        ))
+        .await?;
 
         let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
             Ok(kp) => Some(kp),
             Err(e) => {
-                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e)).await?;
+                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e))
+                    .await?;
                 None
             }
         };
 
-        match executor.execute_emergency_sell(mint, kp_opt.as_ref(), 100).await {
-            Ok(res) => self.send_message(&format!("<b>✅ LIQUIDATION COMPLETE</b>\n<b>⬢ Tx:</b> <code>{}</code>", res.signature)).await?,
-            Err(e) => self.send_message(&format!("❌ <b>CRITICAL FAILURE:</b> {}", e)).await?,
+        match executor
+            .execute_emergency_sell(mint, kp_opt.as_ref(), 100)
+            .await
+        {
+            Ok(res) => {
+                let _ = state_manager.close_position(mint).await;
+
+                let trade = crate::state_manager::TradeRecord {
+                    id: None,
+                    signature: res.signature.clone(),
+                    token_mint: mint.to_string(),
+                    symbol: "MANUAL_SELL".to_string(), // In full implementation might fetch from state_manager
+                    trade_type: "MANUAL_SELL".to_string(),
+                    amount_sol: res.output_amount,
+                    tokens_amount: 0.0,
+                    price: 0.0,
+                    pnl_sol: None,
+                    pnl_percent: None,
+                    route: "Telegram Override".to_string(),
+                    price_impact_pct: res.price_impact_pct,
+                    timestamp: chrono::Utc::now().timestamp(),
+                };
+                let _ = state_manager.record_trade(trade).await;
+
+                self.send_message(&format!("<b>✅ LIQUIDATION COMPLETE</b>\n<b>⬢ Tx:</b> <code>{}</code>\n🛑 Posición cerrada en base de datos. Monitoreo apagado.", res.signature)).await?
+            }
+            Err(e) => {
+                self.send_message(&format!("❌ <b>CRITICAL FAILURE:</b> {}", e))
+                    .await?
+            }
         }
 
         Ok(())
     }
 
     /// Comando /panic_all - Liquida TODAS las posiciones activas en un bundle
-    async fn cmd_panic_all(&self, executor: Arc<TradeExecutor>, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_panic_all(
+        &self,
+        executor: Arc<TradeExecutor>,
+        state_manager: Arc<StateManager>,
+    ) -> Result<()> {
         self.send_message("<b>🚨 GLOBAL LIQUIDATION INITIATED</b>\nGathering all active positions for Jito Bundling...").await?;
 
         let active_positions = state_manager.get_active_positions().await?;
         if active_positions.is_empty() {
-            self.send_message("<b>⚠️ Aborting:</b> No active positions found to liquidate.").await?;
+            self.send_message("<b>⚠️ Aborting:</b> No active positions found to liquidate.")
+                .await?;
             return Ok(());
         }
 
-        let mints: Vec<String> = active_positions.iter().map(|p| p.token_mint.clone()).collect();
+        let mints: Vec<String> = active_positions
+            .iter()
+            .map(|p| p.token_mint.clone())
+            .collect();
         let symbols: Vec<String> = active_positions.iter().map(|p| p.symbol.clone()).collect();
 
-        self.send_message(&format!("<b>📦 Bundling Targets:</b> <code>{}</code>\n<i>Optimizing routes...</i>", symbols.join(", "))).await?;
+        self.send_message(&format!(
+            "<b>📦 Bundling Targets:</b> <code>{}</code>\n<i>Optimizing routes...</i>",
+            symbols.join(", ")
+        ))
+        .await?;
 
         let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
             Ok(kp) => Some(kp),
             Err(e) => {
-                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e)).await?;
+                self.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e))
+                    .await?;
                 None
             }
         };
@@ -809,8 +1025,10 @@ impl CommandHandler {
             match executor.execute_multi_sell(mints.clone(), &kp, 100).await {
                 Ok(results) => {
                     let mut total_sol = 0.0;
-                    for res in &results { total_sol += res.output_amount; }
-                    
+                    for res in &results {
+                        total_sol += res.output_amount;
+                    }
+
                     self.send_message(&format!(
                         "<b>✅ GLOBAL LIQUIDATION COMPLETE</b>\n\
                         <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
@@ -818,16 +1036,36 @@ impl CommandHandler {
                         <b>⬢ Total Yield:</b> <code>{:.4} SOL</code>\n\
                         <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
                         <i>All tracked positions have been closed.</i>",
-                        results.len(), total_sol
-                    )).await?;
+                        results.len(),
+                        total_sol
+                    ))
+                    .await?;
 
                     // Marcar como inactivas en DB
-                    for mint in mints {
+                    for (mint, res) in mints.into_iter().zip(results) {
                         let _ = state_manager.close_position(&mint).await;
+
+                        let trade = crate::state_manager::TradeRecord {
+                            id: None,
+                            signature: res.signature.clone(),
+                            token_mint: mint.clone(),
+                            symbol: "MANUAL_SELL_ALL".to_string(), // In full implementation might fetch from state_manager
+                            trade_type: "MANUAL_SELL".to_string(),
+                            amount_sol: res.output_amount,
+                            tokens_amount: 0.0,
+                            price: 0.0,
+                            pnl_sol: None,
+                            pnl_percent: None,
+                            route: "Telegram Override Bundle".to_string(),
+                            price_impact_pct: res.price_impact_pct,
+                            timestamp: chrono::Utc::now().timestamp(),
+                        };
+                        let _ = state_manager.record_trade(trade).await;
                     }
                 }
                 Err(e) => {
-                    self.send_message(&format!("❌ <b>CRITICAL BUNDLE FAILURE:</b> {}", e)).await?;
+                    self.send_message(&format!("❌ <b>CRITICAL BUNDLE FAILURE:</b> {}", e))
+                        .await?;
                 }
             }
         }
@@ -843,16 +1081,24 @@ impl CommandHandler {
         };
 
         if positions.is_empty() {
-            self.send_message("<b>🛡️ STATUS: NO ACTIVE ALLOCATIONS</b>").await?;
+            self.send_message("<b>🛡️ STATUS: NO ACTIVE ALLOCATIONS</b>")
+                .await?;
             return Ok(());
         }
 
-        let mut response = "<b>📡 LIVE TELEMETRY</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+        let mut response =
+            "<b>📡 LIVE TELEMETRY</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
         for pos in positions {
             let dd = pos.drawdown_percent();
-            let status_emoji = if dd > 0.0 { "🟢" } else if dd > -20.0 { "🟡" } else { "🔴" };
-            
+            let status_emoji = if dd > 0.0 {
+                "🟢"
+            } else if dd > -20.0 {
+                "🟡"
+            } else {
+                "🔴"
+            };
+
             let mint_display = if pos.token_mint.len() > 8 {
                 &pos.token_mint[..8]
             } else {
@@ -895,22 +1141,32 @@ impl CommandHandler {
                 self.send_message(&message).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>Vault Error:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>Vault Error:</b> {}", e))
+                    .await?;
             }
         }
         Ok(())
     }
 
     /// Comando /targets - Muestra la lista de tokens monitoreados
-    async fn cmd_targets(&self, config: Arc<AppConfig>, state_manager: Arc<StateManager>) -> Result<()> {
-        let mut response = "<b>🎯 SECURED TARGETS (DB)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+    async fn cmd_targets(
+        &self,
+        config: Arc<AppConfig>,
+        state_manager: Arc<StateManager>,
+    ) -> Result<()> {
+        let mut response =
+            "<b>🎯 SECURED TARGETS (DB)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
         if let Ok(db_positions) = state_manager.get_active_positions().await {
             if db_positions.is_empty() {
                 response.push_str("<i>No assets indexed.</i>\n\n");
             } else {
                 for target in db_positions {
-                    let status = if target.active { "✅ ACTIVE" } else { "⏸ INACTIVE" };
+                    let status = if target.active {
+                        "✅ ACTIVE"
+                    } else {
+                        "⏸ INACTIVE"
+                    };
                     response.push_str(&format!(
                         "<b>⬢ {}</b> <code>({})</code>\n\
                         <b>⋄ Limits:</b> <code>{:.0}% / {:.0}%</code>\n\
@@ -932,7 +1188,11 @@ impl CommandHandler {
             <b>⚙️ PREFERENCES</b>\n\
             <b>⋄ Execution:</b> {}\n\
             <b>⋄ Heartbeat:</b> <code>{}s</code>",
-            if config.global_settings.auto_execute { "🔴 ARMED" } else { "🟡 DRY-RUN" },
+            if config.global_settings.auto_execute {
+                "🔴 ARMED"
+            } else {
+                "🟡 DRY-RUN"
+            },
             config.global_settings.monitor_interval_sec
         ));
 
@@ -942,11 +1202,8 @@ impl CommandHandler {
 
     /// Obtiene actualizaciones de Telegram
     async fn get_updates(&self, offset: i64) -> Result<Vec<serde_json::Value>> {
-        let mut url = format!(
-            "https://api.telegram.org/bot{}/getUpdates",
-            self.bot_token
-        );
-        
+        let mut url = format!("https://api.telegram.org/bot{}/getUpdates", self.bot_token);
+
         if offset != 0 {
             url.push_str(&format!("?offset={}", offset));
         } else {
@@ -970,11 +1227,12 @@ impl CommandHandler {
         self.send_message_with_markup(text, None).await
     }
 
-    async fn send_message_with_markup(&self, text: &str, reply_markup: Option<serde_json::Value>) -> Result<()> {
-        let url = format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            self.bot_token
-        );
+    async fn send_message_with_markup(
+        &self,
+        text: &str,
+        reply_markup: Option<serde_json::Value>,
+    ) -> Result<()> {
+        let url = format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token);
 
         let client = reqwest::Client::new();
         let mut payload = serde_json::json!({
@@ -984,7 +1242,10 @@ impl CommandHandler {
         });
 
         if let Some(markup) = reply_markup {
-            payload.as_object_mut().unwrap().insert("reply_markup".to_string(), markup);
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("reply_markup".to_string(), markup);
         }
 
         client.post(&url).json(&payload).send().await?;
@@ -999,7 +1260,11 @@ impl CommandHandler {
         let payload = serde_json::json!({
              "callback_query_id": callback_query_id
         });
-        reqwest::Client::new().post(&url).json(&payload).send().await?;
+        reqwest::Client::new()
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await?;
         Ok(())
     }
 
@@ -1012,11 +1277,18 @@ impl CommandHandler {
                     return Ok(());
                 }
 
-                self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
+                self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>")
+                    .await?;
 
                 for pos in positions {
                     let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
-                    let status_emoji = if dd > 20.0 { "🟢" } else if dd > 0.0 { "🟡" } else { "🔴" };
+                    let status_emoji = if dd > 20.0 {
+                        "🟢"
+                    } else if dd > 0.0 {
+                        "🟡"
+                    } else {
+                        "🔴"
+                    };
                     let tokens_held = pos.amount_sol / pos.entry_price;
                     let current_value_sol = tokens_held * pos.current_price;
                     let pnl = current_value_sol - pos.amount_sol;
@@ -1025,10 +1297,10 @@ impl CommandHandler {
                     let sl_safe = pos.stop_loss_percent;
                     let mut pct = (dd - sl_safe) / (tp_safe - sl_safe).max(0.1);
                     pct = pct.clamp(0.0, 1.0);
-                    
+
                     let total_chars = 10;
                     let active_idx = (pct * (total_chars as f64 - 1.0)).round() as usize;
-                    
+
                     let mut bar = String::new();
                     for i in 0..total_chars {
                         if i == active_idx {
@@ -1072,13 +1344,15 @@ impl CommandHandler {
                         ]
                     });
 
-                    self.send_message_with_markup(&pos_text, Some(markup)).await?;
+                    self.send_message_with_markup(&pos_text, Some(markup))
+                        .await?;
                 }
 
                 self.send_message("<b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                    .await?;
             }
         }
         Ok(())
@@ -1093,16 +1367,18 @@ impl CommandHandler {
                     return Ok(());
                 }
 
-                let mut response = "<b>📜 RECENT EXECUTIONS</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+                let mut response =
+                    "<b>📜 RECENT EXECUTIONS</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
                 for trade in trades {
                     let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
                     let pnl_percent = trade.pnl_percent.unwrap_or(0.0);
-                    
+
                     let pnl_emoji = if pnl_sol > 0.0 { "🟢" } else { "🔴" };
-                    let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
-                        .map(|dt| dt.format("%H:%M %m/%d").to_string())
-                        .unwrap_or_else(|| "N/A".to_string());
+                    let timestamp =
+                        chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
+                            .map(|dt| dt.format("%H:%M %m/%d").to_string())
+                            .unwrap_or_else(|| "N/A".to_string());
 
                     response.push_str(&format!(
                         "{} <b>{}</b> <i>({})</i>\n\
@@ -1122,7 +1398,8 @@ impl CommandHandler {
                 self.send_message(&response).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                    .await?;
             }
         }
         Ok(())
@@ -1138,7 +1415,13 @@ impl CommandHandler {
                     0.0
                 };
 
-                let status_emoji = if stats.total_pnl_sol > 0.0 { "🟢" } else if stats.total_pnl_sol == 0.0 { "🟡" } else { "🔴" };
+                let status_emoji = if stats.total_pnl_sol > 0.0 {
+                    "🟢"
+                } else if stats.total_pnl_sol == 0.0 {
+                    "🟡"
+                } else {
+                    "🔴"
+                };
 
                 let response = format!(
                     "<b>📈 PERFORMANCE METRICS</b>\n\
@@ -1160,7 +1443,8 @@ impl CommandHandler {
                 self.send_message(&response).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                    .await?;
             }
         }
         Ok(())

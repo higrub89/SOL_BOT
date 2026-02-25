@@ -85,3 +85,4 @@ bot.pid
 pools_cache.json
 result.json
 logs/
+trading_state.db*

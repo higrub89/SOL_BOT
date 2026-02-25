@@ -1,15 +1,11 @@
 //! # Jito Bundle Integration
-//! 
+//!
 //! Cliente minimalista para enviar bundles a la Jito Block Engine.
 //! Permite transacciones privadas y protegidas contra MEV (Sandwich Attacks).
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde_json::json;
-use solana_sdk::{
-    transaction::VersionedTransaction,
-    pubkey::Pubkey,
-    system_instruction,
-};
+use solana_sdk::{pubkey::Pubkey, system_instruction, transaction::VersionedTransaction};
 use std::str::FromStr;
 // use base64::{Engine as _, engine::general_purpose};
 
@@ -26,7 +22,8 @@ const JITO_TIP_ACCOUNTS: [&str; 8] = [
 ];
 
 // Block Engine URL (Amsterdam es central para EU/US overlap, o usar NY)
-const JITO_BLOCK_ENGINE_URL: &str = "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles";
+const JITO_BLOCK_ENGINE_URL: &str =
+    "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles";
 
 pub struct JitoClient {
     client: reqwest::Client,
@@ -54,7 +51,10 @@ impl JitoClient {
     }
 
     /// Crea una instrucción de transferencia para la propina
-    pub fn create_tip_instruction(payer: &Pubkey, lamports: u64) -> solana_sdk::instruction::Instruction {
+    pub fn create_tip_instruction(
+        payer: &Pubkey,
+        lamports: u64,
+    ) -> solana_sdk::instruction::Instruction {
         let tip_account = Self::get_random_tip_account();
         system_instruction::transfer(payer, &tip_account, lamports)
     }
@@ -66,7 +66,8 @@ impl JitoClient {
         }
 
         // Serializar transacciones a base58 (Jito espera base58 en JSON-RPC)
-        let encoded_txs: Vec<String> = transactions.iter()
+        let encoded_txs: Vec<String> = transactions
+            .iter()
             .map(|tx| {
                 let bytes = bincode::serialize(tx).unwrap();
                 bs58::encode(bytes).into_string()
@@ -85,7 +86,9 @@ impl JitoClient {
 
         println!("📡 Enviando Jito Bundle ({} txs)...", transactions.len());
 
-        let response = self.client.post(JITO_BLOCK_ENGINE_URL)
+        let response = self
+            .client
+            .post(JITO_BLOCK_ENGINE_URL)
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -93,10 +96,10 @@ impl JitoClient {
             .context("Error conectando con Jito Block Engine")?;
 
         let response_text = response.text().await?;
-        
+
         // Parsear respuesta
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)
-            .context("Error parseando respuesta Jito")?;
+        let response_json: serde_json::Value =
+            serde_json::from_str(&response_text).context("Error parseando respuesta Jito")?;
 
         if let Some(result) = response_json.get("result") {
             // El result suele ser el Bundle ID (UUID)
@@ -104,7 +107,10 @@ impl JitoClient {
             println!("✅ Jito Bundle Enviado. ID: {}", bundle_id);
             Ok(bundle_id)
         } else if let Some(error) = response_json.get("error") {
-            let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            let msg = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
             anyhow::bail!("Jito Error: {}", msg);
         } else {
             anyhow::bail!("Respuesta Jito inesperada: {}", response_text);

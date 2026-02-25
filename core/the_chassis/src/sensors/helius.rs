@@ -6,14 +6,14 @@
 //! Latencia: Baja-Media (RPC Directo + Helius Enhanced Transactions API).
 //! Fiabilidad: Extrema (Datos de consenso de la red).
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
 use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::program_pack::Pack;
+use solana_sdk::pubkey::Pubkey;
+use spl_token::state::Mint;
 use std::str::FromStr;
 use std::sync::Arc;
-use spl_token::state::Mint;
-use solana_sdk::program_pack::Pack;
 
 /// Datos de seguridad extraídos on-chain (v1 — básicos)
 #[derive(Debug, Clone)]
@@ -68,7 +68,10 @@ impl HeliusSensor {
             CommitmentConfig::confirmed(),
         ));
 
-        Self { rpc_client, helius_api_key }
+        Self {
+            rpc_client,
+            helius_api_key,
+        }
     }
 
     /// Crea sensor desde API key directamente
@@ -78,23 +81,26 @@ impl HeliusSensor {
             rpc_url,
             CommitmentConfig::confirmed(),
         ));
-        Self { rpc_client, helius_api_key: Some(api_key) }
+        Self {
+            rpc_client,
+            helius_api_key: Some(api_key),
+        }
     }
 
     /// Análisis v1: Datos básicos de seguridad del Mint (authorities, supply, decimals)
     pub async fn analyze_token(&self, mint_address: &str) -> Result<OnChainSecurityData> {
-        let pubkey = Pubkey::from_str(mint_address)
-            .context("Invalid Mint Address")?;
+        let pubkey = Pubkey::from_str(mint_address).context("Invalid Mint Address")?;
 
-        let account = self.rpc_client.get_account(&pubkey)
+        let account = self
+            .rpc_client
+            .get_account(&pubkey)
             .context(format!("Failed to fetch account info for {}", mint_address))?;
 
         if account.owner != spl_token::id() {
             anyhow::bail!("Account is not owned by SPL Token Program");
         }
 
-        let mint_data = Mint::unpack(&account.data)
-            .context("Failed to unpack Mint data")?;
+        let mint_data = Mint::unpack(&account.data).context("Failed to unpack Mint data")?;
 
         let mint_authority: Option<String> = {
             let opt_pubkey: Option<Pubkey> = mint_data.mint_authority.into();
@@ -121,8 +127,7 @@ impl HeliusSensor {
     /// Este análisis es más lento (~500ms-1s) pero devuelve datos reales
     /// que el DecisionEngine necesita para filtrar correctamente.
     pub async fn analyze_token_full(&self, mint_address: &str) -> Result<OnChainAnalysis> {
-        let pubkey = Pubkey::from_str(mint_address)
-            .context("Invalid Mint Address")?;
+        let pubkey = Pubkey::from_str(mint_address).context("Invalid Mint Address")?;
 
         // ── 1. Seguridad básica del Mint ──
         let security = self.analyze_token(mint_address).await?;
@@ -131,7 +136,8 @@ impl HeliusSensor {
         // ── 2. Obtener Token Accounts (Holders) ──
         // Usamos getProgramAccounts filtrando por mint
         // Esto devuelve todas las wallets que tienen este token
-        let token_accounts = self.rpc_client
+        let token_accounts = self
+            .rpc_client
             .get_token_accounts_by_owner_with_commitment(
                 &spl_token::id(),
                 solana_client::rpc_request::TokenAccountsFilter::Mint(pubkey),
@@ -151,7 +157,8 @@ impl HeliusSensor {
                 // Intentamos extraer el amount del UiTokenAmount
                 use solana_account_decoder::UiAccountData;
                 if let UiAccountData::Json(parsed) = &acc.account.data {
-                    parsed.parsed
+                    parsed
+                        .parsed
                         .get("info")
                         .and_then(|i| i.get("tokenAmount"))
                         .and_then(|ta| ta.get("amount"))
@@ -187,7 +194,8 @@ impl HeliusSensor {
         // Todos son únicos por definición (una wallet = una cuenta), así que usamos
         // una heurística: si hay muchas cuentas con el mismo balance mínimo → wash trading
         let min_meaningful_balance = total_supply as u64 / 10_000; // 0.01% del supply
-        let meaningful_holders = balances.iter()
+        let meaningful_holders = balances
+            .iter()
             .filter(|&&b| b >= min_meaningful_balance)
             .count();
 
@@ -200,8 +208,7 @@ impl HeliusSensor {
         // ── 5. Edad estimada del token ──
         // Calculamos la edad usando `getFirstAvailableBlock` del mint
         // Como fallback, usamos el primer block_time conocido de las signatures del mint
-        let estimated_age_minutes = self.estimate_token_age(mint_address).await
-            .unwrap_or(60); // Default 60min si no podemos calcular
+        let estimated_age_minutes = self.estimate_token_age(mint_address).await.unwrap_or(60); // Default 60min si no podemos calcular
 
         Ok(OnChainAnalysis {
             security,
@@ -227,7 +234,8 @@ impl HeliusSensor {
             commitment: Some(CommitmentConfig::confirmed()),
         };
 
-        let signatures = self.rpc_client
+        let signatures = self
+            .rpc_client
             .get_signatures_for_address_with_config(&pubkey, config)
             .unwrap_or_default();
 

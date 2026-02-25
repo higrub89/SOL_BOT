@@ -1,8 +1,8 @@
 //! # Observability - Telemetría de Hiperlujo
-//! 
+//!
 //! Sistema de logging estructurado con niveles de detalle institucionales.
 //! Soporta formato JSON para integración con Grafana/Datadog.
-//! 
+//!
 //! ## Niveles de Log
 //! - **TRACE:** Debugging extremo (solo en desarrollo)
 //! - **DEBUG:** Información de diagnóstico
@@ -11,13 +11,13 @@
 //! - **ERROR:** Errores que requieren atención
 
 use tracing::{info, Level};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
-    EnvFilter,
     layer::SubscriberExt,
     util::SubscriberInitExt,
+    EnvFilter,
 };
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 /// Configuración del sistema de observabilidad
 pub struct ObservabilityConfig {
@@ -80,11 +80,7 @@ pub fn init_observability(config: ObservabilityConfig) -> anyhow::Result<()> {
     std::fs::create_dir_all(&config.log_dir)?;
 
     // Rolling file appender (rota diariamente)
-    let file_appender = RollingFileAppender::new(
-        Rotation::DAILY,
-        &config.log_dir,
-        "chassis.log",
-    );
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, &config.log_dir, "chassis.log");
 
     // Filtro de niveles — silenciar logs ruidosos de dependencias
     let env_filter = EnvFilter::from_default_env()
@@ -108,10 +104,7 @@ pub fn init_observability(config: ObservabilityConfig) -> anyhow::Result<()> {
             .json();
 
         if config.stdout_enabled {
-            let json_stdout_layer = fmt::layer()
-                .with_target(true)
-                .with_thread_ids(false)
-                .json();
+            let json_stdout_layer = fmt::layer().with_target(true).with_thread_ids(false).json();
 
             tracing_subscriber::registry()
                 .with(env_filter)
@@ -156,7 +149,14 @@ pub fn init_observability(config: ObservabilityConfig) -> anyhow::Result<()> {
     info!("✅ Observability system initialized");
     info!("📁 Log directory: {}", config.log_dir);
     info!("📊 Log level: {:?}", config.log_level);
-    info!("📋 Format: {}", if config.json_format { "JSON (Grafana-ready)" } else { "Text (Development)" });
+    info!(
+        "📋 Format: {}",
+        if config.json_format {
+            "JSON (Grafana-ready)"
+        } else {
+            "Text (Development)"
+        }
+    );
 
     Ok(())
 }

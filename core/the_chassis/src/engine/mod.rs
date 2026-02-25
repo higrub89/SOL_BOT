@@ -1,18 +1,20 @@
 //! # Decision Engine (Core HFT Logic)
-//! 
+//!
 //! Este módulo orquesta la toma de decisiones basada en Sensores, Filtros y Actuadores.
 //! Sigue el patrón "Safety-Critical Pipeline".
 
+pub mod actuators;
+pub mod filters;
 pub mod momentum;
 pub mod types;
-pub mod filters;
-pub mod actuators;
 
 // Re-exportar tipos para uso externo (AutoBuyer)
-pub use self::types::{TokenContext, FilterResult, TradeFilter, RejectionReason}; // ✅ Exportación Explicita
-pub use self::actuators::{DynamicTipCalculator, AdaptiveSlippageCalculator};
+pub use self::actuators::{AdaptiveSlippageCalculator, DynamicTipCalculator};
+pub use self::types::{FilterResult, RejectionReason, TokenContext, TradeFilter}; // ✅ Exportación Explicita
 
-use self::filters::{CircuitBreaker, TokenCooldown, AuthorityFilter, WashTradingFilter, MomentumFilter};
+use self::filters::{
+    AuthorityFilter, CircuitBreaker, MomentumFilter, TokenCooldown, WashTradingFilter,
+};
 
 /// El Cerebro del Sistema
 /// Coordina la evaluación de riesgos y la ejecución óptima
@@ -32,11 +34,11 @@ impl DecisionEngine {
         };
 
         // Cargar filtros de seguridad básicos
-        engine.add_filter(Box::new(CircuitBreaker::new(-10.0))); 
-        engine.add_filter(Box::new(TokenCooldown::new(240)));    
-        engine.add_filter(Box::new(AuthorityFilter));            
-        engine.add_filter(Box::new(WashTradingFilter::new(0.20))); 
-        engine.add_filter(Box::new(MomentumFilter::new(0.0)));     
+        engine.add_filter(Box::new(CircuitBreaker::new(-10.0)));
+        engine.add_filter(Box::new(TokenCooldown::new(240)));
+        engine.add_filter(Box::new(AuthorityFilter));
+        engine.add_filter(Box::new(WashTradingFilter::new(0.20)));
+        engine.add_filter(Box::new(MomentumFilter::new(0.0)));
 
         engine
     }
@@ -58,9 +60,13 @@ impl DecisionEngine {
 
         // 2. Si pasa todos los filtros, calcular parámetros de ejecución
         let maturity = crate::engine::types::MaturityStage::from_age_minutes(ctx.age_minutes);
-        
-        let priority_fee = self.tip_calculator.calculate_tip(ctx.momentum_slope, maturity);
-        let slippage_bps = self.slippage_calculator.calculate_slippage(ctx.momentum_slope, maturity);
+
+        let priority_fee = self
+            .tip_calculator
+            .calculate_tip(ctx.momentum_slope, maturity);
+        let slippage_bps = self
+            .slippage_calculator
+            .calculate_slippage(ctx.momentum_slope, maturity);
 
         Ok(ExecutionParams {
             priority_fee_lamports: priority_fee,

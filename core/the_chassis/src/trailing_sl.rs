@@ -1,5 +1,5 @@
 //! # Trailing Stop-Loss System
-//! 
+//!
 //! Sistema inteligente que ajusta el stop-loss dinámicamente cuando el precio sube
 
 use serde::{Deserialize, Serialize};
@@ -8,22 +8,22 @@ use serde::{Deserialize, Serialize};
 pub struct TrailingStopLoss {
     /// Precio de entrada original
     pub entry_price: f64,
-    
+
     /// Stop-loss inicial (porcentaje negativo, ej: -50.0)
     pub initial_sl_percent: f64,
-    
+
     /// Precio máximo alcanzado desde la entrada
     pub peak_price: f64,
-    
+
     /// Stop-loss actual (se ajusta automáticamente)
     pub current_sl_percent: f64,
-    
+
     /// Porcentaje de retroceso permitido desde el pico (ej: 30.0 = permite caer 30% desde el pico)
     pub trailing_distance_percent: f64,
-    
+
     /// Si el trailing está activado
     pub enabled: bool,
-    
+
     /// Ganancia mínima para activar trailing (ej: 50.0 = activar cuando suba 50%)
     pub activation_threshold_percent: f64,
 }
@@ -78,7 +78,10 @@ impl TrailingStopLoss {
             if new_sl_percent > self.current_sl_percent {
                 let old_sl = self.current_sl_percent;
                 self.current_sl_percent = new_sl_percent;
-                println!("📈 Stop-Loss ajustado: {:.2}% → {:.2}%", old_sl, new_sl_percent);
+                println!(
+                    "📈 Stop-Loss ajustado: {:.2}% → {:.2}%",
+                    old_sl, new_sl_percent
+                );
                 changed = true;
             }
         }
@@ -109,8 +112,7 @@ impl TrailingStopLoss {
         } else {
             format!(
                 "⚪ INACTIVO | SL: {:.2}% | Activación: +{:.1}%",
-                self.current_sl_percent,
-                self.activation_threshold_percent
+                self.current_sl_percent, self.activation_threshold_percent
             )
         }
     }
@@ -130,10 +132,10 @@ mod tests {
     #[test]
     fn test_trailing_activation() {
         let mut tsl = TrailingStopLoss::new(
-            1.0,      // entry
-            -50.0,    // initial SL
-            30.0,     // trailing distance
-            100.0,    // activation threshold (+100%)
+            1.0,   // entry
+            -50.0, // initial SL
+            30.0,  // trailing distance
+            100.0, // activation threshold (+100%)
         );
 
         // Subimos a +100%, debería activarse
@@ -144,14 +146,14 @@ mod tests {
     #[test]
     fn test_trailing_adjustment() {
         let mut tsl = TrailingStopLoss::new(1.0, -50.0, 30.0, 50.0);
-        
+
         // Activar
         tsl.update(1.5); // +50%
         assert!(tsl.enabled);
 
         // Subir más
         tsl.update(2.0); // +100%
-        
+
         // El SL debería haberse ajustado hacia arriba
         assert!(tsl.current_sl_percent > -50.0);
     }

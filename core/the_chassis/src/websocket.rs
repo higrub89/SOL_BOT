@@ -1,15 +1,15 @@
 //! # WebSocket Real-Time Event Listener
-//! 
+//!
 //! Monitoreo de eventos de Pump.fun en tiempo real via WebSocket.
 //! Estándar: Calidad Suiza / Alta Frecuencia.
 //! Features: Auto-reconnection, Event Detection, Low Latency
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
 use std::time::Duration;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 /// Program ID de Pump.fun para monitorear eventos
 const PUMP_PROGRAM_ID: &str = "6EF8rrecthR5Dkzy5fG9VGA7zF5rR9WADwpupump";
@@ -44,7 +44,7 @@ impl SolanaWebSocket {
     /// Escucha eventos de Pump.fun con reconexión automática
     pub async fn listen_to_pump_events(&self) -> Result<()> {
         let mut retry_count = 0;
-        
+
         loop {
             match self.connect_and_listen().await {
                 Ok(_) => {
@@ -54,8 +54,11 @@ impl SolanaWebSocket {
                 }
                 Err(e) => {
                     retry_count += 1;
-                    eprintln!("❌ Error en WebSocket (intento {}/{}): {}", retry_count, MAX_RETRIES, e);
-                    
+                    eprintln!(
+                        "❌ Error en WebSocket (intento {}/{}): {}",
+                        retry_count, MAX_RETRIES, e
+                    );
+
                     if retry_count >= MAX_RETRIES {
                         eprintln!("⛔ Máximo de reintentos alcanzado. Pausando 60s...");
                         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -63,7 +66,7 @@ impl SolanaWebSocket {
                     }
                 }
             }
-            
+
             // Pequeña pausa antes de reconectar
             tokio::time::sleep(Duration::from_secs(2)).await;
             println!("🔄 Reconectando al sensor...\n");
@@ -73,7 +76,7 @@ impl SolanaWebSocket {
     /// Conexión interna al WebSocket
     async fn connect_and_listen(&self) -> Result<()> {
         println!("🔌 Conectando al Sensor de Red (Pump.fun)...");
-        
+
         let (ws_stream, _) = connect_async(&self.config.rpc_url)
             .await
             .context("Error conectando a WebSocket")?;
@@ -93,7 +96,8 @@ impl SolanaWebSocket {
             ]
         });
 
-        write.send(Message::Text(subscribe_msg.to_string()))
+        write
+            .send(Message::Text(subscribe_msg.to_string()))
             .await
             .context("Error enviando suscripción")?;
 
@@ -132,26 +136,26 @@ impl SolanaWebSocket {
                 let logs = &result.value.logs;
                 let sig = &result.value.signature;
                 let slot = result.context.slot;
-                
+
                 for log in logs {
                     // Nuevo token creado
                     if log.contains("Program log: Instruction: Create") {
                         println!("✨ [NUEVO TOKEN] Creación detectada!");
                         println!("   Slot: {} | Sig: {}...", slot, &sig[..16]);
                     }
-                    
+
                     // Graduación (migración a Raydium/PumpSwap)
                     if log.contains("Program log: Instruction: Withdraw") {
                         println!("🏁 [GRADUACIÓN] ¡Token migrando a DEX!");
                         println!("   Slot: {} | Sig: {}...", slot, &sig[..16]);
                         println!("   🚀 OPORTUNIDAD DE SNIPE DETECTADA");
                     }
-                    
+
                     // Compra detectada
                     if log.contains("Program log: Instruction: Buy") {
                         println!("🟢 [COMPRA] Actividad de compra detectada");
                     }
-                    
+
                     // Venta detectada
                     if log.contains("Program log: Instruction: Sell") {
                         println!("🔴 [VENTA] Actividad de venta detectada");

@@ -1,12 +1,12 @@
 //! # Filtros de Seguridad HFT
-//! 
+//!
 //! Implementación de los módulos de seguridad para el Decision Engine.
 //! Cada struc implementa el trait `TradeFilter`.
 
-use crate::engine::types::{TradeFilter, TokenContext, FilterResult, RejectionReason};
-use std::sync::{Arc, Mutex};
+use crate::engine::types::{FilterResult, RejectionReason, TokenContext, TradeFilter};
 use std::collections::HashMap;
-use std::time::{Instant, Duration};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// 1. Circuit Breaker Global
 /// Detiene todo si el PnL diario supera un límite
@@ -74,7 +74,7 @@ impl TradeFilter for TokenCooldown {
 
     fn check(&self, ctx: &TokenContext) -> FilterResult {
         let mut map = self.blacklisted_tokens.lock().unwrap();
-        
+
         // Limpiar expirados
         let now = Instant::now();
         map.retain(|_, expiry| *expiry > now);
@@ -111,7 +111,9 @@ pub struct WashTradingFilter {
 
 impl WashTradingFilter {
     pub fn new(min_ratio: f64) -> Self {
-        Self { min_unique_ratio: min_ratio }
+        Self {
+            min_unique_ratio: min_ratio,
+        }
     }
 }
 

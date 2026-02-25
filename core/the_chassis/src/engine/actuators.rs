@@ -1,9 +1,9 @@
 //! # Actuadores Inteligentes HFT
-//! 
+//!
 //! Módulos responsables de ejecutar las decisiones del Engine con parámetros dinámicos.
 //! Incluye cálculo de propinas Jito (Priority Fee) y Slippage adaptativo.
 
-use crate::engine::types::{MaturityStage};
+use crate::engine::types::MaturityStage;
 
 /// Calculadora de Propinas Jito Dinámica
 /// Ajusta el Priority Fee según la urgencia del Momentum
@@ -22,7 +22,7 @@ impl Default for DynamicTipCalculator {
 impl DynamicTipCalculator {
     pub fn new() -> Self {
         Self {
-            // Free Tier / Bootstrapping adjustments: 
+            // Free Tier / Bootstrapping adjustments:
             // We use higher base tips to compensate for WS latency vs gRPC bots
             base_tip_lamports: 200_000, // 0.0002 SOL base (increased from 0.0001)
             max_tip_lamports: 10_000_000, // 0.01 SOL max cap (increased to secure block execution)
@@ -70,8 +70,8 @@ impl AdaptiveSlippageCalculator {
     pub fn new() -> Self {
         Self {
             // Ajustado para Free Tier: más slippage asume datos menos frescos (latencia WS)
-            base_bps: 300,      // 3% base (incrementado desde 2%)
-            max_bps: 2000,      // 20% max (seguridad incrementada para no fallar tx)
+            base_bps: 300,        // 3% base (incrementado desde 2%)
+            max_bps: 2000,        // 20% max (seguridad incrementada para no fallar tx)
             slope_factor: 2500.0, // 0.1 slope -> +250 bps (+2.5%)
         }
     }
@@ -103,9 +103,12 @@ mod tests {
     #[test]
     fn test_dynamic_tip() {
         let calc = DynamicTipCalculator::new();
-        
+
         // Caso 1: Sin momentum (Base)
-        assert_eq!(calc.calculate_tip(0.0, MaturityStage::MomentumCore), 200_000);
+        assert_eq!(
+            calc.calculate_tip(0.0, MaturityStage::MomentumCore),
+            200_000
+        );
 
         // Caso 2: High Momentum (Slope 0.5) en Early Stage
         // Base (200k) + (0.5 * 2M * 2.0) = 200k + 2000k = 2.2M
@@ -119,7 +122,10 @@ mod tests {
         let calc = AdaptiveSlippageCalculator::new();
 
         // Caso 1: Normal
-        assert_eq!(calc.calculate_slippage(0.0, MaturityStage::LateReversal), 300);
+        assert_eq!(
+            calc.calculate_slippage(0.0, MaturityStage::LateReversal),
+            300
+        );
 
         // Caso 2: PUMP violento (Slope 1.0)
         // Base (300) + (1.0 * 2500) = 2800 -> Cap at 2000
