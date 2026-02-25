@@ -109,7 +109,7 @@ pub enum Commands {
 }
 
 /// Configuración del motor
-const HELIUS_RPC: &str = "https://api.mainnet-beta.solana.com";
+const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
 
 /// Entry point de la librería
 pub async fn run() -> Result<()> {
@@ -226,7 +226,8 @@ async fn run_monitor_mode() -> Result<()> {
         app_config.global_settings.auto_execute
     );
 
-    let rpc_url = "https://api.mainnet-beta.solana.com".to_string();
+    let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY must be set");
+    let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     let wallet_addr = std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS must be set");
 
     // 1. Wallet Monitor
