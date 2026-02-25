@@ -5,7 +5,10 @@
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use solana_sdk::program_pack::Pack;
 use solana_sdk::signature::Keypair;
+use spl_token::state::Account as TokenAccount;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 // ----------------------------------------------------------------------------
@@ -243,8 +246,68 @@ async fn run_monitor_mode() -> Result<()> {
         enabled: true,
     })));
 
+    // =========================================================================
+    // GHOST POSITION PURGE: Verificar balance on-chain antes de trackear
+    // =========================================================================
     if let Ok(db_positions) = state_manager.get_active_positions().await {
+        let rpc_for_check = solana_client::rpc_client::RpcClient::new(rpc_url.clone());
+        let wallet_pubkey = solana_sdk::pubkey::Pubkey::from_str(&wallet_addr)
+            .expect("WALLET_ADDRESS inválida");
+
         for target in &db_positions {
+            // Verificar si realmente tenemos tokens de esta posición
+            let mint_pubkey = match solana_sdk::pubkey::Pubkey::from_str(&target.token_mint) {
+                Ok(pk) => pk,
+                Err(_) => {
+                    println!("   ⚠️ Mint inválido en DB: {}, cerrando...", target.token_mint);
+                    let _ = state_manager.close_position(&target.token_mint).await;
+                    continue;
+                }
+            };
+
+            let ata = spl_associated_token_account::get_associated_token_address(
+                &wallet_pubkey,
+                &mint_pubkey,
+            );
+
+            let has_balance = match rpc_for_check.get_account(&ata) {
+                Ok(account_data) => {
+                    match TokenAccount::unpack(&account_data.data) {
+                        Ok(token_account) => token_account.amount > 0,
+                        Err(_) => false,
+                    }
+                }
+                Err(_) => false,
+            };
+
+            if !has_balance {
+                println!(
+                    "   🗑️ Ghost position detectada: {} ({}) — Sin balance on-chain. Cerrando en DB.",
+                    target.symbol, &target.token_mint[..8]
+                );
+                let _ = state_manager.close_position(&target.token_mint).await;
+
+                // Registrar como trade de limpieza
+                let trade = state_manager::TradeRecord {
+                    id: None,
+                    signature: "GHOST_PURGE".to_string(),
+                    token_mint: target.token_mint.clone(),
+                    symbol: target.symbol.clone(),
+                    trade_type: "GHOST_PURGE".to_string(),
+                    amount_sol: 0.0,
+                    tokens_amount: 0.0,
+                    price: 0.0,
+                    pnl_sol: Some(-target.amount_sol), // Pérdida total
+                    pnl_percent: Some(-100.0),
+                    route: "Boot Audit".to_string(),
+                    price_impact_pct: 0.0,
+                    timestamp: chrono::Utc::now().timestamp(),
+                };
+                let _ = state_manager.record_trade(trade).await;
+                continue;
+            }
+
+            // Posición válida: trackear
             emergency_monitor.lock().unwrap().add_position(Position {
                 token_mint: target.token_mint.clone(),
                 symbol: target.symbol.clone(),
@@ -254,7 +317,7 @@ async fn run_monitor_mode() -> Result<()> {
                 current_value: target.amount_sol,
             });
             println!(
-                "   • Trackeando: {} (SL: {}%)",
+                "   ✅ Trackeando: {} (SL: {}%)",
                 target.symbol, target.stop_loss_percent
             );
         }
