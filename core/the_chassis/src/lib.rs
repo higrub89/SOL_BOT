@@ -300,7 +300,6 @@ async fn run_monitor_mode() -> Result<()> {
     let command_handler = Arc::new(CommandHandler::new());
 
     let cmd_handler_clone = Arc::clone(&command_handler);
-    let cmd_emergency_monitor = Arc::clone(&emergency_monitor);
     let cmd_wallet_monitor = Arc::clone(&wallet_monitor);
     let cmd_config = Arc::new(app_config.clone());
     let cmd_executor = Arc::clone(&executor);
@@ -309,7 +308,6 @@ async fn run_monitor_mode() -> Result<()> {
     tokio::spawn(async move {
         let _ = cmd_handler_clone
             .process_commands(
-                cmd_emergency_monitor,
                 cmd_wallet_monitor,
                 cmd_executor,
                 cmd_config,

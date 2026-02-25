@@ -4,7 +4,6 @@
 //! Incluye Health Check (/ping) y modo hibernación.
 
 use crate::config::AppConfig;
-use crate::emergency::EmergencyMonitor;
 use crate::executor_v2::TradeExecutor;
 use crate::state_manager::StateManager;
 use crate::wallet::{load_keypair_from_env, WalletMonitor};
@@ -12,7 +11,7 @@ use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc,
 };
 use std::time::Instant;
 
@@ -56,7 +55,6 @@ impl CommandHandler {
     /// Procesa comandos recibidos del usuario
     pub async fn process_commands(
         &self,
-        emergency_monitor: Arc<Mutex<EmergencyMonitor>>,
         wallet_monitor: Arc<WalletMonitor>,
         executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
@@ -143,7 +141,6 @@ impl CommandHandler {
                             if self
                                 .handle_command(
                                     &command,
-                                    Arc::clone(&emergency_monitor),
                                     Arc::clone(&wallet_monitor),
                                     Arc::clone(&executor),
                                     Arc::clone(&config),
@@ -178,7 +175,6 @@ impl CommandHandler {
     async fn handle_command(
         &self,
         command: &str,
-        emergency_monitor: Arc<Mutex<EmergencyMonitor>>,
         wallet_monitor: Arc<WalletMonitor>,
         executor: Arc<TradeExecutor>,
         config: Arc<AppConfig>,
@@ -226,7 +222,7 @@ impl CommandHandler {
             }
 
             "/status" => {
-                self.cmd_status(emergency_monitor).await?;
+                self.cmd_status(Arc::clone(&state_manager)).await?;
             }
 
             "/settings" => {
@@ -1074,10 +1070,14 @@ impl CommandHandler {
     }
 
     /// Comando /status - Muestra el estado de todos los tokens
-    async fn cmd_status(&self, emergency_monitor: Arc<Mutex<EmergencyMonitor>>) -> Result<()> {
-        let positions = {
-            let monitor = emergency_monitor.lock().unwrap();
-            monitor.get_all_positions()
+    async fn cmd_status(&self, state_manager: Arc<StateManager>) -> Result<()> {
+        let positions = match state_manager.get_active_positions().await {
+            Ok(pos) => pos,
+            Err(e) => {
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                    .await?;
+                return Ok(());
+            }
         };
 
         if positions.is_empty() {
@@ -1090,7 +1090,18 @@ impl CommandHandler {
             "<b>📡 LIVE TELEMETRY</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
         for pos in positions {
-            let dd = pos.drawdown_percent();
+            let dd = if pos.entry_price > 0.0 {
+                ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0
+            } else {
+                0.0
+            };
+
+            let current_value = if pos.entry_price > 0.0 {
+                (pos.amount_sol / pos.entry_price) * pos.current_price
+            } else {
+                0.0
+            };
+
             let status_emoji = if dd > 0.0 {
                 "🟢"
             } else if dd > -20.0 {
@@ -1118,7 +1129,7 @@ impl CommandHandler {
                 pos.entry_price,
                 if dd > 0.0 { "+" } else { "" },
                 dd,
-                pos.current_value
+                current_value
             ));
         }
 
