@@ -292,6 +292,8 @@ pub struct SwapResult {
     pub output_amount: f64,
     pub route: String,
     pub price_impact_pct: f64,
+    /// Coste real pagado en esta TX: Jito Tip + Priority Fee (en SOL)
+    pub fee_sol: f64,
 }
 
 impl SwapResult {
@@ -303,7 +305,8 @@ impl SwapResult {
         println!("🔄 Route:         {}", self.route);
         println!("💎 Input:         {:.4} tokens", self.input_amount);
         println!("💰 Output:        {:.6} SOL", self.output_amount);
-        println!("📉 Price Impact:  {:.2}%\n", self.price_impact_pct);
+        println!("📉 Price Impact:  {:.2}%", self.price_impact_pct);
+        println!("⛽ Fee (Jito+P):  {:.6} SOL\n", self.fee_sol);
     }
 }
 
@@ -316,6 +319,8 @@ pub struct BuyResult {
     pub price_per_token: f64,
     pub route: String,
     pub price_impact_pct: f64,
+    /// Coste real pagado en esta TX: Jito Tip + Priority Fee (en SOL)
+    pub fee_sol: f64,
 }
 
 impl BuyResult {
@@ -328,7 +333,8 @@ impl BuyResult {
         println!("💰 SOL gastado:   {:.4} SOL", self.sol_spent);
         println!("💎 Tokens:        {:.0}", self.tokens_received);
         println!("📊 Precio/token:  ${:.10}", self.price_per_token);
-        println!("📉 Price Impact:  {:.2}%\n", self.price_impact_pct);
+        println!("📉 Price Impact:  {:.2}%", self.price_impact_pct);
+        println!("⛽ Fee (Jito+P):  {:.6} SOL\n", self.fee_sol);
     }
 }
 

@@ -536,7 +536,7 @@ impl CommandHandler {
                                     pnl_percent: None,
                                     route: "Telegram Direct Raydium".to_string(),
                                     price_impact_pct: res.price_impact_pct,
-                                    fee_sol: 0.0,
+                                    fee_sol: res.fee_sol,
                                     timestamp: chrono::Utc::now().timestamp(),
                                 };
                                 let _ = state_manager.record_trade(trade).await;
@@ -699,7 +699,7 @@ impl CommandHandler {
                             pnl_percent: None,
                             route: "Telegram Base".to_string(),
                             price_impact_pct: res.price_impact_pct,
-                            fee_sol: 0.0, // Capturado dinámicamente en v2.1+
+                            fee_sol: res.fee_sol,
                             timestamp: chrono::Utc::now().timestamp(),
                         };
                         let _ = state_manager.record_trade(trade).await;
@@ -973,7 +973,7 @@ impl CommandHandler {
                     pnl_percent: None,
                     route: "Telegram Override".to_string(),
                     price_impact_pct: res.price_impact_pct,
-                    fee_sol: 0.0,
+                    fee_sol: res.fee_sol,
                     timestamp: chrono::Utc::now().timestamp(),
                 };
                 let _ = state_manager.record_trade(trade).await;
@@ -1062,7 +1062,7 @@ impl CommandHandler {
                             pnl_percent: None,
                             route: "Telegram Override Bundle".to_string(),
                             price_impact_pct: res.price_impact_pct,
-                            fee_sol: 0.0,
+                            fee_sol: res.fee_sol,
                             timestamp: chrono::Utc::now().timestamp(),
                         };
                         let _ = state_manager.record_trade(trade).await;

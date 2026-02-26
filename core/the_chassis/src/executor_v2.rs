@@ -96,6 +96,63 @@ impl TradeExecutor {
         }
     }
 
+    /// ⚡ DYNAMIC PRIORITY FEE — Consulta Helius para el fee óptimo real.
+    ///
+    /// Usa `getPriorityFeeEstimate` de Helius RPC con nivel "High" para equilibrar
+    /// velocidad y coste. Fallback transparente al valor por defecto si Helius no responde.
+    pub async fn get_dynamic_priority_fee(&self) -> u64 {
+        const DEFAULT: u64 = 100_000; // 100k micro-lamports
+        const MAX_FEE: u64 = 2_000_000; // 2M micro-lamports cap
+
+        let api_key = match std::env::var("HELIUS_API_KEY") {
+            Ok(k) => k,
+            Err(_) => return DEFAULT,
+        };
+
+        let url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "dynamic-fee",
+            "method": "getPriorityFeeEstimate",
+            "params": [{
+                "accountKeys": ["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"],
+                "options": { "priorityLevel": "High" }
+            }]
+        });
+
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build() {
+            Ok(c) => c,
+            Err(_) => return DEFAULT,
+        };
+
+        match client.post(&url).json(&body).send().await {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    let fee = json
+                        .get("result")
+                        .and_then(|r| r.get("priorityFeeLevels"))
+                        .and_then(|l| l.get("high"))
+                        .and_then(|v| v.as_f64())
+                        .map(|f| f as u64)
+                        .unwrap_or(DEFAULT);
+                    let capped = fee.min(MAX_FEE);
+                    println!("⛽ [DynFee] Helius: {}µL → Cap: {}µL", fee, capped);
+                    capped
+                }
+                Err(_) => { eprintln!("⚠️ [DynFee] Parse error → fallback"); DEFAULT }
+            },
+            Err(_) => { eprintln!("⚠️ [DynFee] Timeout → fallback"); DEFAULT }
+        }
+    }
+
+    /// Convierte lamports de Jito tip a SOL
+    #[inline]
+    fn lamports_to_sol(lamports: u64) -> f64 {
+        lamports as f64 / 1_000_000_000.0
+    }
+
     /// Actuador asíncrono con control de tracción para slippage dinámico y Jito Tips (Zero-Allocation)
     pub async fn execute_sell_with_retry(
         &self,
@@ -348,7 +405,8 @@ impl TradeExecutor {
                 .await?
                 .to_string()
         };
-        let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
+        let signature = solana_sdk::signature::Signature::from_str(&signature_str)
+            .unwrap_or(solana_sdk::signature::Signature::default());
 
         println!("✅ Transacción confirmada!\n");
         println!("🔗 Signature: {}", signature);
@@ -377,6 +435,7 @@ impl TradeExecutor {
                 .collect::<Vec<_>>()
                 .join(" → "),
             price_impact_pct: price_impact,
+            fee_sol: Self::lamports_to_sol(active_jito_tip),
         };
 
         result.print_summary();
@@ -402,7 +461,10 @@ impl TradeExecutor {
             return self.simulate_buy_v2(token_mint, amount_sol).await;
         }
 
-        let keypair = wallet_keypair.unwrap();
+        let keypair = match wallet_keypair {
+            Some(kp) => kp,
+            None => anyhow::bail!("Keypair requerido para HFT execution"),
+        };
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         let user_pubkey = keypair.pubkey();
 
@@ -465,7 +527,8 @@ impl TradeExecutor {
                 .await?
                 .to_string()
         };
-        let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
+        let signature = solana_sdk::signature::Signature::from_str(&signature_str)
+            .unwrap_or(solana_sdk::signature::Signature::default());
 
         let out_amount_raw = quote.out_amount.parse::<f64>().unwrap_or(0.0);
         let price_impact = quote.price_impact_pct.parse::<f64>().unwrap_or(0.0);
@@ -488,6 +551,7 @@ impl TradeExecutor {
             output_amount,
             route: "Jupiter Adjusted".to_string(),
             price_impact_pct: price_impact,
+            fee_sol: Self::lamports_to_sol(priority_fee_lamports),
         })
     }
 
@@ -500,6 +564,7 @@ impl TradeExecutor {
             output_amount: amount_sol * 1000.0, // Mock rate
             route: "Simulated HFT Route".to_string(),
             price_impact_pct: 0.1,
+            fee_sol: 0.0,
         })
     }
 
@@ -524,7 +589,10 @@ impl TradeExecutor {
             return self.simulate_buy(&token_mint, amount_sol).await;
         }
 
-        let keypair = wallet_keypair.unwrap();
+        let keypair = match wallet_keypair {
+            Some(kp) => kp,
+            None => anyhow::bail!("Keypair requerido para ejecución de compra"),
+        };
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
 
         // 1. INTENTO VÍA RAYDIUM DIRECT (Prioridad Absoluta)
@@ -576,6 +644,9 @@ impl TradeExecutor {
                             0.0
                         };
 
+                        let raydium_jito = crate::config::AppConfig::load()
+                            .map(|c| c.global_settings.jito_tip_lamports)
+                            .unwrap_or(100_000);
                         return Ok(BuyResult {
                             signature: sig,
                             sol_spent: amount_sol,
@@ -586,6 +657,7 @@ impl TradeExecutor {
                                 if found_oracle { "OK" } else { "BYPASSED" }
                             ),
                             price_impact_pct: 0.0,
+                            fee_sol: Self::lamports_to_sol(raydium_jito),
                         });
                     }
                     Err(e) => {
@@ -651,6 +723,8 @@ impl TradeExecutor {
             .context("Error firmando transacción con keypair")?;
 
         println!("📡 Broadcasting transacción a Solana...");
+        // ⚡ DYNAMIC FEE: Obtener fee óptimo de Helius en tiempo real
+        let dynamic_priority_fee = self.get_dynamic_priority_fee().await;
         let jito_tip_lamports = crate::config::AppConfig::load()
             .map(|c| c.global_settings.jito_tip_lamports)
             .unwrap_or(100_000);
@@ -684,7 +758,8 @@ impl TradeExecutor {
                 .await?
                 .to_string()
         };
-        let signature = solana_sdk::signature::Signature::from_str(&signature_str).unwrap();
+        let signature = solana_sdk::signature::Signature::from_str(&signature_str)
+            .unwrap_or(solana_sdk::signature::Signature::default());
 
         println!("✅ Compra confirmada!\n");
         println!("🔗 Signature: {}", signature);
@@ -701,6 +776,7 @@ impl TradeExecutor {
                 .collect::<Vec<_>>()
                 .join(" → "),
             price_impact_pct: price_impact,
+            fee_sol: Self::lamports_to_sol(jito_tip_lamports) + Self::microlamports_to_sol(dynamic_priority_fee),
         };
 
         Ok(result)
@@ -724,7 +800,14 @@ impl TradeExecutor {
             price_per_token: amount_sol / 100000.0,
             route: "Simulation".to_string(),
             price_impact_pct: 0.5,
+            fee_sol: 0.0,
         })
+    }
+
+    /// Helper: convierte micro-lamports a SOL (1e12 conversion)
+    #[inline]
+    fn microlamports_to_sol(microlamports: u64) -> f64 {
+        microlamports as f64 / 1_000_000_000_000.0
     }
 
     /// Simula una venta (dry run) con soporte para slippage opcional
@@ -797,6 +880,7 @@ impl TradeExecutor {
             output_amount: output_sol,
             route,
             price_impact_pct: price_impact,
+            fee_sol: 0.0,
         })
     }
 
@@ -933,15 +1017,18 @@ impl TradeExecutor {
 
         // 7. Results
         let mut final_results = Vec::new();
+        // Fee por transacción en el bundle: split del jito_tip entre todas las TXs
+        let fee_per_tx = Self::lamports_to_sol(jito_tip_lamports) / (sell_infos.len() as f64).max(1.0);
         for (_mint, quote, sig) in sell_infos {
             let sol_received =
                 FinancialValidator::parse_price_safe(&quote.out_amount, "Jup")? / 1_000_000_000.0;
             final_results.push(SwapResult {
                 signature: sig,
-                input_amount: 0.0, // Simplificado
+                input_amount: 0.0,
                 output_amount: sol_received,
                 route: "Jupiter Bundle".to_string(),
                 price_impact_pct: 0.0,
+                fee_sol: fee_per_tx,
             });
         }
 
@@ -1104,6 +1191,7 @@ impl TradeExecutor {
             price_per_token,
             route: "Raydium Direct (Degen Mode)".to_string(),
             price_impact_pct: 0.0,
+            fee_sol: 0.0, // Degen mode: fee se captura via jito_tip del AppConfig
         })
     }
 }
