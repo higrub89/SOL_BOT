@@ -184,7 +184,7 @@ impl CommandHandler {
         let mut is_reboot = false;
         match command.trim() {
             "/start" => {
-                let text = "<b>⚜️ THE CHASSIS v2.0.0 ⚜️</b>\n\
+                let text = "<b>⚜️ THE CHASSIS v2.1.0 ⚜️</b>\n\
                     <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
                     <i>Aegis Protocol: Institutional Execution</i>\n\n\
                     <b>⬢ SYSTEM CONTROL</b>\n\
@@ -193,11 +193,13 @@ impl CommandHandler {
                     <b>⬢ TRADING</b>\n\
                     ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
                     ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
-                    ⬡ <code>/panic &lt;MINT&gt;</code>\n\n\
+                    ⬡ <code>/panic &lt;MINT&gt;</code>\n\
+                    ⬡ /panic_all - Liquidate All\n\n\
                     <b>⬢ MONITORING</b>\n\
                     ⬡ /positions - Live Ledger\n\
                     ⬡ /targets - Traceability\n\
                     ⬡ /history - Execution Log\n\
+                    ⬡ /fees - Fee Burn Dashboard\n\
                     ⬡ /stats - Performance Analytics\n\n\
                     <b>⬢ ENGINE</b>\n\
                     ⬡ /hibernate - Halt Ops\n\
@@ -317,6 +319,7 @@ impl CommandHandler {
                     ⬡ /reboot - Hot Reload\n\n\
                     <b>⬢ TRADING</b>\n\
                     ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
+                    ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
                     ⬡ <code>/panic &lt;MINT&gt;</code>\n\
                     ⬡ /panic_all - Liquidate All\n\n\
                     <b>⬢ MONITORING</b>\n\
