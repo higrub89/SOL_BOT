@@ -65,12 +65,21 @@ impl ObservabilityConfig {
 
     /// Auto-detecta el directorio de logs según el entorno
     fn detect_log_dir() -> String {
-        // En Docker: /app/logs (montado como volumen)
+        // En Docker: /app/logs (montado como volumen) o /logs si existe como raíz absoluta
         if std::path::Path::new("/app/logs").exists() {
-            "/app/logs".to_string()
-        } else {
-            "logs".to_string()
+            return "/app/logs".to_string();
         }
+        if std::path::Path::new("/logs").exists() {
+            return "/logs".to_string();
+        }
+        
+        if let Ok(current) = std::env::current_dir() {
+            if current.ends_with("core") {
+                return "../logs".to_string();
+            }
+        }
+        
+        "logs".to_string()
     }
 }
 

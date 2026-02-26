@@ -31,7 +31,7 @@ case "$1" in
             echo -e "${YELLOW}⚠️  El bot ya está corriendo (PID: $(cat $PID_FILE))${NC}"
         else
             mkdir -p "$BOT_DIR/logs"
-            cd "$BOT_DIR/core/the_chassis"
+            cd "$BOT_DIR"
             nohup "$BINARY" monitor > "$LOG" 2>&1 &
             echo $! > "$PID_FILE"
             echo -e "${GREEN}✅ Bot arrancado en background (PID: $(cat $PID_FILE))${NC}"

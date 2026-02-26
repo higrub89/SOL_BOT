@@ -4,7 +4,7 @@
 #  Versión: 1.1.0-luxury | Auto-Buy & Auto-Sell Ready
 # ═══════════════════════════════════════════════════════════════
 
-CHASSIS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/core/the_chassis"
+CHASSIS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Colores
 GREEN='\033[0;32m'
@@ -34,22 +34,22 @@ cd "$CHASSIS_DIR"
 case $choice in
     1)
         echo -e "\n${GREEN}🛡️ Iniciando modo MONITOR...${NC}\n"
-        cargo run
+        cargo run -p the_chassis
         ;;
     2)
         echo -e "\n${GREEN}📡 Iniciando modo SCAN...${NC}\n"
-        cargo run -- scan
+        cargo run -p the_chassis -- scan
         ;;
     3)
         echo -e "\n${YELLOW}💰 Modo COMPRA DIRECTA${NC}"
         read -p "Mint Address: " mint
         read -p "Cantidad SOL: " sol
         echo -e "\n${GREEN}🚀 Ejecutando compra...${NC}\n"
-        cargo run -- buy --mint "$mint" --sol "$sol"
+        cargo run -p the_chassis -- buy --mint "$mint" --sol "$sol"
         ;;
     4)
         echo -e "\n${GREEN}🔧 Compilando The Chassis...${NC}\n"
-        cargo build --release
+        cargo build --release --workspace
         echo -e "\n${GREEN}✅ Compilación completada${NC}"
         ;;
     *)

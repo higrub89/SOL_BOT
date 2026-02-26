@@ -13,10 +13,16 @@ import os
 from datetime import datetime
 
 class AutoAudit:
-    def __init__(self, audit_dir="operational/audits"):
+    def __init__(self, audit_dir=None):
+        if audit_dir is None:
+            # Resolves to bot_trading/operational/audits
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self.audit_dir = os.path.join(base_dir, "operational", "audits")
+        else:
+            self.audit_dir = audit_dir
         self.rugcheck_url = "https://api.rugcheck.xyz/v1/tokens"
         self.dexscreener_url = "https://api.dexscreener.com/latest/dex/tokens"
-        self.audit_dir = audit_dir
+
         
         if not os.path.exists(self.audit_dir):
             os.makedirs(self.audit_dir)
