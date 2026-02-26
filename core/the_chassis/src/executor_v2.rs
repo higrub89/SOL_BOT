@@ -326,7 +326,49 @@ impl TradeExecutor {
             anyhow::bail!("No hay suficiente balance para vender");
         }
 
-        // 2. Obtener quote de Jupiter
+        // ⚡ FAST PATH: Raydium Direct Sell (Prioridad Absoluta en Emergencias)
+        // Latencia: ~50-150ms vs ~300-500ms de Jupiter
+        if let Some(raydium) = &self.raydium {
+            let min_sol_out = raydium.calculate_min_amount_out(
+                amount_to_sell,
+                active_slippage,
+            );
+
+            println!("⚡ [FAST PATH] Intentando venta directa en Raydium...");
+            match raydium
+                .execute_sell_with_jito(
+                    &token_mint,
+                    amount_to_sell,
+                    min_sol_out,
+                    active_jito_tip,
+                    keypair,
+                )
+                .await
+            {
+                Ok(sig) => {
+                    // Estimación de SOL recibido: no podemos saberlo sin confirmar la TX,
+                    // pero estimamos como fallback para el TradeRecord
+                    let estimated_sol = min_sol_out as f64 / 1_000_000_000.0;
+                    println!("✅ [RAYDIUM FAST EXIT] Sig: {}", sig);
+                    return Ok(SwapResult {
+                        signature: sig,
+                        input_amount: amount_to_sell as f64,
+                        output_amount: estimated_sol,
+                        route: "Raydium Direct".to_string(),
+                        price_impact_pct: active_slippage as f64 / 100.0,
+                        fee_sol: Self::lamports_to_sol(active_jito_tip),
+                    });
+                }
+                Err(e) => {
+                    eprintln!(
+                        "⚠️ [FAST PATH] Raydium no disponible: {}. Activando STANDARD PATH (Jupiter)...",
+                        e
+                    );
+                }
+            }
+        }
+
+        // 2. STANDARD PATH: Obtener quote de Jupiter
         println!("🔍 Consultando Jupiter para mejor ruta...");
 
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
