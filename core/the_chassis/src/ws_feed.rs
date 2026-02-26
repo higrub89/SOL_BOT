@@ -30,6 +30,7 @@ use crate::amm_math::{
     new_sol_price_tracker, parse_spl_token_account_amount, SolPriceUsd, VaultPair,
 };
 use crate::price_feed::{MonitoredToken, PriceCache, PriceSource, PriceUpdate};
+use crate::telegram::TelegramNotifier;
 
 /// Ejecuta el loop de WebSocket que monitorea vault accounts
 /// y calcula precios on-chain en tiempo real.
@@ -41,6 +42,9 @@ pub async fn ws_price_loop(
 ) {
     let mut reconnect_delay = Duration::from_secs(2);
     let max_reconnect_delay = Duration::from_secs(60);
+    let mut reconnection_count: u32 = 0;
+    let staleness_timeout = Duration::from_secs(60); // WS es más lento que gRPC
+    let notifier = TelegramNotifier::new();
 
     // ── Construir vault tracking ──
     let vault_pairs: Vec<VaultPair> = tokens
@@ -129,6 +133,15 @@ pub async fn ws_price_loop(
                 println!("✅ [WebSocket] Conexión establecida");
                 reconnect_delay = Duration::from_secs(2);
 
+                // Notificar reconexión por Telegram (solo si es una reconexión, no la primera)
+                if reconnection_count > 0 {
+                    let _ = notifier.send_connectivity_alert(
+                        "WebSocket RPC",
+                        true,
+                        &format!("<b>Reconexión #{}</b> exitosa.", reconnection_count),
+                    ).await;
+                }
+
                 let (mut write, mut read) = ws_stream.split();
 
                 // ── Suscribirse a cada vault account ──
@@ -171,11 +184,40 @@ pub async fn ws_price_loop(
 
                 let mut update_count: u64 = 0;
                 let start_time = Instant::now();
+                let mut last_data_at = Instant::now();
 
                 // ── Procesar mensajes entrantes ──
-                while let Some(msg_result) = read.next().await {
+                loop {
+                    // Watchdog: detectar stream zombie
+                    let msg_result = tokio::select! {
+                        msg = read.next() => msg,
+                        _ = tokio::time::sleep(staleness_timeout) => {
+                            let stale_secs = last_data_at.elapsed().as_secs();
+                            eprintln!(
+                                "🧊 [WebSocket] Stream ZOMBIE detectado — sin datos hace {}s",
+                                stale_secs
+                            );
+                            let _ = notifier.send_connectivity_alert(
+                                "WebSocket RPC",
+                                false,
+                                &format!(
+                                    "🧊 <b>Stream zombie</b> — sin datos hace {}s\n\
+                                     Updates antes del corte: {}",
+                                    stale_secs, update_count
+                                ),
+                            ).await;
+                            break;
+                        }
+                    };
+
+                    let msg_result = match msg_result {
+                        Some(r) => r,
+                        None => break, // Stream cerrado
+                    };
+
                     match msg_result {
                         Ok(msg) => {
+                            last_data_at = Instant::now(); // Reset watchdog
                             if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
                                 if let Ok(json_msg) = serde_json::from_str::<Value>(&text) {
                                     // Caso 1: Respuesta a suscripción (contiene "id" y "result")
@@ -352,16 +394,35 @@ pub async fn ws_price_loop(
                     "⚠️  [WebSocket] Conexión cerrada (recibidos {} updates)",
                     update_count
                 );
+                let _ = notifier.send_connectivity_alert(
+                    "WebSocket RPC",
+                    false,
+                    &format!(
+                        "Conexión cerrada.\n\
+                         <b>Updates recibidos:</b> {}\n\
+                         Reconectando con backoff...",
+                        update_count
+                    ),
+                ).await;
                 // Limpiar suscripciones
                 sub_to_vault.write().await.clear();
             }
             Err(e) => {
                 eprintln!("❌ [WebSocket] Error de conexión: {}", e);
+                let _ = notifier.send_connectivity_alert(
+                    "WebSocket RPC",
+                    false,
+                    &format!("Error de conexión: <code>{}</code>", e),
+                ).await;
             }
         }
 
         // Exponential backoff
-        eprintln!("🔄 [WebSocket] Reconectando en {:?}...", reconnect_delay);
+        reconnection_count += 1;
+        eprintln!(
+            "🔄 [WebSocket] Reconexión #{} en {:?}...",
+            reconnection_count, reconnect_delay
+        );
         tokio::time::sleep(reconnect_delay).await;
         reconnect_delay = (reconnect_delay * 2).min(max_reconnect_delay);
     }

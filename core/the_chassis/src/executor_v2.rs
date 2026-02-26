@@ -1270,4 +1270,16 @@ mod tests {
         let swap_result = result.unwrap();
         assert!(swap_result.signature.starts_with("SIM_"));
     }
+
+    #[test]
+    fn test_lamports_to_sol() {
+        assert_eq!(TradeExecutor::lamports_to_sol(1_000_000_000), 1.0);
+        assert_eq!(TradeExecutor::lamports_to_sol(500_000_000), 0.5);
+    }
+
+    #[test]
+    fn test_microlamports_to_sol() {
+        assert_eq!(TradeExecutor::microlamports_to_sol(1_000_000_000_000), 1.0);
+        assert_eq!(TradeExecutor::microlamports_to_sol(100_000), 0.0000001);
+    }
 }

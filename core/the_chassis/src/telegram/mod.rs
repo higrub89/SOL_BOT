@@ -122,6 +122,42 @@ impl TelegramNotifier {
         self.send_message(&formatted, true).await
     }
 
+    /// Envía una alerta de conectividad (desconexión/reconexión de feeds)
+    pub async fn send_connectivity_alert(
+        &self,
+        feed_name: &str,
+        is_connected: bool,
+        details: &str,
+    ) -> Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let (icon, status) = if is_connected {
+            ("✅", "RECONECTADO")
+        } else {
+            ("⚠️", "DESCONECTADO")
+        };
+
+        let message = format!(
+            "<b>{} FEED {}</b>\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <b>⬢ Feed:</b> <code>{}</code>\n\
+            <b>⬡ Estado:</b> {}\n\
+            {}\n\
+            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
+            <i>🕰 {}</i>",
+            icon,
+            status,
+            feed_name,
+            if is_connected { "🟢 Online" } else { "🔴 Offline" },
+            details,
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        );
+
+        self.send_message(&message, true).await
+    }
+
     /// Envía un alerta de error crítico
     pub async fn send_error_alert(&self, error: &str) -> Result<()> {
         if !self.enabled {
@@ -171,3 +207,4 @@ impl TelegramNotifier {
         self.enabled
     }
 }
+pub mod commands;

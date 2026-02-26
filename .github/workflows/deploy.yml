@@ -1,4 +1,4 @@
-name: 🚀 Deploy Bot to GCP
+name: 🚀 Deploy Bot to GCP (Institutional Grade)
 
 on:
   push:
@@ -16,7 +16,7 @@ on:
       reason:
         description: 'Motivo del deploy manual'
         required: false
-        default: 'Deploy manual'
+        default: 'Calibración manual'
 
 env:
   REGISTRY: ghcr.io
@@ -24,7 +24,7 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────
-  # JOB 1: Detectar tipo de cambio
+  # JOB 1: ECU - Detección Quirúrgica de Cambios
   # ──────────────────────────────────────────────
   detect:
     name: 🔍 Detectar Cambios
@@ -52,8 +52,7 @@ jobs:
               - 'docker-compose.yml'
 
   # ──────────────────────────────────────────────
-  # JOB 2: Build y Push imagen (solo si hay cambios de código)
-  # Se ejecuta en GitHub Actions — sin timeout en el servidor
+  # JOB 2: Compilación y Ensamblaje en Pit-Lane
   # ──────────────────────────────────────────────
   build:
     name: 🐳 Build & Push Docker Image
@@ -68,7 +67,7 @@ jobs:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
-      - name: 🔧 Instalar dependencias del sistema (para cargo check)
+      - name: 🔧 Instalar dependencias del sistema
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y protobuf-compiler libprotobuf-dev libssl-dev pkg-config
@@ -76,7 +75,7 @@ jobs:
       - name: 🦀 Instalar Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: 📦 Cache Cargo
+      - name: 📦 Cache Cargo (Optimización Térmica)
         uses: actions/cache@v4
         with:
           path: |
@@ -87,17 +86,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: ✅ Verificar compilación (cargo check)
+      - name: ✅ Verificar integridad estructural (Fail-Fast)
         run: cargo check --workspace --release
 
-      - name: 🔐 Login a GitHub Container Registry (GHCR)
+      - name: 🔐 Login a GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🏷️ Extraer metadata (tags, labels)
+      - name: 🏷️ Extraer metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -106,10 +105,10 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
-      - name: ⚡ Configurar Docker Buildx (con caché)
+      - name: ⚡ Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🏗️ Build y Push imagen a GHCR
+      - name: 🏗️ Build y Push a GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -118,18 +117,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
 
   # ──────────────────────────────────────────────
-  # JOB 3: Deploy al servidor GCP
-  # El servidor SOLO hace pull + restart (sin compilar)
+  # JOB 3: Inyección en Bare-Metal (Zero-Downtime)
   # ──────────────────────────────────────────────
   deploy:
-    name: 🚀 Deploy a GCP
+    name: 🚀 Deploy a Producción
     runs-on: ubuntu-latest
     needs: [detect, build]
-    # Ejecutar si: build terminó OK (code change) O si solo hay config change
     if: |
       always() &&
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
@@ -146,7 +141,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.GCP_SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: 📤 Sincronizar archivos de configuración al servidor
+      - name: 📤 Sincronizar telemetría (Rsync estricto)
         run: |
           rsync -avz \
             --exclude='.git' \
@@ -160,71 +155,88 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             ./ ${{ secrets.GCP_USER }}@${{ secrets.GCP_SERVER_IP }}:~/bot_trading/
 
-      - name: 🔄 Deploy en servidor (pull imagen + restart)
+      - name: 🔄 Ejecución de Despliegue Crítico (con Rollback)
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          # Inyección de secretos cifrados vía entorno, no en el comando
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          IMAGE: ghcr.io/${{ env.IMAGE_NAME }}
+          CODE_CHANGED: ${{ needs.detect.outputs.code_changed }}
+          COMMIT_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.GCP_SERVER_IP }}
           username: ${{ secrets.GCP_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
           timeout: 5m
+          envs: GH_TOKEN,ACTOR,IMAGE,CODE_CHANGED,COMMIT_SHA
           script: |
             set -e
             cd ~/bot_trading
 
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🏎️  THE CHASSIS — Deploy Automático"
+            echo "🏎️  THE CHASSIS — Despliegue Institucional"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "📅 Fecha: $(date '+%Y-%m-%d %H:%M:%S UTC')"
-            echo "📝 Commit: ${{ github.sha }}"
-            echo "👤 Autor:  ${{ github.actor }}"
+            
+            # Login seguro (el token no se expone en ps aux)
+            echo "$GH_TOKEN" | sudo docker login ghcr.io -u "$ACTOR" --password-stdin
 
-            # Login a GHCR para hacer pull
-            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io \
-              -u ${{ github.actor }} --password-stdin
+            if [ "$CODE_CHANGED" == "true" ]; then
+              echo "🐳 Descargando nueva imagen de GHCR..."
+              
+              # 1. Crear punto de restauración del motor actual
+              sudo docker tag $IMAGE:latest $IMAGE:rollback || true
+              
+              # 2. Descargar la nueva compilación
+              sudo docker pull $IMAGE:latest
 
-            if [ "${{ needs.detect.outputs.code_changed }}" == "true" ]; then
-              echo "🐳 CAMBIO EN CÓDIGO: Descargando nueva imagen de GHCR..."
-              sudo docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
-
-              # Actualizar docker-compose para usar imagen pre-compilada
-              echo "🔄 Reiniciando con la nueva imagen..."
-              sudo docker compose down
-              sudo docker compose up -d
+              # 3. Sustitución sin desconexión (Zero-Downtime Recreate)
+              echo "⚡ Realizando hot-swap del contenedor..."
+              sudo docker compose up -d --no-deps --build bot
+              
+              # 4. Telemetría de arranque
+              echo "⏳ Evaluando estabilidad del motor (15s)..."
+              sleep 15
+              
+              # 5. Healthcheck y Rollback Automático
+              STATUS=$(sudo docker inspect -f '{{.State.Status}}' bot)
+              if [ "$STATUS" != "running" ]; then
+                echo "💥 ALERTA CRÍTICA: Falla de encendido detectada."
+                echo "🔄 Iniciando protocolo ROLLBACK inmediato..."
+                
+                sudo docker tag $IMAGE:rollback $IMAGE:latest
+                sudo docker compose up -d --no-deps bot
+                
+                echo "❌ Despliegue abortado. Motor restaurado a la versión previa."
+                exit 1 # Forzar fallo en Actions para notificar en Telegram
+              fi
             else
-              echo "📂 SOLO CONFIG: Reinicio rápido (sin pull)..."
+              echo "📂 MODO CALIBRACIÓN: Aplicando configuración en caliente..."
               sudo docker compose up -d
               sudo docker compose restart bot
             fi
 
-            echo "⏳ Esperando arranque (15s)..."
-            sleep 15
+            echo "✅ Ingeniería acoplada con éxito."
 
-            echo "📋 Logs de inicio:"
-            sudo docker compose logs --tail=25
-
-            echo ""
-            echo "✅ Deploy completado en segundos!"
-
-      - name: 📱 Notificar en Telegram
+      - name: 📱 Notificación a Centro de Mando (Telegram)
         if: always()
         run: |
           STATUS="${{ job.status }}"
           if [ "$STATUS" = "success" ]; then
-            EMOJI="✅"
-            MSG="Deploy exitoso"
+            EMOJI="🟢"
+            MSG="DESPLIEGUE EXITOSO"
           else
-            EMOJI="❌"
-            MSG="Deploy FALLIDO"
+            EMOJI="🔴"
+            MSG="FALLO EN DESPLIEGUE / ROLLBACK EJECUTADO"
           fi
 
           CODE_CHANGED="${{ needs.detect.outputs.code_changed }}"
           if [ "$CODE_CHANGED" = "true" ]; then
-            DEPLOY_TYPE="🐳 Nueva imagen compilada"
+            DEPLOY_TYPE="🐳 Inyección de Nuevo Binario (C/Rust)"
           else
-            DEPLOY_TYPE="⚡ Zero-Build (solo config)"
+            DEPLOY_TYPE="⚡ Calibración de ECU (Configuración)"
           fi
 
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
 
@@ -236,7 +248,6 @@ jobs:
           <b>━━━━━━━━━━━━━━━━━━━━━━</b>
           <b>⬡ Commit:</b> <code>${SHORT_SHA}</code>
           <b>⬡ Tipo:</b> ${DEPLOY_TYPE}
-          <b>⬡ Mensaje:</b> ${COMMIT_MSG}
           <b>⬡ Autor:</b> ${{ github.actor }}
 
-          <i>🤖 Bot actualizado y corriendo 24/7</i>"
+          <i>Sistema operando bajo estándares de excelencia.</i>"

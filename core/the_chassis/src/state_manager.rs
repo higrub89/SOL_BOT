@@ -814,4 +814,41 @@ mod tests {
         let stats = manager.get_stats().await.unwrap();
         assert_eq!(stats.active_positions, 0);
     }
+
+    #[tokio::test]
+    async fn test_trade_history_and_fees() {
+        let db_path = "file:test_trade_history?mode=memory&cache=shared";
+        let manager = StateManager::new(db_path).await.unwrap();
+
+        let trade = TradeRecord {
+            id: None,
+            signature: "SIG_TEST_123".to_string(),
+            token_mint: "MINT_XYZ".to_string(),
+            symbol: "XYZ".to_string(),
+            trade_type: "BUY".to_string(),
+            amount_sol: 0.5,
+            tokens_amount: 1000.0,
+            price: 0.0005,
+            pnl_sol: Some(0.1),
+            pnl_percent: Some(20.0),
+            route: "Jupiter".to_string(),
+            price_impact_pct: 0.1,
+            fee_sol: 0.01,
+            timestamp: Utc::now().timestamp(),
+        };
+
+        manager.record_trade(trade).await.unwrap();
+
+        let history = manager.get_trade_history(10).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].signature, "SIG_TEST_123");
+
+        let fee_stats = manager.get_fee_stats(None).await.unwrap();
+        assert_eq!(fee_stats.total_trades, 1);
+        assert_eq!(fee_stats.total_fee_sol, 0.01);
+        assert_eq!(fee_stats.total_pnl_gross, 0.1);
+        // net_pnl = gross - fee = 0.1 - 0.01 = 0.09
+        // comparing floating point directly can be flaky, but should be fine for this exact value
+        assert!((fee_stats.net_pnl_sol - 0.09).abs() < f64::EPSILON);
+    }
 }

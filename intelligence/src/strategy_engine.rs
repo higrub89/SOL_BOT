@@ -4,8 +4,19 @@
 //! Permite backtesting seguro y ejecución en tiempo real con la misma lógica.
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 use std::fmt::Debug;
+use std::sync::RwLock;
+
+/// Razones estandarizadas y libres de heap para una venta
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SellReason {
+    TakeProfit,
+    StopLoss,
+    MomentumLoss,
+    SignalReversal,
+    Emergency,
+}
 
 /// Representa una acción de trading sugerida por una estrategia
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +33,7 @@ pub enum TradeAction {
     /// Vender (Exit Long)
     Sell {
         /// Razón de la venta (Take Profit, Stop Loss, Signal Reversal)
-        reason: String,
+        reason: SellReason,
         /// Porcentaje a vender (0-100)
         amount_percent: u8,
     },
@@ -33,7 +44,7 @@ pub enum TradeAction {
 /// Datos de mercado estandarizados para alimentar las estrategias
 #[derive(Debug, Clone)]
 pub struct MarketData {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp_ms: u64,
     pub price: f64,
     pub volume_24h: f64,
     pub liquidity: f64,
@@ -46,13 +57,13 @@ pub trait Strategy: Debug + Send + Sync {
     fn name(&self) -> &str;
     
     /// Inicializa la estrategia (carga modelos, configura indicadores)
-    fn initialize(&mut self) -> Result<()>;
+    fn initialize(&self) -> Result<()>;
     
     /// Procesa una actualización de precio y devuelve una decisión
-    fn on_price_update(&mut self, data: &MarketData) -> Result<TradeAction>;
+    fn on_price_update(&self, data: &MarketData) -> Result<TradeAction>;
     
     /// Opcional: Procesa eventos arbitrarios (noticias, tweets)
-    fn on_event(&mut self, _event_type: &str, _payload: &str) -> Result<TradeAction> {
+    fn on_event(&self, _event_type: &str, _payload: &str) -> Result<TradeAction> {
         Ok(TradeAction::Hold)
     }
 }
@@ -64,7 +75,7 @@ pub trait Strategy: Debug + Send + Sync {
 #[derive(Debug)]
 pub struct SimpleMomentumStrategy {
     symbol: String,
-    last_price: Option<f64>,
+    last_price: RwLock<Option<f64>>,
     momentum_threshold: f64,
 }
 
@@ -72,7 +83,7 @@ impl SimpleMomentumStrategy {
     pub fn new(symbol: String, threshold: f64) -> Self {
         Self {
             symbol,
-            last_price: None,
+            last_price: RwLock::new(None),
             momentum_threshold: threshold,
         }
     }
@@ -83,15 +94,17 @@ impl Strategy for SimpleMomentumStrategy {
         "SimpleMomentum"
     }
 
-    fn initialize(&mut self) -> Result<()> {
+    fn initialize(&self) -> Result<()> {
         println!("🚀 Estrategia SimpleMomentum inicializada para {}", self.symbol);
         Ok(())
     }
 
-    fn on_price_update(&mut self, data: &MarketData) -> Result<TradeAction> {
+    fn on_price_update(&self, data: &MarketData) -> Result<TradeAction> {
         let current_price = data.price;
         
-        let action = if let Some(last) = self.last_price {
+        let mut last_price_guard = self.last_price.write().unwrap();
+        
+        let action = if let Some(last) = *last_price_guard {
             let change_pct = (current_price - last) / last * 100.0;
             
             if change_pct > self.momentum_threshold {
@@ -102,7 +115,7 @@ impl Strategy for SimpleMomentumStrategy {
                 }
             } else if change_pct < -self.momentum_threshold {
                 TradeAction::Sell {
-                    reason: "Momentum Loss".to_string(),
+                    reason: SellReason::MomentumLoss,
                     amount_percent: 100,
                 }
             } else {
@@ -112,7 +125,7 @@ impl Strategy for SimpleMomentumStrategy {
             TradeAction::Hold
         };
         
-        self.last_price = Some(current_price);
+        *last_price_guard = Some(current_price);
         Ok(action)
     }
 }

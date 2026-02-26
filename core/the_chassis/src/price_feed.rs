@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::geyser::{GeyserClient, GeyserConfig};
 use crate::scanner::PriceScanner;
+use crate::telegram::TelegramNotifier;
 
 /// Una actualización de precio normalizada, independiente de la fuente
 #[derive(Debug, Clone)]
@@ -337,6 +338,9 @@ impl PriceFeed {
 
         let mut reconnect_delay = Duration::from_secs(2);
         let max_reconnect_delay = Duration::from_secs(60);
+        let mut reconnection_count: u32 = 0;
+        let staleness_timeout = Duration::from_secs(45);
+        let notifier = TelegramNotifier::new();
 
         loop {
             let tokens = {
@@ -411,6 +415,15 @@ impl PriceFeed {
                         println!("✅ [Geyser] Conexión establecida");
                         reconnect_delay = Duration::from_secs(2);
 
+                        // Notificar reconexión por Telegram (solo si es una reconexión, no la primera)
+                        if reconnection_count > 0 {
+                            let _ = notifier.send_connectivity_alert(
+                                "Geyser gRPC",
+                                true,
+                                &format!("<b>Reconexión #{}</b> exitosa.", reconnection_count),
+                            ).await;
+                        }
+
                         // Crear suscripción a todas las vault accounts
                         let (sub_tx, sub_rx) = mpsc::channel(100);
 
@@ -454,11 +467,38 @@ impl PriceFeed {
                                     all_vault_addresses.len()
                                 );
                                 let mut update_count: u64 = 0;
+                                let mut last_data_at = Instant::now();
 
-                                while let Ok(Some(update)) = stream.message().await {
-                                    if let Some(event) = update.update_oneof {
-                                        match event {
-                                        crate::generated::geyser::subscribe_update::UpdateOneof::Account(acc) => {
+                                loop {
+                                    // Watchdog: si no recibimos datos en `staleness_timeout`, 
+                                    // asumimos stream zombie y forzamos reconexión
+                                    let update = tokio::select! {
+                                        msg = stream.message() => msg,
+                                        _ = tokio::time::sleep(staleness_timeout) => {
+                                            let stale_secs = last_data_at.elapsed().as_secs();
+                                            eprintln!(
+                                                "🧊 [Geyser] Stream ZOMBIE detectado — sin datos hace {}s",
+                                                stale_secs
+                                            );
+                                            let _ = notifier.send_connectivity_alert(
+                                                "Geyser gRPC",
+                                                false,
+                                                &format!(
+                                                    "🧊 <b>Stream zombie</b> — sin datos hace {}s\n\
+                                                     Updates antes del corte: {}",
+                                                    stale_secs, update_count
+                                                ),
+                                            ).await;
+                                            break;
+                                        }
+                                    };
+
+                                    match update {
+                                        Ok(Some(update)) => {
+                                            last_data_at = Instant::now();
+                                            if let Some(event) = update.update_oneof {
+                                                match event {
+                                                    crate::generated::geyser::subscribe_update::UpdateOneof::Account(acc) => {
                                             if let Some(info) = acc.account {
                                                 let vault_address = bs58::encode(&info.pubkey).into_string();
 
@@ -559,14 +599,35 @@ impl PriceFeed {
                                             }
                                         },
                                         crate::generated::geyser::subscribe_update::UpdateOneof::Ping(_) => {
-                                            // Heartbeat — conexión viva
+                                            // Heartbeat — conexión viva (reset watchdog)
+                                            last_data_at = Instant::now();
                                         },
                                         _ => {} // Ignorar otros eventos
                                     }
                                     }
+                                        }
+                                        Ok(None) => {
+                                            // Stream cerrado limpiamente
+                                            break;
+                                        }
+                                        Err(e) => {
+                                            eprintln!("❌ [Geyser] Error en stream: {}", e);
+                                            break;
+                                        }
+                                    }
                                 }
 
                                 println!("⚠️  [Geyser] Stream cerrado por el servidor (recibidos {} updates)", update_count);
+                                let _ = notifier.send_connectivity_alert(
+                                    "Geyser gRPC",
+                                    false,
+                                    &format!(
+                                        "Stream cerrado por el servidor.\n\
+                                         <b>Updates recibidos:</b> {}\n\
+                                         Reconectando con backoff...",
+                                        update_count
+                                    ),
+                                ).await;
                             }
                             Err(e) => {
                                 eprintln!("❌ [Geyser] Error iniciando stream: {}", e);
@@ -575,11 +636,20 @@ impl PriceFeed {
                     }
                     Err(e) => {
                         eprintln!("❌ [Geyser] Error de conexión: {}", e);
+                        let _ = notifier.send_connectivity_alert(
+                            "Geyser gRPC",
+                            false,
+                            &format!("Error de conexión: <code>{}</code>", e),
+                        ).await;
                     }
                 }
 
                 // Exponential backoff para reconexión
-                eprintln!("🔄 [Geyser] Reconectando en {:?}...", reconnect_delay);
+                reconnection_count += 1;
+                eprintln!(
+                    "🔄 [Geyser] Reconexión #{} en {:?}...",
+                    reconnection_count, reconnect_delay
+                );
                 tokio::time::sleep(reconnect_delay).await;
                 reconnect_delay = (reconnect_delay * 2).min(max_reconnect_delay);
             }

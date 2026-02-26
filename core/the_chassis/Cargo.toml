@@ -58,6 +58,7 @@ clap = { version = "4.0", features = ["derive"] } # 🚀 CLI Argument handling
 bytemuck = "1.25.0"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 deadpool-sqlite = "0.8.0"
+intelligence_rs = { path = "../../intelligence" }
 
 [[bin]]
 name = "the_chassis_app"

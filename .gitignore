@@ -4,6 +4,7 @@
 
 # SECURITY — NEVER COMMIT
 .env
+!.env.example
 operational/wallets/*.key
 operational/wallets/*.json
 operational/wallets/*.txt

@@ -29,8 +29,7 @@ pub mod price_feed;
 pub mod raydium;
 pub mod scanner;
 pub mod state_manager;
-pub mod telegram;
-pub mod telegram_commands;
+pub mod telegram; // El módulo telegram ahora incluye commands internamente
 pub mod trailing_sl;
 pub mod validation;
 pub mod wallet;
@@ -55,7 +54,7 @@ use liquidity_monitor::LiquidityMonitor;
 use price_feed::{MonitoredToken, PriceFeed, PriceFeedConfig};
 use state_manager::StateManager;
 use telegram::TelegramNotifier;
-use telegram_commands::CommandHandler;
+use telegram::commands::CommandHandler;
 use trailing_sl::TrailingStopLoss;
 use wallet::{load_keypair_from_env, WalletMonitor};
 
@@ -394,9 +393,9 @@ async fn run_monitor_mode() -> Result<()> {
     tokio::spawn(async move {
         loop {
             if let Ok(current_balance) = hibernate_wallet.get_sol_balance() {
-                let is_hibernating = telegram_commands::CommandHandler::is_hibernating();
+                let is_hibernating = telegram::commands::CommandHandler::is_hibernating();
                 if current_balance < hibernate_min_balance && !is_hibernating {
-                    telegram_commands::HIBERNATION_MODE
+                    telegram::commands::HIBERNATION_MODE
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                     let _ = hibernate_telegram
                         .send_message(
@@ -408,7 +407,7 @@ async fn run_monitor_mode() -> Result<()> {
                         )
                         .await;
                 } else if current_balance >= (hibernate_min_balance + 0.04) && is_hibernating {
-                    telegram_commands::HIBERNATION_MODE
+                    telegram::commands::HIBERNATION_MODE
                         .store(false, std::sync::atomic::Ordering::Relaxed);
                     let _ = hibernate_telegram
                         .send_message(
@@ -539,7 +538,7 @@ async fn run_monitor_mode() -> Result<()> {
             // --- 💰 TAKE PROFIT 1 💰 ---
             let tp_target_percent = target.tp_percent.unwrap_or(100.0);
             if !target.tp_triggered && current_gain_percent >= tp_target_percent {
-                if !telegram_commands::CommandHandler::is_hibernating()
+                if !telegram::commands::CommandHandler::is_hibernating()
                     && app_config.global_settings.auto_execute
                     && !tp1_attempted.contains(&target.token_mint)
                 {
@@ -617,7 +616,7 @@ async fn run_monitor_mode() -> Result<()> {
                 && !target.tp2_triggered
                 && current_gain_percent >= tp2_target_percent
             {
-                if !telegram_commands::CommandHandler::is_hibernating()
+                if !telegram::commands::CommandHandler::is_hibernating()
                     && app_config.global_settings.auto_execute
                     && !tp2_attempted.contains(&target.token_mint)
                 {
@@ -686,7 +685,7 @@ async fn run_monitor_mode() -> Result<()> {
 
             // --- 🚨 STOP LOSS (EMERGENCY) 🚨 ---
             if dd <= effective_sl_percent {
-                if telegram_commands::CommandHandler::is_hibernating() {
+                if telegram::commands::CommandHandler::is_hibernating() {
                     if !sl_alerted.contains(&target.token_mint) {
                         sl_alerted.insert(target.token_mint.clone());
                         let _ = telegram_clone.send_message(&format!("🛑 <b>SL de {} ({:.2}%) alcanzado pero bot hibernando.</b> Vende en Jupiter.", target.symbol, dd), true).await;
