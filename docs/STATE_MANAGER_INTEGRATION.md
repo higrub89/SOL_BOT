@@ -1,347 +1,184 @@
-# 🔄 State Manager Integration Guide
-**Fecha:** 2026-02-11  
-**Objetivo:** Integrar el State Manager en el flujo de monitoreo existente
+# 🔄 State Manager — Estado Real v2.1
+
+**Actualizado:** 2026-02-26  
+**Estado:** ✅ COMPLETAMENTE INTEGRADO
+
+> Este documento refleja el estado **actual e implementado** del sistema.
+> La integración descrita aquí está en producción desde v2.1.
 
 ---
 
-## 📋 Cambios Necesarios en `lib.rs`
+## ✅ Estado de Integración
 
-### 1. Inicializar State Manager al arrancar
+| Componente | Estado | Notas |
+|---|---|---|
+| StateManager init en lib.rs | ✅ Activo | `trading_state.db` |
+| Migración trades existentes | ✅ Activo | `fee_sol DEFAULT 0.0` |
+| record_trade en BUY manual | ✅ v2.1 | `fee_sol` real |
+| record_trade en PANIC/SELL | ✅ v2.1 | `fee_sol` real |
+| record_trade en AUTO_TP1 | ✅ v2.1 | `fee_sol` real |
+| record_trade en AUTO_TP2 | ✅ v2.1 | `fee_sol` real |
+| record_trade en AUTO_SL | ✅ v2.1 | `fee_sol` real |
+| FeeStats (`/fees` command) | ✅ v2.1 | Net PnL calculado |
+| Posiciones persistentes | ✅ Activo | Inmunes a reinicios |
 
-```rust
-// En run_monitor_mode(), después de cargar AppConfig:
+---
 
-use state_manager::{StateManager, PositionState};
+## Esquema SQLite Actual
 
-// Inicializar State Manager
-let state_manager = Arc::new(StateManager::new("trading_state.db")?);
-
-println!("📊 STATE MANAGER:");
-let stats = state_manager.get_stats()?;
-println!("   • Posiciones activas: {}", stats.active_positions);
-println!("   • Trades históricos:  {}", stats.total_trades);
-println!("   • PnL total:          {:.4} SOL", stats.total_pnl_sol);
+### Tabla `trades`
+```sql
+CREATE TABLE IF NOT EXISTS trades (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    signature       TEXT    NOT NULL UNIQUE,
+    token_mint      TEXT    NOT NULL,
+    symbol          TEXT    NOT NULL,
+    trade_type      TEXT    NOT NULL,  -- ver tipos abajo
+    amount_sol      REAL    NOT NULL,
+    tokens_amount   REAL    NOT NULL DEFAULT 0.0,
+    price           REAL    NOT NULL DEFAULT 0.0,
+    pnl_sol         REAL,              -- NULL si no calculado
+    pnl_percent     REAL,              -- NULL si no calculado
+    route           TEXT    NOT NULL DEFAULT '',
+    price_impact_pct REAL   NOT NULL DEFAULT 0.0,
+    fee_sol         REAL    NOT NULL DEFAULT 0.0,  -- NUEVO v2.1
+    timestamp       INTEGER NOT NULL
+);
 ```
 
-### 2. Migrar posiciones desde targets.json
+### Tipos de trade registrados (`trade_type`)
 
-```rust
-// Después de cargar emergency_monitor:
+| Valor | Origen | Cuándo |
+|---|---|---|
+| `MANUAL_BUY` | `/buy`, `/rbuy` | Compra manual via Telegram |
+| `MANUAL_SELL` | `/panic`, `/panic_all` | Venta manual via Telegram |
+| `AUTO_TP1` | Loop automático | Take Profit 1 alcanzado |
+| `AUTO_TP2` | Loop automático | Take Profit 2 alcanzado |
+| `AUTO_SL` | Loop automático | Stop-Loss de emergencia |
+| `GHOST_PURGE` | Housekeeping | Posición cerrada sin TX real |
 
-println!("\n🔄 Migrando posiciones a State Manager...");
-
-for target in &app_config.targets {
-    if !target.active { continue; }
-    
-    // Verificar si ya existe en DB
-    if let Some(existing) = state_manager.get_position(&target.mint)? {
-        println!("   ✓ {} ya existe en DB (entry: ${})", target.symbol, existing.entry_price);
-        continue;
-    }
-    
-    // Crear nueva posición
-    let position = PositionState {
-        id: None,
-        token_mint: target.mint.clone(),
-        symbol: target.symbol.clone(),
-        entry_price: target.entry_price,
-        amount_sol: target.amount_sol,
-        current_price: target.entry_price,
-        stop_loss_percent: target.stop_loss_percent,
-        trailing_enabled: target.trailing_enabled,
-        trailing_distance_percent: target.trailing_distance_percent,
-        trailing_activation_threshold: target.trailing_activation_threshold,
-        trailing_highest_price: None,
-        trailing_current_sl: None,
-        active: true,
-        created_at: Utc::now().timestamp(),
-        updated_at: Utc::now().timestamp(),
-    };
-    
-    state_manager.upsert_position(&position)?;
-    println!("   ✓ {} migrado a DB", target.symbol);
-}
-```
-
-### 3. Actualizar precios en el loop principal
-
-```rust
-// En el loop de monitoreo, después de obtener el precio:
-
-match scanner.get_token_price(&target.mint).await {
-    Ok(price) => {
-        // Actualizar precio en State Manager
-        let _ = state_manager.update_position_price(&target.mint, price.price_usd);
-        
-        // ... resto de la lógica existente
-    }
-}
-```
-
-### 4. Persistir estado de Trailing SL
-
-```rust
-// Cuando el Trailing SL se actualiza:
-
-if let Some(tsl) = trailing_monitors.get_mut(&target.symbol) {
-    if tsl.update(price.price_usd) {
-        // Guardar nuevo estado en DB
-        let _ = state_manager.update_trailing_sl(
-            &target.mint,
-            tsl.highest_price,
-            tsl.current_sl_percent,
-        );
-    }
-}
-```
-
-### 5. Registrar trades ejecutados
-
-```rust
-// Después de ejecutar una venta:
-
-match sell_result {
-    Ok(swap_result) => {
-        println!("✅ Venta automática completada: {}", swap_result.signature);
-        
-        // Calcular PnL
-        let pnl_sol = swap_result.output_amount - target.amount_sol;
-        let pnl_percent = (pnl_sol / target.amount_sol) * 100.0;
-        
-        // Registrar trade en DB
-        let trade = TradeRecord {
-            id: None,
-            signature: swap_result.signature.clone(),
-            token_mint: target.mint.clone(),
-            symbol: target.symbol.clone(),
-            trade_type: "EMERGENCY_SELL".to_string(),
-            amount_sol: target.amount_sol,
-            tokens_amount: swap_result.input_amount,
-            price: price.price_usd,
-            pnl_sol: Some(pnl_sol),
-            pnl_percent: Some(pnl_percent),
-            route: swap_result.route.clone(),
-            price_impact_pct: swap_result.price_impact_pct,
-            timestamp: Utc::now().timestamp(),
-        };
-        
-        let _ = state_manager.record_trade(&trade);
-        
-        // Cerrar posición en DB
-        let _ = state_manager.close_position(&target.mint);
-        
-        // Notificar
-        let _ = telegram_clone.send_message(
-            &format!(
-                "✅ Venta automática de {} completada.\\n\
-                 Signature: {}\\n\
-                 PnL: {:.4} SOL ({:.2}%)",
-                target.symbol, swap_result.signature, pnl_sol, pnl_percent
-            ),
-            true
-        ).await;
-    }
-}
+### Tabla `positions`
+```sql
+CREATE TABLE IF NOT EXISTS positions (
+    id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_mint                   TEXT    NOT NULL UNIQUE,
+    symbol                       TEXT    NOT NULL,
+    entry_price                  REAL    NOT NULL,
+    amount_sol                   REAL    NOT NULL,
+    current_price                REAL    NOT NULL,
+    stop_loss_percent            REAL    NOT NULL,
+    trailing_enabled             INTEGER NOT NULL DEFAULT 0,
+    trailing_distance_percent    REAL    NOT NULL DEFAULT 5.0,
+    trailing_activation_threshold REAL   NOT NULL DEFAULT 10.0,
+    trailing_highest_price       REAL,
+    trailing_current_sl          REAL,
+    tp_percent                   REAL,
+    tp_amount_percent            REAL,
+    tp_triggered                 INTEGER NOT NULL DEFAULT 0,
+    tp2_percent                  REAL,
+    tp2_amount_percent           REAL,
+    tp2_triggered                INTEGER NOT NULL DEFAULT 0,
+    active                       INTEGER NOT NULL DEFAULT 1,
+    created_at                   INTEGER NOT NULL,
+    updated_at                   INTEGER NOT NULL
+);
 ```
 
 ---
 
-## 🔍 Comandos de Telegram Nuevos
+## API Pública del StateManager
 
-Agregar a `telegram_commands.rs`:
-
-### `/positions` - Ver posiciones activas
-
+### Posiciones
 ```rust
-"positions" => {
-    let positions = state_manager.get_active_positions()?;
-    
-    if positions.is_empty() {
-        return Ok("No hay posiciones activas.".to_string());
-    }
-    
-    let mut msg = "📊 **POSICIONES ACTIVAS**\\n\\n".to_string();
-    
-    for pos in positions {
-        let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
-        let value = (pos.amount_sol / pos.entry_price) * pos.current_price;
-        
-        msg.push_str(&format!(
-            "**{}**\\n\
-             Entry: ${:.8}\\n\
-             Current: ${:.8}\\n\
-             Drawdown: {:.2}%\\n\
-             Value: {:.4} SOL\\n\\n",
-            pos.symbol, pos.entry_price, pos.current_price, dd, value
-        ));
-    }
-    
-    Ok(msg)
-}
+// Crear / actualizar posición
+state_manager.upsert_position(&position).await?;
+
+// Leer posición activa
+state_manager.get_position(&token_mint).await?;
+
+// Todas las posiciones activas
+state_manager.get_active_positions().await?;
+
+// Cerrar posición (active = false)
+state_manager.close_position(&token_mint).await?;
+
+// Actualizar precio en tiempo real
+state_manager.update_position_price(&token_mint, price).await?;
+
+// Marcar TP alcanzado
+state_manager.mark_tp_triggered(&token_mint).await?;
+state_manager.mark_tp2_triggered(&token_mint).await?;
 ```
 
-### `/history [N]` - Ver últimos N trades
-
+### Trades
 ```rust
-"history" => {
-    let limit = parts.get(1)
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(10);
-    
-    let trades = state_manager.get_trade_history(limit)?;
-    
-    if trades.is_empty() {
-        return Ok("No hay trades registrados.".to_string());
-    }
-    
-    let mut msg = format!("📜 **ÚLTIMOS {} TRADES**\\n\\n", trades.len());
-    
-    for trade in trades {
-        let pnl_str = if let Some(pnl) = trade.pnl_sol {
-            format!("{:.4} SOL ({:.2}%)", pnl, trade.pnl_percent.unwrap_or(0.0))
-        } else {
-            "N/A".to_string()
-        };
-        
-        msg.push_str(&format!(
-            "**{}** - {}\\n\
-             Price: ${:.8}\\n\
-             PnL: {}\\n\
-             Signature: `{}`\\n\\n",
-            trade.symbol,
-            trade.trade_type,
-            trade.price,
-            pnl_str,
-            &trade.signature[..16]
-        ));
-    }
-    
-    Ok(msg)
-}
+// Registrar un trade (con fee_sol real)
+let trade = TradeRecord {
+    id: None,
+    signature: res.signature.clone(),
+    token_mint: mint.clone(),
+    symbol: symbol.clone(),
+    trade_type: "AUTO_TP1".to_string(),
+    amount_sol: res.output_amount,
+    tokens_amount: res.input_amount,
+    price: price_per_token,
+    pnl_sol: Some(pnl),
+    pnl_percent: Some(pnl_pct),
+    route: res.route.clone(),
+    price_impact_pct: res.price_impact_pct,
+    fee_sol: res.fee_sol,  // real, del resultado del executor
+    timestamp: chrono::Utc::now().timestamp(),
+};
+state_manager.record_trade(trade).await?;
+
+// Historial
+state_manager.get_trade_history(10).await?;
+
+// Estadísticas de fees (para /fees command)
+state_manager.get_fee_stats(Some(since_ts)).await?; // 24h
+state_manager.get_fee_stats(None).await?;           // all-time
 ```
 
-### `/stats` - Estadísticas generales
-
+### FeeStats
 ```rust
-"stats" => {
-    let stats = state_manager.get_stats()?;
-    let (total_pnl, trade_count) = state_manager.calculate_total_pnl()?;
-    
-    let avg_pnl = if trade_count > 0.0 {
-        total_pnl / trade_count
-    } else {
-        0.0
-    };
-    
-    Ok(format!(
-        "📊 **ESTADÍSTICAS GENERALES**\\n\\n\
-         Posiciones activas: {}\\n\
-         Total trades: {}\\n\
-         PnL total: {:.4} SOL\\n\
-         PnL promedio: {:.4} SOL\\n",
-        stats.active_positions,
-        stats.total_trades,
-        total_pnl,
-        avg_pnl
-    ))
+pub struct FeeStats {
+    pub total_fee_sol: f64,   // Suma de todos los fees
+    pub total_trades: i64,    // Número de trades
+    pub avg_fee_sol: f64,     // Promedio por trade
+    pub gross_pnl_sol: f64,   // PnL bruto (sin fees)
+    pub net_pnl_sol: f64,     // PnL neto = gross - total_fees
 }
 ```
 
 ---
 
-## 🧪 Testing del State Manager
+## Migración Automática
 
-### Test 1: Crear posición y recuperarla
-
-```bash
-# En el directorio del proyecto
-cd core/the_chassis
-cargo test test_position_lifecycle -- --nocapture
+Al iniciar el bot, `StateManager::new()` ejecuta:
+```sql
+-- Añade columna fee_sol a bases de datos antiguas (idempotente)
+ALTER TABLE trades ADD COLUMN fee_sol REAL NOT NULL DEFAULT 0.0;
 ```
-
-### Test 2: Simular ciclo completo
-
-```rust
-#[tokio::test]
-async fn test_full_trading_cycle() {
-    let manager = StateManager::new(":memory:").unwrap();
-    
-    // 1. Crear posición
-    let position = PositionState {
-        token_mint: "TEST123".to_string(),
-        symbol: "TEST".to_string(),
-        entry_price: 0.001,
-        amount_sol: 1.0,
-        current_price: 0.001,
-        stop_loss_percent: -20.0,
-        trailing_enabled: true,
-        trailing_distance_percent: 5.0,
-        trailing_activation_threshold: 10.0,
-        trailing_highest_price: Some(0.0011),
-        trailing_current_sl: Some(-15.0),
-        active: true,
-        created_at: Utc::now().timestamp(),
-        updated_at: Utc::now().timestamp(),
-        id: None,
-    };
-    
-    manager.upsert_position(&position).unwrap();
-    
-    // 2. Actualizar precio
-    manager.update_position_price("TEST123", 0.0012).unwrap();
-    
-    // 3. Actualizar TSL
-    manager.update_trailing_sl("TEST123", 0.0012, -10.0).unwrap();
-    
-    // 4. Registrar venta
-    let trade = TradeRecord {
-        signature: "SIG123".to_string(),
-        token_mint: "TEST123".to_string(),
-        symbol: "TEST".to_string(),
-        trade_type: "SELL".to_string(),
-        amount_sol: 1.0,
-        tokens_amount: 1000.0,
-        price: 0.0012,
-        pnl_sol: Some(0.2),
-        pnl_percent: Some(20.0),
-        route: "Raydium".to_string(),
-        price_impact_pct: 0.5,
-        timestamp: Utc::now().timestamp(),
-        id: None,
-    };
-    
-    manager.record_trade(&trade).unwrap();
-    
-    // 5. Cerrar posición
-    manager.close_position("TEST123").unwrap();
-    
-    // 6. Verificar
-    let stats = manager.get_stats().unwrap();
-    assert_eq!(stats.active_positions, 0);
-    assert_eq!(stats.total_trades, 1);
-    assert_eq!(stats.total_pnl_sol, 0.2);
-}
-```
+Si la columna ya existe, el error se ignora silenciosamente.
 
 ---
 
-## ⚠️ Consideraciones Importantes
+## Archivos Relevantes
 
-1. **Backup automático**: El archivo `trading_state.db` debe incluirse en backups regulares
-2. **Migración gradual**: El sistema puede coexistir con `targets.json` durante la transición
-3. **Recovery**: Si la DB se corrompe, el bot puede reconstruir desde `targets.json`
-4. **Performance**: SQLite es síncrono, pero las operaciones son tan rápidas que no afectan el loop
-
----
-
-## 🚀 Próximos Pasos
-
-1. ✅ State Manager creado
-2. ⏳ Integrar en `lib.rs` (siguiente paso)
-3. ⏳ Agregar comandos de Telegram
-4. ⏳ Testing en producción con dry-run
-5. ⏳ Activar persistencia completa
+| Archivo | Responsabilidad |
+|---|---|
+| `src/state_manager.rs` | StateManager, TradeRecord, FeeStats, queries SQLite |
+| `src/lib.rs` | Loop de monitoreo: TP1, TP2, SL → record_trade() |
+| `src/telegram_commands.rs` | Comandos: /buy, /panic → record_trade() + /fees, /history |
+| `src/executor_v2.rs` | Captura fee_sol real en SwapResult/BuyResult |
+| `src/jupiter.rs` | SwapResult y BuyResult con campo fee_sol |
+| `trading_state.db` | Base de datos SQLite (no subir al repositorio) |
 
 ---
 
-**Nota**: Una vez integrado, el bot será **stateful** y podrá reiniciarse sin perder información crítica.
+## Notas de Producción
+
+- **Backup:** `trading_state.db` contiene todo el historial de trades y posiciones. Hacer backup periódico.
+- **Reset:** Para resetear el historial, borrar `trading_state.db` (se recrea automáticamente).
+- **Concurrencia:** `deadpool-sqlite` gestiona el pool de conexiones. Seguro para operaciones concurrentes.
+- **Resiliencia:** Los `record_trade()` usan `let _ = ...` para no bloquear la ejecución si la DB falla.
