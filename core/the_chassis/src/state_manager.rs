@@ -55,7 +55,19 @@ pub struct TradeRecord {
     pub pnl_percent: Option<f64>,
     pub route: String,
     pub price_impact_pct: f64,
+    /// Coste real en SOL: Priority Fee + Jito Tip pagados en esta transacción
+    pub fee_sol: f64,
     pub timestamp: i64,
+}
+
+/// Estadísticas de fees acumulados
+#[derive(Debug, Clone)]
+pub struct FeeStats {
+    pub total_fee_sol: f64,
+    pub total_trades: usize,
+    pub avg_fee_sol: f64,
+    pub total_pnl_gross: f64,
+    pub net_pnl_sol: f64, // PnL bruto - fees totales
 }
 
 /// Snapshot de configuración
@@ -151,6 +163,7 @@ impl StateManager {
                     pnl_percent REAL,
                     route TEXT NOT NULL,
                     price_impact_pct REAL NOT NULL,
+                    fee_sol REAL NOT NULL DEFAULT 0.0,
                     timestamp INTEGER NOT NULL
                 )",
                 [],
@@ -208,6 +221,11 @@ impl StateManager {
             );
             let _ = conn.execute(
                 "ALTER TABLE positions ADD COLUMN tp2_triggered INTEGER DEFAULT 0",
+                [],
+            );
+            // Migration v2: Add fee tracking column
+            let _ = conn.execute(
+                "ALTER TABLE trades ADD COLUMN fee_sol REAL NOT NULL DEFAULT 0.0",
                 [],
             );
 
@@ -521,8 +539,8 @@ impl StateManager {
                 "INSERT INTO trades (
                     signature, token_mint, symbol, trade_type, amount_sol,
                     tokens_amount, price, pnl_sol, pnl_percent, route,
-                    price_impact_pct, timestamp
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    price_impact_pct, fee_sol, timestamp
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     trade.signature,
                     trade.token_mint,
@@ -535,6 +553,7 @@ impl StateManager {
                     trade.pnl_percent,
                     trade.route,
                     trade.price_impact_pct,
+                    trade.fee_sol,
                     trade.timestamp,
                 ],
             )?;
@@ -554,7 +573,7 @@ impl StateManager {
             let mut stmt = conn.prepare(
                 "SELECT id, signature, token_mint, symbol, trade_type, amount_sol,
                         tokens_amount, price, pnl_sol, pnl_percent, route,
-                        price_impact_pct, timestamp
+                        price_impact_pct, COALESCE(fee_sol, 0.0), timestamp
                  FROM trades
                  ORDER BY timestamp DESC
                  LIMIT ?1",
@@ -575,7 +594,8 @@ impl StateManager {
                         pnl_percent: row.get(9)?,
                         route: row.get(10)?,
                         price_impact_pct: row.get(11)?,
-                        timestamp: row.get(12)?,
+                        fee_sol: row.get(12)?,
+                        timestamp: row.get(13)?,
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -586,7 +606,43 @@ impl StateManager {
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
 
-    /// Calcula PnL total de todos los trades
+    /// Calcula estadísticas de fees: burn total, PnL bruto vs neto
+    pub async fn get_fee_stats(&self, since_timestamp: Option<i64>) -> Result<FeeStats> {
+        let conn = self.pool.get().await?;
+        let since = since_timestamp.unwrap_or(0);
+
+        conn.interact(move |conn| -> Result<FeeStats> {
+            let mut stmt = conn.prepare(
+                "SELECT
+                    COALESCE(SUM(COALESCE(fee_sol, 0.0)), 0.0) as total_fees,
+                    COUNT(*) as total_trades,
+                    COALESCE(SUM(CASE WHEN pnl_sol IS NOT NULL THEN pnl_sol ELSE 0.0 END), 0.0) as total_pnl
+                 FROM trades
+                 WHERE timestamp >= ?1",
+            )?;
+
+            let (total_fee_sol, total_trades, total_pnl_gross): (f64, i64, f64) =
+                stmt.query_row(params![since], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+
+            let avg_fee = if total_trades > 0 {
+                total_fee_sol / total_trades as f64
+            } else {
+                0.0
+            };
+
+            Ok(FeeStats {
+                total_fee_sol,
+                total_trades: total_trades as usize,
+                avg_fee_sol: avg_fee,
+                total_pnl_gross,
+                net_pnl_sol: total_pnl_gross - total_fee_sol,
+            })
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
+    }
+
+    /// Calcula PnL total de todos los trades (bruto, sin descontar fees)
     pub async fn calculate_total_pnl(&self) -> Result<(f64, f64)> {
         let conn = self.pool.get().await?;
 

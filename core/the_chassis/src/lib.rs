@@ -301,6 +301,7 @@ async fn run_monitor_mode() -> Result<()> {
                     pnl_percent: Some(-100.0),
                     route: "Boot Audit".to_string(),
                     price_impact_pct: 0.0,
+                    fee_sol: 0.0,
                     timestamp: chrono::Utc::now().timestamp(),
                 };
                 let _ = state_manager.record_trade(trade).await;

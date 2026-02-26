@@ -59,8 +59,8 @@ pub struct AuditResponse {
 /// Generated client implementations.
 pub mod chassis_service_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct ChassisServiceClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -104,8 +104,9 @@ pub mod chassis_service_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             ChassisServiceClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -129,14 +130,19 @@ pub mod chassis_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> Result<tonic::Response<super::PositionsResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/chassis.ChassisService/GetPositions");
+            let path = http::uri::PathAndQuery::from_static(
+                "/chassis.ChassisService/GetPositions",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         /// Control de trading
@@ -144,14 +150,19 @@ pub mod chassis_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::TradeRequest>,
         ) -> Result<tonic::Response<super::TradeResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/chassis.ChassisService/ExecuteTrade");
+            let path = http::uri::PathAndQuery::from_static(
+                "/chassis.ChassisService/ExecuteTrade",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         /// Auditoría instantánea
@@ -159,15 +170,19 @@ pub mod chassis_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::AuditRequest>,
         ) -> Result<tonic::Response<super::AuditResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/chassis.ChassisService/GetTokenAudit");
+            let path = http::uri::PathAndQuery::from_static(
+                "/chassis.ChassisService/GetTokenAudit",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
@@ -214,7 +229,10 @@ pub mod chassis_service_server {
                 send_compression_encodings: Default::default(),
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -242,7 +260,10 @@ pub mod chassis_service_server {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -251,12 +272,21 @@ pub mod chassis_service_server {
                 "/chassis.ChassisService/GetPositions" => {
                     #[allow(non_camel_case_types)]
                     struct GetPositionsSvc<T: ChassisService>(pub Arc<T>);
-                    impl<T: ChassisService> tonic::server::UnaryService<super::Empty> for GetPositionsSvc<T> {
+                    impl<T: ChassisService> tonic::server::UnaryService<super::Empty>
+                    for GetPositionsSvc<T> {
                         type Response = super::PositionsResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).get_positions(request).await };
+                            let fut = async move {
+                                (*inner).get_positions(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -267,10 +297,11 @@ pub mod chassis_service_server {
                         let inner = inner.0;
                         let method = GetPositionsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
@@ -279,15 +310,23 @@ pub mod chassis_service_server {
                 "/chassis.ChassisService/ExecuteTrade" => {
                     #[allow(non_camel_case_types)]
                     struct ExecuteTradeSvc<T: ChassisService>(pub Arc<T>);
-                    impl<T: ChassisService> tonic::server::UnaryService<super::TradeRequest> for ExecuteTradeSvc<T> {
+                    impl<
+                        T: ChassisService,
+                    > tonic::server::UnaryService<super::TradeRequest>
+                    for ExecuteTradeSvc<T> {
                         type Response = super::TradeResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::TradeRequest>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).execute_trade(request).await };
+                            let fut = async move {
+                                (*inner).execute_trade(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -298,10 +337,11 @@ pub mod chassis_service_server {
                         let inner = inner.0;
                         let method = ExecuteTradeSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
@@ -310,15 +350,23 @@ pub mod chassis_service_server {
                 "/chassis.ChassisService/GetTokenAudit" => {
                     #[allow(non_camel_case_types)]
                     struct GetTokenAuditSvc<T: ChassisService>(pub Arc<T>);
-                    impl<T: ChassisService> tonic::server::UnaryService<super::AuditRequest> for GetTokenAuditSvc<T> {
+                    impl<
+                        T: ChassisService,
+                    > tonic::server::UnaryService<super::AuditRequest>
+                    for GetTokenAuditSvc<T> {
                         type Response = super::AuditResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::AuditRequest>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).get_token_audit(request).await };
+                            let fut = async move {
+                                (*inner).get_token_audit(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -329,23 +377,28 @@ pub mod chassis_service_server {
                         let inner = inner.0;
                         let method = GetTokenAuditSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }

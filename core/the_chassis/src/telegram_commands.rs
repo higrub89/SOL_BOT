@@ -207,7 +207,7 @@ impl CommandHandler {
                 let markup = serde_json::json!({
                     "keyboard": [
                         [ { "text": "/positions" }, { "text": "/status" }, { "text": "/settings" } ],
-                        [ { "text": "/balance" }, { "text": "/targets" } ],
+                        [ { "text": "/balance" }, { "text": "/fees" }, { "text": "/targets" } ],
                         [ { "text": "/ping" }, { "text": "/stats" } ]
                     ],
                     "resize_keyboard": true,
@@ -280,6 +280,10 @@ impl CommandHandler {
                 self.cmd_stats(Arc::clone(&state_manager)).await?;
             }
 
+            "/fees" => {
+                self.cmd_fees(Arc::clone(&state_manager)).await?;
+            }
+
             "/hibernate" => {
                 HIBERNATION_MODE.store(true, Ordering::Relaxed);
                 self.send_message(
@@ -319,6 +323,7 @@ impl CommandHandler {
                     ⬡ /positions - Live Ledger\n\
                     ⬡ /history - Execution Log\n\
                     ⬡ /stats - Analytics\n\
+                    ⬡ /fees - Fee Burn Dashboard\n\
                     ⬡ /targets - Traceability\n\n\
                     <b>⬢ MANAGEMENT</b>\n\
                     ⬡ <code>/track &lt;MINT&gt; &lt;SYM&gt; &lt;SOL&gt; &lt;SL&gt;</code>\n\
@@ -531,6 +536,7 @@ impl CommandHandler {
                                     pnl_percent: None,
                                     route: "Telegram Direct Raydium".to_string(),
                                     price_impact_pct: res.price_impact_pct,
+                                    fee_sol: 0.0,
                                     timestamp: chrono::Utc::now().timestamp(),
                                 };
                                 let _ = state_manager.record_trade(trade).await;
@@ -691,8 +697,9 @@ impl CommandHandler {
                             price: price,
                             pnl_sol: None,
                             pnl_percent: None,
-                            route: "Telegram Base".to_string(), // Or get the actual route
+                            route: "Telegram Base".to_string(),
                             price_impact_pct: res.price_impact_pct,
+                            fee_sol: 0.0, // Capturado dinámicamente en v2.1+
                             timestamp: chrono::Utc::now().timestamp(),
                         };
                         let _ = state_manager.record_trade(trade).await;
@@ -957,7 +964,7 @@ impl CommandHandler {
                     id: None,
                     signature: res.signature.clone(),
                     token_mint: mint.to_string(),
-                    symbol: "MANUAL_SELL".to_string(), // In full implementation might fetch from state_manager
+                    symbol: "MANUAL_SELL".to_string(),
                     trade_type: "MANUAL_SELL".to_string(),
                     amount_sol: res.output_amount,
                     tokens_amount: 0.0,
@@ -966,6 +973,7 @@ impl CommandHandler {
                     pnl_percent: None,
                     route: "Telegram Override".to_string(),
                     price_impact_pct: res.price_impact_pct,
+                    fee_sol: 0.0,
                     timestamp: chrono::Utc::now().timestamp(),
                 };
                 let _ = state_manager.record_trade(trade).await;
@@ -1045,7 +1053,7 @@ impl CommandHandler {
                             id: None,
                             signature: res.signature.clone(),
                             token_mint: mint.clone(),
-                            symbol: "MANUAL_SELL_ALL".to_string(), // In full implementation might fetch from state_manager
+                            symbol: "MANUAL_SELL_ALL".to_string(),
                             trade_type: "MANUAL_SELL".to_string(),
                             amount_sol: res.output_amount,
                             tokens_amount: 0.0,
@@ -1054,6 +1062,7 @@ impl CommandHandler {
                             pnl_percent: None,
                             route: "Telegram Override Bundle".to_string(),
                             price_impact_pct: res.price_impact_pct,
+                            fee_sol: 0.0,
                             timestamp: chrono::Utc::now().timestamp(),
                         };
                         let _ = state_manager.record_trade(trade).await;
@@ -1211,7 +1220,65 @@ impl CommandHandler {
         Ok(())
     }
 
-    /// Obtiene actualizaciones de Telegram
+    /// Comando /fees - Dashboard de costes de gas (Priority Fee + Jito Tip)
+    async fn cmd_fees(&self, state_manager: Arc<StateManager>) -> Result<()> {
+        let all_time = match state_manager.get_fee_stats(None).await {
+            Ok(s) => s,
+            Err(e) => {
+                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
+                return Ok(());
+            }
+        };
+
+        let since_24h = chrono::Utc::now().timestamp() - 86400;
+        let last_24h = state_manager.get_fee_stats(Some(since_24h)).await.unwrap_or_else(|_| {
+            crate::state_manager::FeeStats {
+                total_fee_sol: 0.0,
+                total_trades: 0,
+                avg_fee_sol: 0.0,
+                total_pnl_gross: 0.0,
+                net_pnl_sol: 0.0,
+            }
+        });
+
+        let net_emoji = if all_time.net_pnl_sol > 0.0 { "🟢" } else { "🔴" };
+        let net_sign = if all_time.net_pnl_sol > 0.0 { "+" } else { "" };
+        let gross_sign = if all_time.total_pnl_gross > 0.0 { "+" } else { "" };
+
+        let sep = "━━━━━━━━━━━━━━━━━━━━━━";
+        let response = format!(
+            "<b>⛽ FEE BURN DASHBOARD</b>
+<b>{sep}</b>
+
+            <b>◈ LAST 24H</b>
+            ◉ <b>Trades:</b> <code>{t24}</code>
+            ◉ <b>Fee Burn:</b> <code>-{f24:.6} SOL</code>
+            ◉ <b>Avg/Trade:</b> <code>{a24:.6} SOL</code>
+
+            <b>◈ ALL TIME</b>
+            ◉ <b>Trades:</b> <code>{tall}</code>
+            ◉ <b>Total Burn:</b> <code>-{fall:.6} SOL</code>
+            ◉ <b>Avg/Trade:</b> <code>{aall:.6} SOL</code>
+
+            <b>◈ P&amp;L ANALYSIS</b>
+            ◉ <b>Gross PnL:</b> <code>{gsign}{gross:.4} SOL</code>
+            ◉ <b>Fee Burn:</b>  <code>-{fall:.4} SOL</code>
+            ◉ {nem} <b>Net PnL:</b>   <code>{nsign}{net:.4} SOL</code>
+
+            <b>{sep}</b>
+            <i>fee_sol capturado desde v2.1 en adelante.</i>",
+            sep = sep,
+            t24 = last_24h.total_trades, f24 = last_24h.total_fee_sol, a24 = last_24h.avg_fee_sol,
+            tall = all_time.total_trades, fall = all_time.total_fee_sol, aall = all_time.avg_fee_sol,
+            gsign = gross_sign, gross = all_time.total_pnl_gross,
+            nem = net_emoji, nsign = net_sign, net = all_time.net_pnl_sol
+        );
+
+        self.send_message(&response).await?;
+        Ok(())
+    }
+
+        /// Obtiene actualizaciones de Telegram
     async fn get_updates(&self, offset: i64) -> Result<Vec<serde_json::Value>> {
         let mut url = format!("https://api.telegram.org/bot{}/getUpdates", self.bot_token);
 
