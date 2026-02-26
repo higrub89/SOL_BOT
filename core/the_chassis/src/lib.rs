@@ -556,6 +556,8 @@ async fn run_monitor_mode() -> Result<()> {
                     let tel = Arc::clone(&telegram_clone);
                     let symbol = target.symbol.clone();
                     let sell_amount_pct = target.tp_amount_percent.unwrap_or(50.0) as u8;
+                    let entry_price = pos.entry_price;
+                    let amount_sol_invested = target.amount_sol;
 
                     // ⚡ DESACOPLAMIENTO: Hilo independiente
                     tokio::spawn(async move {
@@ -571,19 +573,39 @@ async fn run_monitor_mode() -> Result<()> {
                             let _ = tel
                                 .send_message(
                                     &format!(
-                                        "💰 <b>TP1 HIT</b> para {}! Tx: {}",
-                                        symbol, res.signature
+                                        "💰 <b>TP1 HIT</b> para {}! Tx: {}\n⛽ Fee: {:.6} SOL",
+                                        symbol, res.signature, res.fee_sol
                                     ),
                                     true,
                                 )
                                 .await;
+                            // ⚡ Registrar trade TP1 con fee real
+                            let sol_received = res.output_amount;
+                            let trade = crate::state_manager::TradeRecord {
+                                id: None,
+                                signature: res.signature.clone(),
+                                token_mint: mint_clone.clone(),
+                                symbol: symbol.clone(),
+                                trade_type: "AUTO_TP1".to_string(),
+                                amount_sol: sol_received,
+                                tokens_amount: res.input_amount,
+                                price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
+                                pnl_sol: Some(sol_received - (amount_sol_invested * (sell_amount_pct as f64 / 100.0))),
+                                pnl_percent: Some(((sol_received / (amount_sol_invested * (sell_amount_pct as f64 / 100.0))) - 1.0) * 100.0),
+                                route: res.route.clone(),
+                                price_impact_pct: res.price_impact_pct,
+                                fee_sol: res.fee_sol,
+                                timestamp: chrono::Utc::now().timestamp(),
+                            };
+                            let _ = state_mgr.record_trade(trade).await;
                             let _ = state_mgr.mark_tp_triggered(&mint_clone).await;
                             // Actualizar amount asíncronamente
                             let remaining =
-                                target.amount_sol * (1.0 - (sell_amount_pct as f64 / 100.0));
+                                amount_sol_invested * (1.0 - (sell_amount_pct as f64 / 100.0));
                             let _ = state_mgr
                                 .update_amount_invested(&mint_clone, remaining)
                                 .await;
+                            let _ = entry_price; // usado en pnl calc
                         }
                     });
                 }
@@ -612,6 +634,7 @@ async fn run_monitor_mode() -> Result<()> {
                     let tel = Arc::clone(&telegram_clone);
                     let symbol = target.symbol.clone();
                     let sell_amount_pct = target.tp2_amount_percent.unwrap_or(100.0) as u8;
+                    let amount_sol_invested = target.amount_sol;
 
                     tokio::spawn(async move {
                         let sell_result = exc
@@ -626,12 +649,31 @@ async fn run_monitor_mode() -> Result<()> {
                             let _ = tel
                                 .send_message(
                                     &format!(
-                                        "🚀 <b>TP2 HIT</b> para {}! Tx: {}",
-                                        symbol, res.signature
+                                        "🚀 <b>TP2 HIT</b> para {}! Tx: {}\n⛽ Fee: {:.6} SOL",
+                                        symbol, res.signature, res.fee_sol
                                     ),
                                     true,
                                 )
                                 .await;
+                            // ⚡ Registrar trade TP2 con fee real
+                            let sol_received = res.output_amount;
+                            let trade = crate::state_manager::TradeRecord {
+                                id: None,
+                                signature: res.signature.clone(),
+                                token_mint: mint_clone.clone(),
+                                symbol: symbol.clone(),
+                                trade_type: "AUTO_TP2".to_string(),
+                                amount_sol: sol_received,
+                                tokens_amount: res.input_amount,
+                                price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
+                                pnl_sol: Some(sol_received - (amount_sol_invested * (sell_amount_pct as f64 / 100.0))),
+                                pnl_percent: Some(((sol_received / (amount_sol_invested * (sell_amount_pct as f64 / 100.0)).max(0.00000001)) - 1.0) * 100.0),
+                                route: res.route.clone(),
+                                price_impact_pct: res.price_impact_pct,
+                                fee_sol: res.fee_sol,
+                                timestamp: chrono::Utc::now().timestamp(),
+                            };
+                            let _ = state_mgr.record_trade(trade).await;
                             let _ = state_mgr.mark_tp2_triggered(&mint_clone).await;
 
                             if sell_amount_pct == 100 {
@@ -666,6 +708,7 @@ async fn run_monitor_mode() -> Result<()> {
                     let symbol = target.symbol.clone();
 
                     // ⚡ DESACOPLAMIENTO ABSOLUTO + OVERRIDE DE ECU
+                    let amount_sol_invested = target.amount_sol;
                     tokio::spawn(async move {
                         // is_emergency = true (Activa modo agresivo Degen de slippage si falla)
                         let sell_result = exc
@@ -679,16 +722,36 @@ async fn run_monitor_mode() -> Result<()> {
 
                         match sell_result {
                             Ok(res) => {
-                                println!("✅ SL HFT Ejecutado: {}", res.signature);
+                                println!("✅ SL HFT Ejecutado: {} | Fee: {:.6} SOL", res.signature, res.fee_sol);
                                 let _ = tel
                                     .send_message(
                                         &format!(
-                                            "✅ <b>SL HFT Completado para {}.</b>\nTx: {}",
-                                            symbol, res.signature
+                                            "✅ <b>SL HFT Completado para {}.</b>\nTx: {}\n⛽ Fee: {:.6} SOL",
+                                            symbol, res.signature, res.fee_sol
                                         ),
                                         true,
                                     )
                                     .await;
+
+                                // ⚡ Registrar trade SL con fee real
+                                let sol_received = res.output_amount;
+                                let trade = crate::state_manager::TradeRecord {
+                                    id: None,
+                                    signature: res.signature.clone(),
+                                    token_mint: mint_clone.clone(),
+                                    symbol: symbol.clone(),
+                                    trade_type: "AUTO_SL".to_string(),
+                                    amount_sol: sol_received,
+                                    tokens_amount: res.input_amount,
+                                    price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
+                                    pnl_sol: Some(sol_received - amount_sol_invested),
+                                    pnl_percent: Some(((sol_received / amount_sol_invested.max(0.000001)) - 1.0) * 100.0),
+                                    route: res.route.clone(),
+                                    price_impact_pct: res.price_impact_pct,
+                                    fee_sol: res.fee_sol,
+                                    timestamp: chrono::Utc::now().timestamp(),
+                                };
+                                let _ = state_mgr.record_trade(trade).await;
 
                                 // ⚡ Cierre Atómico DB
                                 if let Err(e) = state_mgr.close_position(&mint_clone).await {
