@@ -23,7 +23,6 @@ pub mod executor_v2;
 pub mod geyser;
 pub mod jito;
 pub mod jupiter;
-pub mod latency;
 pub mod liquidity_monitor;
 pub mod price_feed;
 pub mod raydium;
@@ -38,7 +37,6 @@ pub mod ws_feed;
 
 // 🏎️ Módulos del Framework Institucional (v2.0)
 pub mod engine;
-pub mod executor_trait;
 pub mod generated;
 pub mod observability;
 pub mod sensors;
