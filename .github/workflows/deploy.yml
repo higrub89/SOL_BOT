@@ -218,8 +218,9 @@ jobs:
               echo "⏳ Evaluando estabilidad del motor (15s)..."
               sleep 15
               
-              # Healthcheck de supervivencia
-              STATUS=$(sudo docker inspect -f '{{.State.Status}}' bot)
+              # Healthcheck de supervivencia (usar container_name, NO service name)
+              STATUS=$(sudo docker inspect -f '{{.State.Status}}' solana_trading_bot 2>/dev/null || echo "not_found")
+              echo "📊 Estado del contenedor: $STATUS"
               if [ "$STATUS" != "running" ]; then
                 echo "💥 ALERTA CRÍTICA: Falla de encendido detectada."
                 echo "🔄 Iniciando protocolo ROLLBACK inmediato..."
