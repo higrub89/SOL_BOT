@@ -34,6 +34,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libssl-dev \
     ca-certificates \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/the_chassis_app /app/the_chassis_app

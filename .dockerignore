@@ -12,8 +12,8 @@ docs/
 
 # Config files (mounted as volumes at runtime)
 targets.json
-core/the_chassis/targets.json
-core/the_chassis/pools_cache.json
+pools_cache.json
 trading_state.db
+settings.json
 .env
 .env.example

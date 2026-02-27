@@ -178,27 +178,47 @@ jobs:
             echo "🏎️  THE CHASSIS — Despliegue Institucional"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             
-            # Login seguro (el token no se expone en ps aux)
+            # 0. MIGRACIÓN DE RUTAS Y LIMPIEZA DE "DIRECTORIOS FANTASMA"
+            mkdir -p logs
+            # Limpiar si Docker creó directorios por error en intentos fallidos previos
+            for f in settings.json pools_cache.json trading_state.db; do
+              if [ -d "$f" ]; then
+                echo "🗑️  Eliminando directorio erróneo '$f' creado por Docker..."
+                sudo rm -rf "$f"
+              fi
+            done
+
+            if [ -d "core/the_chassis" ]; then
+              echo "🔄 Migrando archivos de configuración desde core/the_chassis..."
+              [ -f "core/the_chassis/settings.json" ] && [ ! -e "settings.json" ] && mv core/the_chassis/settings.json ./settings.json
+              [ -f "core/the_chassis/pools_cache.json" ] && [ ! -e "pools_cache.json" ] && mv core/the_chassis/pools_cache.json ./pools_cache.json
+              [ -f "core/the_chassis/trading_state.db" ] && [ ! -e "trading_state.db" ] && mv core/the_chassis/trading_state.db ./trading_state.db
+              echo "✅ Migración completada."
+            fi
+
+            # 1. Asegurar archivos de persistencia (Prevenir directorios de Docker)
+            touch settings.json pools_cache.json trading_state.db
+            
+            # 2. Login seguro
             echo "$GH_TOKEN" | sudo docker login ghcr.io -u "$ACTOR" --password-stdin
 
             if [ "$CODE_CHANGED" == "true" ]; then
               echo "🐳 Descargando nueva imagen de GHCR..."
               
-              # 1. Crear punto de restauración del motor actual
+              # Crear punto de restauración
               sudo docker tag $IMAGE:latest $IMAGE:rollback || true
               
-              # 2. Descargar la nueva compilación
+              # Descargar la nueva compilación
               sudo docker pull $IMAGE:latest
 
-              # 3. Sustitución sin desconexión (Zero-Downtime Recreate)
+              # Sustitución sin desconexión
               echo "⚡ Realizando hot-swap del contenedor..."
-              sudo docker compose up -d --no-deps --build bot
+              sudo docker compose up -d --no-deps bot
               
-              # 4. Telemetría de arranque
               echo "⏳ Evaluando estabilidad del motor (15s)..."
               sleep 15
               
-              # 5. Healthcheck y Rollback Automático
+              # Healthcheck de supervivencia
               STATUS=$(sudo docker inspect -f '{{.State.Status}}' bot)
               if [ "$STATUS" != "running" ]; then
                 echo "💥 ALERTA CRÍTICA: Falla de encendido detectada."
@@ -207,12 +227,12 @@ jobs:
                 sudo docker tag $IMAGE:rollback $IMAGE:latest
                 sudo docker compose up -d --no-deps bot
                 
-                echo "❌ Despliegue abortado. Motor restaurado a la versión previa."
-                exit 1 # Forzar fallo en Actions para notificar en Telegram
+                echo "❌ Despliegue abortado. Motor restaurado."
+                exit 1
               fi
             else
               echo "📂 MODO CALIBRACIÓN: Aplicando configuración en caliente..."
-              sudo docker compose up -d
+              sudo docker compose up -d bot
               sudo docker compose restart bot
             fi
 
