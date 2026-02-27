@@ -7,7 +7,8 @@ members = [
 
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
+lto = "fat"          # Optimización de enlace máxima entre crates
+codegen-units = 1    # Maximiza el potencial de optimización global
+panic = "abort"      # Elimina el overhead de unwinding en errores
+strip = "symbols"    # Mantiene la limpieza eliminando símbolos innecesarios
+incremental = false  # Asegura una compilación limpia y máxima optimización

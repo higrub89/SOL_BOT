@@ -1,41 +1,58 @@
 version: '3.8'
 
 services:
-  # 🏎️ THE CHASSIS - Core Trading Engine
   bot:
-    # En producción: usa imagen pre-compilada desde GHCR (ghcr.io/higrub89/the_chassis:latest)
-    # En local: construye desde el Dockerfile -> docker compose build bot
     image: ${BOT_IMAGE:-ghcr.io/higrub89/the_chassis:latest}
     container_name: solana_trading_bot
-    restart: unless-stopped
+    # Cambiado a 'always' para asegurar que el motor nunca se detenga en GCP
+    restart: always
+    
+    # 🏎️ ELIMINACIÓN DE LATENCIA DE RED
+    # El modo host permite al bot leer paquetes UDP de Helius/Solana directamente
+    network_mode: "host" 
+    
+    # 🛡️ CAPACIDADES DE TIEMPO REAL
+    cap_add:
+      - SYS_NICE         # Para cambiar la prioridad del proceso (SCHED_FIFO)
+      - IPC_LOCK         # Para el mlockall() que pusimos en Rust
+    
+    # 🔓 DESBLOQUEO DE VÁLVULAS (Límites)
+    ulimits:
+      rtprio: 99         # Máxima prioridad RT permitida
+      memlock: -1        # Memoria bloqueada ilimitada para evitar swap
+      nofile:
+        soft: 65535      # Para manejar múltiples conexiones RPC simultáneas
+        hard: 65535
+
     env_file:
       - .env
     environment:
       - RUST_LOG=info
       - TZ=UTC
     volumes:
-      # Persistencia de logs
       - ./logs:/app/logs
-      # Configuración de entorno dinámico
       - ./settings.json:/app/settings.json
-      # Base de datos de estado persistente (posiciones, historial, PnL)
       - ./trading_state.db:/app/trading_state.db
-      # Cache de pools de Raydium
       - ./pools_cache.json:/app/pools_cache.json
+
+    # ⚠️ REVISIÓN DE DEPLOY
+    # He eliminado los límites de CPU estrictos para evitar el throttling del kernel.
+    # En trading de baja latencia, preferimos que el bot use lo que necesite cuando lo necesite.
     deploy:
       resources:
-        limits:
-          cpus: '1.50'
-          memory: 2048M
+        reservations:
+          cpus: '1.0'
+          memory: 1024M
+
     logging:
       driver: "json-file"
       options:
-        max-size: "50m"
-        max-file: "5"
+        max-size: "10m"   # Reducido para evitar overhead de I/O en logs pesados
+        max-file: "3"
+
     healthcheck:
       test: ["CMD-SHELL", "pidof the_chassis_app || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
-

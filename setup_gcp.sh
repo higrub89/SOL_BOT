@@ -1,23 +1,19 @@
 #!/bin/bash
 # ╔═══════════════════════════════════════════════════════════════╗
-# ║       SETUP INICIAL — Servidor GCP The Chassis Bot           ║
-# ║   Ejecutar UNA SOLA VEZ: bash setup_gcp.sh                   ║
+# ║        SETUP INICIAL — Servidor GCP The Chassis Bot           ║
+# ║        EDICIÓN ESPECIAL: HIGH PERFORMANCE & REAL-TIME         ║
 # ╚═══════════════════════════════════════════════════════════════╝
-# Uso:
-#   1. Copia este script al servidor GCP
-#   2. chmod +x setup_gcp.sh && bash setup_gcp.sh
-#   3. Editar ~/.bot_trading/.env con tus claves reales
 
 set -e  # Salir si cualquier comando falla
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║     🚀 THE CHASSIS — Setup Servidor GCP                ║"
+echo "║      🚀 THE CHASSIS — High Performance Setup GCP         ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 
 # ─── 1. Actualizar sistema ───────────────────────────────────────
-echo "📦 [1/6] Actualizando sistema..."
+echo "📦 [1/7] Actualizando sistema..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq \
     curl \
@@ -26,103 +22,104 @@ sudo apt-get install -y -qq \
     gnupg \
     lsb-release \
     rsync \
-    ufw
+    ufw \
+    chrony  # Instalación inmediata de Chrony para el tiempo
 
-# ─── 2. Instalar Docker ──────────────────────────────────────────
-echo "🐳 [2/6] Instalando Docker..."
+# ─── 2. Ingeniería de Rendimiento (The Chassis Tuning) ───────────
+echo "🏎️  [2/7] Aplicando Hardening de Kernel y Red..."
+
+# Configurar límites de recursos (Prioridad RT y Memoria Bloqueada)
+sudo bash -c "cat > /etc/security/limits.d/99-realtime.conf << EOF
+* soft    rtprio          99
+* hard    rtprio          99
+* soft    memlock         unlimited
+* hard    memlock         unlimited
+* soft    nofile          65535
+* hard    nofile          65535
+EOF"
+
+# Tuning del Stack de Red para Solana (Buffers de 16MB)
+sudo bash -c "cat > /etc/sysctl.d/10-trading-performance.conf << EOF
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.core.rmem_default = 16777216
+net.core.wmem_default = 16777216
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_low_latency = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.core.netdev_max_backlog = 5000
+EOF"
+sudo sysctl --system
+
+# Sincronización de Tiempo con Google Metadata (Baja latencia)
+sudo bash -c "cat > /etc/chrony/chrony.conf << EOF
+server metadata.google.internal prefer iburst
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+rtcsync
+EOF"
+sudo systemctl restart chrony
+
+# ─── 3. Instalar Docker ──────────────────────────────────────────
+echo "🐳 [3/7] Instalando Docker..."
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | bash
     sudo usermod -aG docker $USER
-    echo "   ✅ Docker instalado. Puede ser necesario re-loguear para usar sin sudo."
+    echo "    ✅ Docker instalado."
 else
-    echo "   ✅ Docker ya instalado: $(docker --version)"
+    echo "    ✅ Docker ya instalado: $(docker --version)"
 fi
 
-# Docker Compose V2 (plugin)
 if ! docker compose version &> /dev/null; then
     sudo apt-get install -y docker-compose-plugin
 fi
-echo "   ✅ Docker Compose: $(docker compose version)"
 
-# ─── 3. Crear estructura de directorios ──────────────────────────
-echo "📁 [3/6] Creando estructura de directorios..."
+# ─── 4. Estructura de directorios ────────────────────────────────
+echo "📁 [4/7] Creando estructura de directorios..."
 mkdir -p ~/bot_trading/logs
 mkdir -p ~/bot_trading/operational/logs
-
-# Crear trading_state.db vacío si no existe (volumen Docker)
 touch ~/bot_trading/trading_state.db
 touch ~/bot_trading/pools_cache.json
+touch ~/bot_trading/settings.json
 
-# ─── 4. Crear .env en el servidor (con valores placeholder) ──────
-echo "🔐 [4/6] Configurando variables de entorno..."
+# ─── 5. Variables de Entorno ─────────────────────────────────────
+echo "🔐 [5/7] Configurando variables de entorno..."
 if [ ! -f ~/bot_trading/.env ]; then
     cat > ~/bot_trading/.env << 'EOF'
 # =============================================
 # THE CHASSIS — Variables de Entorno
-# IMPORTANTE: Reemplaza los valores con los reales
 # =============================================
-
-# Helius RPC (Obtener en https://dev.helius.xyz)
 HELIUS_API_KEY=PON_TU_API_KEY_AQUI
-
-# Wallet del bot (dirección pública)
 WALLET_ADDRESS=PON_TU_WALLET_PUBLICA_AQUI
-
-# Clave privada de la wallet (NUNCA compartir)
-# Formato: base58 o array JSON de bytes
 WALLET_PRIVATE_KEY=PON_TU_CLAVE_PRIVADA_AQUI
-
-# Jupiter API (para swaps optimizados)
 JUPITER_API_KEY=PON_TU_JUPITER_KEY_AQUI
-
-# Telegram Notifications
 TELEGRAM_BOT_TOKEN=PON_TU_TOKEN_TELEGRAM
 TELEGRAM_CHAT_ID=PON_TU_CHAT_ID
-
-# Latencia máxima permitida
 MAX_LATENCY_MS=150
-
-# Runtime
 RUST_LOG=info
 EOF
     chmod 600 ~/bot_trading/.env
-    echo "   ⚠️  Archivo .env creado. EDITA con tus claves reales:"
-    echo "       nano ~/bot_trading/.env"
+    echo "    ⚠️  Archivo .env creado."
 else
-    echo "   ✅ .env ya existe, no se sobreescribe."
+    echo "    ✅ .env ya existe."
 fi
 
-# ─── 5. Configurar Firewall ──────────────────────────────────────
-echo "🛡️  [5/6] Configurando Firewall..."
-sudo ufw allow 22/tcp   > /dev/null 2>&1  # SSH
+# ─── 6. Firewall ─────────────────────────────────────────────────
+echo "🛡️  [6/7] Configurando Firewall..."
+sudo ufw allow 22/tcp > /dev/null 2>&1
 sudo ufw --force enable > /dev/null 2>&1
-echo "   ✅ Firewall activado (SSH permitido)"
 
-# ─── 6. Habilitar Docker en arranque ─────────────────────────────
-echo "⚙️  [6/6] Habilitando Docker al arranque..."
+# ─── 7. Habilitar Docker ─────────────────────────────────────────
+echo "⚙️  [7/7] Habilitando Docker..."
 sudo systemctl enable docker > /dev/null 2>&1
 sudo systemctl start docker  > /dev/null 2>&1
 
-# ─── Resumen Final ───────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║                  ✅ SETUP COMPLETADO                    ║"
+echo "║          ✅ SETUP DE ALTO RENDIMIENTO COMPLETADO         ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
-echo "📋 PRÓXIMOS PASOS:"
+echo "🔥 IMPORTANTE: Debes reiniciar el servidor para aplicar los cambios de Kernel:"
+echo "   sudo reboot"
 echo ""
-echo "  1️⃣  Editar el archivo .env con tus claves REALES:"
-echo "       nano ~/bot_trading/.env"
-echo ""
-echo "  2️⃣  Configurar GitHub Secrets en tu repo:"
-echo "       GCP_SERVER_IP  → $(curl -s ifconfig.me 2>/dev/null || echo 'tu-ip-aqui')"
-echo "       GCP_USER       → $USER"
-echo "       GCP_SSH_KEY    → Contenido de tu clave privada SSH"
-echo "       TELEGRAM_BOT_TOKEN → Token de @BotFather"
-echo "       TELEGRAM_CHAT_ID   → Tu Chat ID"
-echo ""
-echo "  3️⃣  Hacer git push a 'main' para activar el deploy automático"
-echo ""
-echo "  4️⃣  Verificar el bot:"
-echo "       cd ~/bot_trading && docker compose logs -f"
-echo ""
+echo "Después del reinicio, verifica los límites con: ulimit -r -l"
