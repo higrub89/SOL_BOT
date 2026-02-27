@@ -259,7 +259,9 @@ async fn run_monitor_mode() -> Result<()> {
                 Ok(pk) => pk,
                 Err(_) => {
                     println!("   ⚠️ Mint inválido en DB: {}, cerrando...", target.token_mint);
-                    let _ = state_manager.close_position(&target.token_mint).await;
+                    if let Err(e) = state_manager.close_position(&target.token_mint).await {
+                        eprintln!("   ❌ DB ERROR cerrando mint inválido {}: {}", target.token_mint, e);
+                    }
                     continue;
                 }
             };
@@ -284,7 +286,9 @@ async fn run_monitor_mode() -> Result<()> {
                     "   🗑️ Ghost position detectada: {} ({}) — Sin balance on-chain. Cerrando en DB.",
                     target.symbol, &target.token_mint[..8]
                 );
-                let _ = state_manager.close_position(&target.token_mint).await;
+                if let Err(e) = state_manager.close_position(&target.token_mint).await {
+                    eprintln!("   ❌ DB ERROR cerrando ghost position {}: {}", target.token_mint, e);
+                }
 
                 // Registrar como trade de limpieza
                 let trade = state_manager::TradeRecord {
@@ -303,7 +307,9 @@ async fn run_monitor_mode() -> Result<()> {
                     fee_sol: 0.0,
                     timestamp: chrono::Utc::now().timestamp(),
                 };
-                let _ = state_manager.record_trade(trade).await;
+                if let Err(e) = state_manager.record_trade(trade).await {
+                    eprintln!("   ❌ DB ERROR registrando ghost purge para {}: {}", target.token_mint, e);
+                }
                 continue;
             }
 
@@ -487,10 +493,13 @@ async fn run_monitor_mode() -> Result<()> {
             liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
         }
 
-        // Actualización DB Asíncrona (No bloquea el loop)
-        let _ = state_manager
+        // Actualización DB Asíncrona (Telemetría - tolerante a fallos)
+        if let Err(e) = state_manager
             .update_position_price(&target.token_mint, price_update.price_native)
-            .await;
+            .await
+        {
+            eprintln!("⚠️ DB price update falló para {}: {}", target.symbol, e);
+        }
 
         let position_data = monitor_clone
             .lock()
@@ -596,14 +605,19 @@ async fn run_monitor_mode() -> Result<()> {
                                 fee_sol: res.fee_sol,
                                 timestamp: chrono::Utc::now().timestamp(),
                             };
-                            let _ = state_mgr.record_trade(trade).await;
-                            let _ = state_mgr.mark_tp_triggered(&mint_clone).await;
+                            if let Err(e) = state_mgr.record_trade(trade).await {
+                                eprintln!("❌ DB ERROR registrando TP1 para {}: {}", symbol, e);
+                                let _ = tel.send_message(&format!("⚠️ <b>DB ERROR en TP1 de {}</b>: {}\nTrade ejecutado pero NO registrado.", symbol, e), true).await;
+                            }
+                            if let Err(e) = state_mgr.mark_tp_triggered(&mint_clone).await {
+                                eprintln!("❌ DB ERROR marcando TP1 triggered para {}: {}", symbol, e);
+                            }
                             // Actualizar amount asíncronamente
                             let remaining =
                                 amount_sol_invested * (1.0 - (sell_amount_pct as f64 / 100.0));
-                            let _ = state_mgr
-                                .update_amount_invested(&mint_clone, remaining)
-                                .await;
+                            if let Err(e) = state_mgr.update_amount_invested(&mint_clone, remaining).await {
+                                eprintln!("❌ DB ERROR actualizando amount para {}: {}", symbol, e);
+                            }
                             let _ = entry_price; // usado en pnl calc
                         }
                     });
@@ -672,11 +686,19 @@ async fn run_monitor_mode() -> Result<()> {
                                 fee_sol: res.fee_sol,
                                 timestamp: chrono::Utc::now().timestamp(),
                             };
-                            let _ = state_mgr.record_trade(trade).await;
-                            let _ = state_mgr.mark_tp2_triggered(&mint_clone).await;
+                            if let Err(e) = state_mgr.record_trade(trade).await {
+                                eprintln!("❌ DB ERROR registrando TP2 para {}: {}", symbol, e);
+                                let _ = tel.send_message(&format!("⚠️ <b>DB ERROR en TP2 de {}</b>: {}\nTrade ejecutado pero NO registrado.", symbol, e), true).await;
+                            }
+                            if let Err(e) = state_mgr.mark_tp2_triggered(&mint_clone).await {
+                                eprintln!("❌ DB ERROR marcando TP2 triggered para {}: {}", symbol, e);
+                            }
 
                             if sell_amount_pct == 100 {
-                                let _ = state_mgr.close_position(&mint_clone).await;
+                                if let Err(e) = state_mgr.close_position(&mint_clone).await {
+                                    eprintln!("❌ DB ERROR cerrando posición TP2 para {}: {}", symbol, e);
+                                    let _ = tel.send_message(&format!("⚠️ <b>DB ERROR cerrando posición {}</b>: {}\nPosición sigue activa en DB.", symbol, e), true).await;
+                                }
                             }
                         }
                     });
@@ -750,7 +772,10 @@ async fn run_monitor_mode() -> Result<()> {
                                     fee_sol: res.fee_sol,
                                     timestamp: chrono::Utc::now().timestamp(),
                                 };
-                                let _ = state_mgr.record_trade(trade).await;
+                                if let Err(e) = state_mgr.record_trade(trade).await {
+                                    eprintln!("❌ DB ERROR registrando SL para {}: {}", symbol, e);
+                                    let _ = tel.send_message(&format!("⚠️ <b>DB ERROR en SL de {}</b>: {}\nTrade ejecutado pero NO registrado. Reconciliar manualmente.", symbol, e), true).await;
+                                }
 
                                 // ⚡ Cierre Atómico DB
                                 if let Err(e) = state_mgr.close_position(&mint_clone).await {

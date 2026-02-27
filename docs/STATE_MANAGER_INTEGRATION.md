@@ -181,4 +181,4 @@ Si la columna ya existe, el error se ignora silenciosamente.
 - **Backup:** `trading_state.db` contiene todo el historial de trades y posiciones. Hacer backup periódico.
 - **Reset:** Para resetear el historial, borrar `trading_state.db` (se recrea automáticamente).
 - **Concurrencia:** `deadpool-sqlite` gestiona el pool de conexiones. Seguro para operaciones concurrentes.
-- **Resiliencia:** Los `record_trade()` usan `let _ = ...` para no bloquear la ejecución si la DB falla.
+- **Resiliencia:** Todos los `record_trade()` y `close_position()` manejan errores explícitamente. Si la DB falla, se notifica vía Telegram y se registra en logs. **Nunca se ignoran errores de DB silenciosamente.**

@@ -39,7 +39,9 @@ use crate::wallet::load_keypair_from_env;
             .await
         {
             Ok(res) => {
-                let _ = state_manager.close_position(mint).await;
+                if let Err(e) = state_manager.close_position(mint).await {
+                    handler.send_message(&format!("⚠️ <b>DB ERROR cerrando posición:</b> {}\nLa posición puede seguir activa en DB.", e)).await?;
+                }
 
                 let trade = crate::state_manager::TradeRecord {
                     id: None,
@@ -57,7 +59,9 @@ use crate::wallet::load_keypair_from_env;
                     fee_sol: res.fee_sol,
                     timestamp: chrono::Utc::now().timestamp(),
                 };
-                let _ = state_manager.record_trade(trade).await;
+                if let Err(e) = state_manager.record_trade(trade).await {
+                    handler.send_message(&format!("⚠️ <b>DB ERROR registrando trade:</b> {}\nTx ejecutada pero NO registrada en historial.", e)).await?;
+                }
 
                 handler.send_message(&format!("<b>✅ LIQUIDATION COMPLETE</b>\n<b>⬢ Tx:</b> <code>{}</code>\n🛑 Posición cerrada en base de datos. Monitoreo apagado.", res.signature)).await?
             }
@@ -128,7 +132,9 @@ use crate::wallet::load_keypair_from_env;
 
                     // Marcar como inactivas en DB
                     for (mint, res) in mints.into_iter().zip(results) {
-                        let _ = state_manager.close_position(&mint).await;
+                        if let Err(e) = state_manager.close_position(&mint).await {
+                            eprintln!("❌ DB ERROR cerrando posición {} en panic_all: {}", mint, e);
+                        }
 
                         let trade = crate::state_manager::TradeRecord {
                             id: None,
@@ -146,7 +152,9 @@ use crate::wallet::load_keypair_from_env;
                             fee_sol: res.fee_sol,
                             timestamp: chrono::Utc::now().timestamp(),
                         };
-                        let _ = state_manager.record_trade(trade).await;
+                        if let Err(e) = state_manager.record_trade(trade).await {
+                            eprintln!("❌ DB ERROR registrando trade {} en panic_all: {}", mint, e);
+                        }
                     }
                 }
                 Err(e) => {

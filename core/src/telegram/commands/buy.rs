@@ -76,42 +76,45 @@ use crate::state_manager::StateManager;
                                 updated_at: chrono::Utc::now().timestamp(),
                             };
                             if let Err(e) = state_manager.upsert_position(pos).await {
-                                handler.send_message(&format!("⚠️ DB Error: {}", e)).await?;
-                                // REGISTRAR TRADE
-                                let trade = crate::state_manager::TradeRecord {
-                                    id: None,
-                                    signature: res.signature.clone(),
-                                    token_mint: valid_mint.to_string(),
-                                    symbol: "DEGEN".to_string(),
-                                    trade_type: "MANUAL_BUY".to_string(),
-                                    amount_sol: res.sol_spent,
-                                    tokens_amount: res.tokens_received,
-                                    price: res.price_per_token,
-                                    pnl_sol: None,
-                                    pnl_percent: None,
-                                    route: "Telegram Direct Raydium".to_string(),
-                                    price_impact_pct: res.price_impact_pct,
-                                    fee_sol: res.fee_sol,
-                                    timestamp: chrono::Utc::now().timestamp(),
-                                };
-                                let _ = state_manager.record_trade(trade).await;
-
-                                // 🔥 SUSCRIPCIÓN DINÁMICA
-                                let _ = feed_tx
-                                    .send(crate::price_feed::FeedCommand::Subscribe(
-                                        crate::price_feed::MonitoredToken {
-                                            mint: valid_mint.to_string(),
-                                            symbol: "DEGEN".to_string(),
-                                            pool_account: None,
-                                            coin_vault: None,
-                                            pc_vault: None,
-                                            token_decimals: 6,
-                                        },
-                                    ))
-                                    .await;
-
-                                handler.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger (Dynamic subscription active).").await?;
+                                handler.send_message(&format!("⚠️ <b>DB Error guardando posición:</b> {}", e)).await?;
                             }
+
+                            // REGISTRAR TRADE
+                            let trade = crate::state_manager::TradeRecord {
+                                id: None,
+                                signature: res.signature.clone(),
+                                token_mint: valid_mint.to_string(),
+                                symbol: "DEGEN".to_string(),
+                                trade_type: "MANUAL_BUY".to_string(),
+                                amount_sol: res.sol_spent,
+                                tokens_amount: res.tokens_received,
+                                price: res.price_per_token,
+                                pnl_sol: None,
+                                pnl_percent: None,
+                                route: "Telegram Direct Raydium".to_string(),
+                                price_impact_pct: res.price_impact_pct,
+                                fee_sol: res.fee_sol,
+                                timestamp: chrono::Utc::now().timestamp(),
+                            };
+                            if let Err(e) = state_manager.record_trade(trade).await {
+                                handler.send_message(&format!("⚠️ <b>DB Error registrando trade:</b> {}", e)).await?;
+                            }
+
+                            // 🔥 SUSCRIPCIÓN DINÁMICA
+                            let _ = feed_tx
+                                .send(crate::price_feed::FeedCommand::Subscribe(
+                                    crate::price_feed::MonitoredToken {
+                                        mint: valid_mint.to_string(),
+                                        symbol: "DEGEN".to_string(),
+                                        pool_account: None,
+                                        coin_vault: None,
+                                        pc_vault: None,
+                                        token_decimals: 6,
+                                    },
+                                ))
+                                .await;
+
+                            handler.send_message("<b>🛡️ MONITORING ARMED</b>\nPosition saved to ledger (Dynamic subscription active).").await?;
                         }
                         Err(e) => {
                             handler.send_message(&format!("❌ <b>DEGEN RAYDIUM FAIL:</b> {}", e))
@@ -259,7 +262,9 @@ use crate::state_manager::StateManager;
                             fee_sol: res.fee_sol,
                             timestamp: chrono::Utc::now().timestamp(),
                         };
-                        let _ = state_manager.record_trade(trade).await;
+                        if let Err(e) = state_manager.record_trade(trade).await {
+                            handler.send_message(&format!("⚠️ <b>DB Error registrando trade:</b> {}\nTx: {}", e, res.signature)).await?;
+                        }
 
                         // 🔥 SUSCRIPCIÓN DINÁMICA
                         let _ = feed_tx
