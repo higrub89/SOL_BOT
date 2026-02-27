@@ -41,6 +41,12 @@ pub struct DecisionEngine {
     slippage_calculator: AdaptiveSlippageCalculator,
 }
 
+impl Default for DecisionEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DecisionEngine {
     /// Crea un nuevo motor con configuración estándar de seguridad
     pub fn new() -> Self {

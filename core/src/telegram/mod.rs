@@ -15,6 +15,12 @@ pub struct TelegramNotifier {
     enabled: bool,
 }
 
+impl Default for TelegramNotifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelegramNotifier {
     /// Crea un nuevo notificador de Telegram
     pub fn new() -> Self {

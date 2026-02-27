@@ -171,7 +171,7 @@ pub fn init_observability(config: ObservabilityConfig) -> anyhow::Result<()> {
 }
 
 /// Macros de conveniencia para logs de "hiperlujo"
-
+///
 /// Log de ejecución de swap con métricas completas
 #[macro_export]
 macro_rules! log_swap {

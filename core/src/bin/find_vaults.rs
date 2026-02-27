@@ -188,7 +188,7 @@ fn main() -> Result<()> {
 
         if is_sol_pair {
             // Determinar cuál vault es SOL y cuál es el token
-            let (coin_v, pc_v) = if pool.coin_mint == token_mint.to_string() {
+            let (coin_v, pc_v) = if pool.coin_mint == *token_mint {
                 (&pool.coin_vault, &pool.pc_vault)
             } else {
                 (&pool.pc_vault, &pool.coin_vault)

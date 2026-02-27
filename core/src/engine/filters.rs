@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 1. Circuit Breaker Global
+///
 /// Detiene todo si el PnL diario supera un límite
 pub struct CircuitBreaker {
     max_daily_drawdown: f64,
@@ -44,6 +45,7 @@ impl TradeFilter for CircuitBreaker {
 }
 
 /// 2. Token Cooldown (Anti-Revenge Trading)
+///
 /// Evita re-entrar en un token que nos dio pérdidas recientes
 pub struct TokenCooldown {
     cooldown_duration: Duration,
@@ -87,6 +89,7 @@ impl TradeFilter for TokenCooldown {
 }
 
 /// 3. Authority Filter (Mint & Freeze)
+///
 /// Verifica que las autoridades críticas estén revocadas (null)
 pub struct AuthorityFilter;
 
@@ -104,6 +107,7 @@ impl TradeFilter for AuthorityFilter {
 }
 
 /// 4. Wash Trading Filter
+///
 /// Detecta volumen falso usando ratio de wallets únicas
 pub struct WashTradingFilter {
     min_unique_ratio: f64, // Ej: 0.15 (150 wallets unicas por 1000 tx)
@@ -131,6 +135,7 @@ impl TradeFilter for WashTradingFilter {
 }
 
 /// 5. Momentum Filter (Slope Check)
+///
 /// Verifica que la tendencia sea positiva y suficiente
 pub struct MomentumFilter {
     min_slope: f64,

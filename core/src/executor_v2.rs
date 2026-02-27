@@ -180,7 +180,7 @@ impl TradeExecutor {
             match self
                 .execute_emergency_sell_with_params(
                     &token_mint,
-                    wallet_keypair.clone(),
+                    wallet_keypair,
                     amount_percent,
                     Some(current_slippage_bps),
                     Some(current_jito_tip),

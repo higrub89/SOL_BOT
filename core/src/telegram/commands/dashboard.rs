@@ -157,7 +157,7 @@ use crate::config::AppConfig;
         };
 
         let since_24h = chrono::Utc::now().timestamp() - 86400;
-        let last_24h = state_manager.get_fee_stats(Some(since_24h)).await.unwrap_or_else(|_| {
+        let last_24h = state_manager.get_fee_stats(Some(since_24h)).await.unwrap_or(
             crate::state_manager::FeeStats {
                 total_fee_sol: 0.0,
                 total_trades: 0,
@@ -165,7 +165,7 @@ use crate::config::AppConfig;
                 total_pnl_gross: 0.0,
                 net_pnl_sol: 0.0,
             }
-        });
+        );
 
         let net_emoji = if all_time.net_pnl_sol > 0.0 { "🟢" } else { "🔴" };
         let net_sign = if all_time.net_pnl_sol > 0.0 { "+" } else { "" };

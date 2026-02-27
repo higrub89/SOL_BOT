@@ -544,11 +544,12 @@ async fn run_monitor_mode() -> Result<()> {
 
             // --- 💰 TAKE PROFIT 1 💰 ---
             let tp_target_percent = target.tp_percent.unwrap_or(100.0);
-            if !target.tp_triggered && current_gain_percent >= tp_target_percent {
-                if !telegram::commands::CommandHandler::is_hibernating()
-                    && app_config.global_settings.auto_execute
-                    && !tp1_attempted.contains(&target.token_mint)
-                {
+            if !target.tp_triggered
+                && current_gain_percent >= tp_target_percent
+                && !telegram::commands::CommandHandler::is_hibernating()
+                && app_config.global_settings.auto_execute
+                && !tp1_attempted.contains(&target.token_mint)
+            {
                     tp1_attempted.insert(target.token_mint.clone());
                     println!(
                         "⚡ HFT Fire-and-Forget: TAKE PROFIT 1 para {}",
@@ -619,7 +620,6 @@ async fn run_monitor_mode() -> Result<()> {
                             let _ = entry_price; // usado en pnl calc
                         }
                     });
-                }
             }
 
             // --- 🚀 TAKE PROFIT 2 (MOONBAG) 🚀 ---
@@ -627,11 +627,10 @@ async fn run_monitor_mode() -> Result<()> {
             if target.tp_triggered
                 && !target.tp2_triggered
                 && current_gain_percent >= tp2_target_percent
+                && !telegram::commands::CommandHandler::is_hibernating()
+                && app_config.global_settings.auto_execute
+                && !tp2_attempted.contains(&target.token_mint)
             {
-                if !telegram::commands::CommandHandler::is_hibernating()
-                    && app_config.global_settings.auto_execute
-                    && !tp2_attempted.contains(&target.token_mint)
-                {
                     tp2_attempted.insert(target.token_mint.clone());
                     println!(
                         "⚡ HFT Fire-and-Forget: TAKE PROFIT 2 para {}",
@@ -700,7 +699,6 @@ async fn run_monitor_mode() -> Result<()> {
                             }
                         }
                     });
-                }
             }
 
             // --- 🚨 STOP LOSS (EMERGENCY) 🚨 ---

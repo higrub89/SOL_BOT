@@ -127,13 +127,13 @@ use crate::state_manager::StateManager;
                 let mut updated_tp = false;
 
                 for param in &parts[2..] {
-                    if param.starts_with("sl=") {
-                        if let Ok(val) = param[3..].parse::<f64>() {
+                    if let Some(stripped) = param.strip_prefix("sl=") {
+                        if let Ok(val) = stripped.parse::<f64>() {
                             pos.stop_loss_percent = val;
                             updated_sl = true;
                         }
-                    } else if param.starts_with("tp=") {
-                        if let Ok(val) = param[3..].parse::<f64>() {
+                    } else if let Some(stripped) = param.strip_prefix("tp=") {
+                        if let Ok(val) = stripped.parse::<f64>() {
                             pos.tp_percent = Some(val);
                             updated_tp = true;
                         }

@@ -764,6 +764,8 @@ impl RaydiumClient {
 // TESTS
 // ============================================================================
 
+pub struct RaydiumExecutor;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,7 +776,7 @@ mod tests {
         assert!(client.is_ok());
 
         let client = client.unwrap();
-        assert!(client.pool_cache.len() > 0);
+        assert!(!client.pool_cache.is_empty());
     }
 
     #[tokio::test]
@@ -805,4 +807,3 @@ mod tests {
         assert_eq!(min_out, 995_000);
     }
 }
-pub struct RaydiumExecutor;

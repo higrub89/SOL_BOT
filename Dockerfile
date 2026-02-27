@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=planner /app/recipe.json recipe.json
 # Build dependencies - this is the layer that takes time and will be cached
+ENV RUSTFLAGS="-C target-cpu=native"
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build application

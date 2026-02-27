@@ -401,8 +401,7 @@ impl PriceFeed {
             // SOL price tracker (se actualiza desde el caché de DexScreener)
             let sol_price: SolPriceUsd = new_sol_price_tracker();
 
-            loop {
-                println!("🔌 [Geyser] Conectando a {}...", endpoint);
+            println!("🔌 [Geyser] Conectando a {}...", endpoint);
 
                 let config = GeyserConfig {
                     endpoint: endpoint.clone(),
@@ -652,7 +651,6 @@ impl PriceFeed {
                 );
                 tokio::time::sleep(reconnect_delay).await;
                 reconnect_delay = (reconnect_delay * 2).min(max_reconnect_delay);
-            }
         }
     }
 }

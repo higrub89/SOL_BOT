@@ -254,7 +254,7 @@ use crate::state_manager::StateManager;
                             trade_type: "MANUAL_BUY".to_string(),
                             amount_sol: amount,
                             tokens_amount: res.output_amount,
-                            price: price,
+                            price,
                             pnl_sol: None,
                             pnl_percent: None,
                             route: "Telegram Base".to_string(),
