@@ -32,6 +32,7 @@ pub struct TelemetryTick {
     pub net_pnl: f64,
     pub rpc_ping: u64,
     pub wallet_balance: f64,
+    pub sol_price: f64,
     pub status: String,
     pub positions: Vec<PositionUpdate>,
 }
