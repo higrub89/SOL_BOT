@@ -367,6 +367,7 @@ async fn run_monitor_mode() -> Result<()> {
     let telemetry_server = Arc::new(crate::telemetry_server::TelemetryServer::new(
         Arc::clone(&state_manager),
         Arc::clone(&price_cache),
+        Arc::clone(&wallet_monitor),
     ));
 
     tokio::spawn(async move {

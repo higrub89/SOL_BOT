@@ -2,12 +2,19 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::state_manager::StateManager;
+use crate::wallet::WalletMonitor;
 use crate::price_feed::PriceCache;
 use crate::telegram::commands::HIBERNATION_MODE;
 use std::sync::atomic::Ordering;
+
+#[derive(Deserialize)]
+struct UiCommand {
+    command: String,
+    timestamp: Option<u64>,
+}
 
 #[derive(Serialize, Clone)]
 pub struct PositionUpdate {
@@ -24,6 +31,7 @@ pub struct TelemetryTick {
     pub t: u64,
     pub net_pnl: f64,
     pub rpc_ping: u64,
+    pub wallet_balance: f64,
     pub status: String,
     pub positions: Vec<PositionUpdate>,
 }
@@ -31,11 +39,13 @@ pub struct TelemetryTick {
 pub struct TelemetryServer {
     state_manager: Arc<StateManager>,
     price_cache: PriceCache,
+    wallet_monitor: Arc<WalletMonitor>,
+    cached_balance: Arc<std::sync::RwLock<f64>>,
 }
 
 impl TelemetryServer {
-    pub fn new(state_manager: Arc<StateManager>, price_cache: PriceCache) -> Self {
-        Self { state_manager, price_cache }
+    pub fn new(state_manager: Arc<StateManager>, price_cache: PriceCache, wallet_monitor: Arc<WalletMonitor>) -> Self {
+        Self { state_manager, price_cache, wallet_monitor, cached_balance: Arc::new(std::sync::RwLock::new(0.0)) }
     }
 
     pub async fn run(self: Arc<Self>, addr: &str) -> anyhow::Result<()> {
@@ -63,6 +73,21 @@ impl TelemetryServer {
                         Err(e) => {
                             eprintln!("⚠️ [TELEMETRY] Error construyendo tick: {}", e);
                         }
+                    }
+                }
+            }
+        });
+
+        // Tarea en segundo plano para refrescar balance de la wallet sin spam de RPC
+        let wallet_monitor_clone = Arc::clone(&self.wallet_monitor);
+        let cached_balance_clone = Arc::clone(&self.cached_balance);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                if let Ok(bal) = wallet_monitor_clone.get_sol_balance() {
+                    if let Ok(mut lock) = cached_balance_clone.write() {
+                        *lock = bal;
                     }
                 }
             }
@@ -97,7 +122,25 @@ impl TelemetryServer {
                     if let Some(msg) = msg {
                         match msg {
                             Ok(Message::Text(text)) => {
-                                println!("⚡ [TELEMETRY] Mensaje UI: {}", text);
+                                println!("⚡ [TELEMETRY] Mensaje UI crudo: {}", text);
+                                if let Ok(parsed) = serde_json::from_str::<UiCommand>(&text) {
+                                    match parsed.command.as_str() {
+                                        "HIBERNATE" => {
+                                            println!("🛑 [UI-COMMAND] Activando MODO HIBERNACIÓN por comando directo desde el panel táctico.");
+                                            HIBERNATION_MODE.store(true, Ordering::Relaxed);
+                                        }
+                                        "PANIC_ALL" => {
+                                            println!("💥 [UI-COMMAND] PANIC ALL EJECUTADO DESDE LA UI.");
+                                            println!("💥 [UI-COMMAND] (WIP: Aquí se inyectarán las órdenes a mercado para liquidar todo)");
+                                            // TODO: Integrar aquí la llamada al ExecutionRouter o TradingEngine para hacer close_all_positions
+                                        }
+                                        _ => {
+                                            println!("⚠️ [TELEMETRY] Comando desconocido: {}", parsed.command);
+                                        }
+                                    }
+                                } else {
+                                    println!("⚠️ [TELEMETRY] No se pudo parsear comando de la UI como JSON: {}", text);
+                                }
                             }
                             // Manejo de la trama de control para no desconectar clientes lentos / fantasmas
                             Ok(Message::Ping(p)) => {
@@ -160,10 +203,14 @@ impl TelemetryServer {
             .unwrap()
             .as_secs();
 
+        // Leer el último balance trackeado
+        let wallet_balance = *self.cached_balance.read().unwrap();
+
         Ok(TelemetryTick {
             t: now,
             net_pnl: total_pnl_sol,
             rpc_ping: 35, // Latencia simulada o real si se tuviera
+            wallet_balance,
             status: status.to_string(),
             positions,
         })
