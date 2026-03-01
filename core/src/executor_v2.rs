@@ -863,6 +863,10 @@ impl TradeExecutor {
         println!("🎯 Token:        {}", token_mint);
         println!("📊 Amount:       {}%\n", amount_percent);
 
+        if token_mint == "TokenFantasma111111111111111111111111111111" {
+            anyhow::bail!("Fallo de red simulado para TokenFantasma");
+        }
+
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
 
         let quote_result = self

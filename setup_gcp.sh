@@ -1,4 +1,4 @@
-#!/bin/bash
+    #!/bin/bash
 # ╔═══════════════════════════════════════════════════════════════╗
 # ║        SETUP INICIAL — Servidor GCP The Chassis Bot           ║
 # ║        EDICIÓN ESPECIAL: HIGH PERFORMANCE & REAL-TIME         ║

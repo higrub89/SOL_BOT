@@ -7,6 +7,9 @@ pub mod actuators;
 pub mod filters;
 pub mod momentum;
 pub mod types;
+pub mod commands;
+pub mod router;
+pub mod strategy;
 
 // Re-exportar tipos para uso externo (AutoBuyer)
 pub use self::actuators::{AdaptiveSlippageCalculator, DynamicTipCalculator};

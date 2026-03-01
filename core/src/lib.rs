@@ -3,7 +3,7 @@
 //! v2.0.0-HFT - Asynchronous Execution & Dynamic Configuration
 
 use anyhow::Result;
-use chrono::Utc;
+
 use clap::{Parser, Subcommand};
 use solana_sdk::program_pack::Pack;
 use solana_sdk::signature::Keypair;
@@ -48,12 +48,12 @@ pub mod sensors;
 use config::AppConfig;
 use emergency::{EmergencyConfig, EmergencyMonitor, Position};
 use executor_v2::{ExecutorConfig, TradeExecutor};
-use liquidity_monitor::LiquidityMonitor;
+
 use price_feed::{MonitoredToken, PriceFeed, PriceFeedConfig};
 use state_manager::StateManager;
 use telegram::TelegramNotifier;
 use telegram::commands::CommandHandler;
-use trailing_sl::TrailingStopLoss;
+
 use wallet::{load_keypair_from_env, WalletMonitor};
 
 /// Argumentos de línea de comandos para The Chassis
@@ -356,8 +356,8 @@ async fn run_monitor_mode() -> Result<()> {
     }
 
     let (price_rx, price_cache, feed_tx) = PriceFeed::start(feed_config, monitored_tokens);
-    let mut price_rx = price_rx;
-    let buyer = Arc::new(crate::auto_buyer::AutoBuyer::new_with_cache(
+    let price_rx = price_rx;
+    let _buyer = Arc::new(crate::auto_buyer::AutoBuyer::new_with_cache(
         rpc_url.clone(),
         Some(Arc::clone(&price_cache)),
     )?);
@@ -384,11 +384,7 @@ async fn run_monitor_mode() -> Result<()> {
             .await;
     });
 
-    // 7. Trailing SL & Hibernación
-    let mut trailing_monitors: std::collections::HashMap<String, TrailingStopLoss> =
-        std::collections::HashMap::new();
-    let mut liquidity_monitors: std::collections::HashMap<String, LiquidityMonitor> =
-        std::collections::HashMap::new();
+    // 7. Hibernación
 
     let hibernate_wallet = Arc::clone(&wallet_monitor);
     let hibernate_telegram = Arc::clone(&telegram);
@@ -428,385 +424,25 @@ async fn run_monitor_mode() -> Result<()> {
         }
     });
 
+
     // ============================================================================
-    // LOOP PRINCIPAL HFT (Non-Blocking I/O)
+    // LOOP PRINCIPAL HFT (Arquitectura Desacoplada)
     // ============================================================================
-    println!("🏎️  Motor asíncrono activado. Esperando ticks de telemetría...\n");
+    println!("🏎️  Chassis ensamblado. Arrancando subsistemas asíncronos...\n");
 
-    let mut sell_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut tp1_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut tp2_attempted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut sl_alerted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut last_log_time: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    use crate::engine::commands::{ExecutionCommand, ExecutionFeedback};
+    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<ExecutionCommand>(1024);
+    let (feedback_tx, feedback_rx) = tokio::sync::mpsc::channel::<ExecutionFeedback>(1024);
 
-    let monitor_clone = Arc::clone(&emergency_monitor);
-    let telegram_clone = Arc::clone(&telegram);
-    let executor_clone = Arc::clone(&executor);
+    let engine = crate::engine::strategy::StrategyEngine::new(Arc::clone(&state_manager));
+    tokio::spawn(async move {
+        engine.run_loop(price_rx, cmd_tx, feedback_rx).await;
+    });
 
-    while let Some(price_update) = price_rx.recv().await {
-        // Fetch en caliente desde DB pool
-        let target = match state_manager.get_position(&price_update.token_mint).await {
-            Ok(Some(p)) if p.active => p,
-            _ => continue,
-        };
-
-        buyer
-            .record_price_tick(&price_update.token_mint, price_update.price_usd)
-            .await;
-        let current_value = (target.amount_sol / target.entry_price) * price_update.price_native;
-
-        {
-            let mut monitor = monitor_clone.lock().unwrap();
-            if monitor.get_position(&target.token_mint).is_none() {
-                monitor.add_position(crate::emergency::Position {
-                    token_mint: target.token_mint.clone(),
-                    symbol: target.symbol.clone(),
-                    entry_price: target.entry_price,
-                    amount_invested: target.amount_sol,
-                    current_price: price_update.price_native,
-                    current_value,
-                });
-            }
-            monitor.update_position(&target.token_mint, price_update.price_native, current_value);
-        }
-
-        if target.trailing_enabled && !trailing_monitors.contains_key(&target.symbol) {
-            let mut tsl = TrailingStopLoss::new(
-                target.entry_price,
-                target.stop_loss_percent,
-                target.trailing_distance_percent,
-                target.trailing_activation_threshold,
-            );
-            if let Some(peak) = target.trailing_highest_price {
-                tsl.peak_price = tsl.peak_price.max(peak);
-            }
-            if let Some(curr_sl) = target.trailing_current_sl {
-                tsl.current_sl_percent = curr_sl;
-                tsl.enabled = true;
-            }
-            trailing_monitors.insert(target.symbol.clone(), tsl);
-        }
-        if !liquidity_monitors.contains_key(&target.symbol) {
-            liquidity_monitors.insert(target.symbol.clone(), LiquidityMonitor::new(20.0, 5.0));
-        }
-
-        // Actualización DB Asíncrona (Telemetría - tolerante a fallos)
-        if let Err(e) = state_manager
-            .update_position_price(&target.token_mint, price_update.price_native)
-            .await
-        {
-            eprintln!("⚠️ DB price update falló para {}: {}", target.symbol, e);
-        }
-
-        let position_data = monitor_clone
-            .lock()
-            .unwrap()
-            .get_position(&target.token_mint)
-            .cloned();
-
-        if let Some(pos) = position_data {
-            let dd = pos.drawdown_percent();
-            let effective_sl_percent = if let Some(tsl) = trailing_monitors.get(&target.symbol) {
-                tsl.current_sl_percent.max(target.stop_loss_percent)
-            } else {
-                target.stop_loss_percent
-            };
-
-            let current_gain_percent =
-                ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
-
-            // Logs limitados
-            let now = Utc::now().timestamp();
-            let last_printed = *last_log_time.get(&target.token_mint).unwrap_or(&0);
-            if now - last_printed >= 15 {
-                println!("┌────────────────────────────────────────────────────────┐");
-                println!(
-                    "│ {} Status [{}] {:>20} │",
-                    target.symbol, price_update.source, dd
-                );
-                println!("├────────────────────────────────────────────────────────┤");
-                println!(
-                    "│   Price:    {:.8} SOL                  │",
-                    pos.current_price
-                );
-                println!(
-                    "│   PnL:      {:.2}%                                  │",
-                    current_gain_percent
-                );
-                println!(
-                    "│   SL Limit: {:.1}%                                  │",
-                    effective_sl_percent
-                );
-                println!("└────────────────────────────────────────────────────────┘");
-                last_log_time.insert(target.token_mint.clone(), now);
-            }
-
-            // --- 💰 TAKE PROFIT 1 💰 ---
-            let tp_target_percent = target.tp_percent.unwrap_or(100.0);
-            if !target.tp_triggered
-                && current_gain_percent >= tp_target_percent
-                && !telegram::commands::CommandHandler::is_hibernating()
-                && app_config.global_settings.auto_execute
-                && !tp1_attempted.contains(&target.token_mint)
-            {
-                    tp1_attempted.insert(target.token_mint.clone());
-                    println!(
-                        "⚡ HFT Fire-and-Forget: TAKE PROFIT 1 para {}",
-                        target.symbol
-                    );
-
-                    let mint_clone = target.token_mint.clone();
-                    let kp_wrapper = wallet_keypair.as_ref().map(|k| k.insecure_clone());
-                    let exc = Arc::clone(&executor_clone);
-                    let state_mgr = Arc::clone(&state_manager);
-                    let tel = Arc::clone(&telegram_clone);
-                    let symbol = target.symbol.clone();
-                    let sell_amount_pct = target.tp_amount_percent.unwrap_or(50.0) as u8;
-                    let entry_price = pos.entry_price;
-                    let amount_sol_invested = target.amount_sol;
-
-                    // ⚡ DESACOPLAMIENTO: Hilo independiente
-                    tokio::spawn(async move {
-                        let sell_result = exc
-                            .execute_sell_with_retry(
-                                mint_clone.clone(),
-                                kp_wrapper.as_ref(),
-                                sell_amount_pct,
-                                false,
-                            )
-                            .await;
-                        if let Ok(res) = sell_result {
-                            let _ = tel
-                                .send_message(
-                                    &format!(
-                                        "💰 <b>TP1 HIT</b> para {}! Tx: {}\n⛽ Fee: {:.6} SOL",
-                                        symbol, res.signature, res.fee_sol
-                                    ),
-                                    true,
-                                )
-                                .await;
-                            // ⚡ Registrar trade TP1 con fee real
-                            let sol_received = res.output_amount;
-                            let trade = crate::state_manager::TradeRecord {
-                                id: None,
-                                signature: res.signature.clone(),
-                                token_mint: mint_clone.clone(),
-                                symbol: symbol.clone(),
-                                trade_type: "AUTO_TP1".to_string(),
-                                amount_sol: sol_received,
-                                tokens_amount: res.input_amount,
-                                price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
-                                pnl_sol: Some(sol_received - (amount_sol_invested * (sell_amount_pct as f64 / 100.0))),
-                                pnl_percent: Some(((sol_received / (amount_sol_invested * (sell_amount_pct as f64 / 100.0))) - 1.0) * 100.0),
-                                route: res.route.clone(),
-                                price_impact_pct: res.price_impact_pct,
-                                fee_sol: res.fee_sol,
-                                timestamp: chrono::Utc::now().timestamp(),
-                            };
-                            if let Err(e) = state_mgr.record_trade(trade).await {
-                                eprintln!("❌ DB ERROR registrando TP1 para {}: {}", symbol, e);
-                                let _ = tel.send_message(&format!("⚠️ <b>DB ERROR en TP1 de {}</b>: {}\nTrade ejecutado pero NO registrado.", symbol, e), true).await;
-                            }
-                            if let Err(e) = state_mgr.mark_tp_triggered(&mint_clone).await {
-                                eprintln!("❌ DB ERROR marcando TP1 triggered para {}: {}", symbol, e);
-                            }
-                            // Actualizar amount asíncronamente
-                            let remaining =
-                                amount_sol_invested * (1.0 - (sell_amount_pct as f64 / 100.0));
-                            if let Err(e) = state_mgr.update_amount_invested(&mint_clone, remaining).await {
-                                eprintln!("❌ DB ERROR actualizando amount para {}: {}", symbol, e);
-                            }
-                            let _ = entry_price; // usado en pnl calc
-                        }
-                    });
-            }
-
-            // --- 🚀 TAKE PROFIT 2 (MOONBAG) 🚀 ---
-            let tp2_target_percent = target.tp2_percent.unwrap_or(200.0);
-            if target.tp_triggered
-                && !target.tp2_triggered
-                && current_gain_percent >= tp2_target_percent
-                && !telegram::commands::CommandHandler::is_hibernating()
-                && app_config.global_settings.auto_execute
-                && !tp2_attempted.contains(&target.token_mint)
-            {
-                    tp2_attempted.insert(target.token_mint.clone());
-                    println!(
-                        "⚡ HFT Fire-and-Forget: TAKE PROFIT 2 para {}",
-                        target.symbol
-                    );
-
-                    let mint_clone = target.token_mint.clone();
-                    let kp_wrapper = wallet_keypair.as_ref().map(|k| k.insecure_clone());
-                    let exc = Arc::clone(&executor_clone);
-                    let state_mgr = Arc::clone(&state_manager);
-                    let tel = Arc::clone(&telegram_clone);
-                    let symbol = target.symbol.clone();
-                    let sell_amount_pct = target.tp2_amount_percent.unwrap_or(100.0) as u8;
-                    let amount_sol_invested = target.amount_sol;
-
-                    tokio::spawn(async move {
-                        let sell_result = exc
-                            .execute_sell_with_retry(
-                                mint_clone.clone(),
-                                kp_wrapper.as_ref(),
-                                sell_amount_pct,
-                                false,
-                            )
-                            .await;
-                        if let Ok(res) = sell_result {
-                            let _ = tel
-                                .send_message(
-                                    &format!(
-                                        "🚀 <b>TP2 HIT</b> para {}! Tx: {}\n⛽ Fee: {:.6} SOL",
-                                        symbol, res.signature, res.fee_sol
-                                    ),
-                                    true,
-                                )
-                                .await;
-                            // ⚡ Registrar trade TP2 con fee real
-                            let sol_received = res.output_amount;
-                            let trade = crate::state_manager::TradeRecord {
-                                id: None,
-                                signature: res.signature.clone(),
-                                token_mint: mint_clone.clone(),
-                                symbol: symbol.clone(),
-                                trade_type: "AUTO_TP2".to_string(),
-                                amount_sol: sol_received,
-                                tokens_amount: res.input_amount,
-                                price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
-                                pnl_sol: Some(sol_received - (amount_sol_invested * (sell_amount_pct as f64 / 100.0))),
-                                pnl_percent: Some(((sol_received / (amount_sol_invested * (sell_amount_pct as f64 / 100.0)).max(0.00000001)) - 1.0) * 100.0),
-                                route: res.route.clone(),
-                                price_impact_pct: res.price_impact_pct,
-                                fee_sol: res.fee_sol,
-                                timestamp: chrono::Utc::now().timestamp(),
-                            };
-                            if let Err(e) = state_mgr.record_trade(trade).await {
-                                eprintln!("❌ DB ERROR registrando TP2 para {}: {}", symbol, e);
-                                let _ = tel.send_message(&format!("⚠️ <b>DB ERROR en TP2 de {}</b>: {}\nTrade ejecutado pero NO registrado.", symbol, e), true).await;
-                            }
-                            if let Err(e) = state_mgr.mark_tp2_triggered(&mint_clone).await {
-                                eprintln!("❌ DB ERROR marcando TP2 triggered para {}: {}", symbol, e);
-                            }
-
-                            if sell_amount_pct == 100 {
-                                if let Err(e) = state_mgr.close_position(&mint_clone).await {
-                                    eprintln!("❌ DB ERROR cerrando posición TP2 para {}: {}", symbol, e);
-                                    let _ = tel.send_message(&format!("⚠️ <b>DB ERROR cerrando posición {}</b>: {}\nPosición sigue activa en DB.", symbol, e), true).await;
-                                }
-                            }
-                        }
-                    });
-            }
-
-            // --- 🚨 STOP LOSS (EMERGENCY) 🚨 ---
-            if dd <= effective_sl_percent {
-                if telegram::commands::CommandHandler::is_hibernating() {
-                    if !sl_alerted.contains(&target.token_mint) {
-                        sl_alerted.insert(target.token_mint.clone());
-                        let _ = telegram_clone.send_message(&format!("🛑 <b>SL de {} ({:.2}%) alcanzado pero bot hibernando.</b> Vende en Jupiter.", target.symbol, dd), true).await;
-                    }
-                } else if app_config.global_settings.auto_execute
-                    && !sell_attempted.contains(&target.token_mint)
-                {
-                    sell_attempted.insert(target.token_mint.clone());
-                    println!(
-                        "⚡ HFT INJECTION: Emergency Sell para {} desatada.",
-                        target.symbol
-                    );
-
-                    let mint_clone = target.token_mint.clone();
-                    let kp_wrapper = wallet_keypair.as_ref().map(|k| k.insecure_clone());
-                    let exc = Arc::clone(&executor_clone);
-                    let state_mgr = Arc::clone(&state_manager);
-                    let tel = Arc::clone(&telegram_clone);
-                    let symbol = target.symbol.clone();
-
-                    // ⚡ DESACOPLAMIENTO ABSOLUTO + OVERRIDE DE ECU
-                    let amount_sol_invested = target.amount_sol;
-                    tokio::spawn(async move {
-                        // is_emergency = true (Activa modo agresivo Degen de slippage si falla)
-                        let sell_result = exc
-                            .execute_sell_with_retry(
-                                mint_clone.clone(),
-                                kp_wrapper.as_ref(),
-                                100,
-                                true,
-                            )
-                            .await;
-
-                        match sell_result {
-                            Ok(res) => {
-                                println!("✅ SL HFT Ejecutado: {} | Fee: {:.6} SOL", res.signature, res.fee_sol);
-                                let _ = tel
-                                    .send_message(
-                                        &format!(
-                                            "✅ <b>SL HFT Completado para {}.</b>\nTx: {}\n⛽ Fee: {:.6} SOL",
-                                            symbol, res.signature, res.fee_sol
-                                        ),
-                                        true,
-                                    )
-                                    .await;
-
-                                // ⚡ Registrar trade SL con fee real
-                                let sol_received = res.output_amount;
-                                let trade = crate::state_manager::TradeRecord {
-                                    id: None,
-                                    signature: res.signature.clone(),
-                                    token_mint: mint_clone.clone(),
-                                    symbol: symbol.clone(),
-                                    trade_type: "AUTO_SL".to_string(),
-                                    amount_sol: sol_received,
-                                    tokens_amount: res.input_amount,
-                                    price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
-                                    pnl_sol: Some(sol_received - amount_sol_invested),
-                                    pnl_percent: Some(((sol_received / amount_sol_invested.max(0.000001)) - 1.0) * 100.0),
-                                    route: res.route.clone(),
-                                    price_impact_pct: res.price_impact_pct,
-                                    fee_sol: res.fee_sol,
-                                    timestamp: chrono::Utc::now().timestamp(),
-                                };
-                                if let Err(e) = state_mgr.record_trade(trade).await {
-                                    eprintln!("❌ DB ERROR registrando SL para {}: {}", symbol, e);
-                                    let _ = tel.send_message(&format!("⚠️ <b>DB ERROR en SL de {}</b>: {}\nTrade ejecutado pero NO registrado. Reconciliar manualmente.", symbol, e), true).await;
-                                }
-
-                                // ⚡ Cierre Atómico DB
-                                if let Err(e) = state_mgr.close_position(&mint_clone).await {
-                                    eprintln!("❌ Error de integridad cerrando posición atómica en SQLite: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("💥 Fallo irrecuperable en SL para {}: {}", symbol, e);
-                                // NO CERRAMOS EN DB. SE PERMITE INTENTO MANUAL.
-                                let _ = tel.send_error_alert(&format!("❌ <b>Fallo en SL de {}</b>: {}\nLa posición SIGUE ABIERTA en base de datos. Vende manualmente.", symbol, e)).await;
-                            }
-                        }
-                    });
-                } else if !app_config.global_settings.auto_execute
-                    && !sl_alerted.contains(&target.token_mint)
-                {
-                    sl_alerted.insert(target.token_mint.clone());
-                    let _ = telegram_clone
-                        .send_message(
-                            &format!(
-                                "⚠️ <b>SL de {} ({:.2}%) alcanzado. Auto-execute OFF.</b>",
-                                target.symbol, dd
-                            ),
-                            true,
-                        )
-                        .await;
-                }
-            }
-        }
-
-        // Update Trailing SL localmente
-        if let Some(tsl) = trailing_monitors.get_mut(&target.symbol) {
-            let _ = tsl.update(price_update.price_usd);
-        }
-    }
+    let router = crate::engine::router::ExecutionRouter::new(Arc::clone(&executor), Arc::clone(&state_manager), Arc::clone(&telegram), wallet_keypair, feedback_tx);
+    tokio::spawn(async move {
+        Arc::new(router).run_dashboard(cmd_rx).await;
+    });
 
     Ok(())
 }
