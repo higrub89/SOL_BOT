@@ -394,6 +394,7 @@ async fn run_monitor_mode() -> Result<()> {
     let cmd_config = Arc::new(app_config.clone());
     let cmd_executor = Arc::clone(&executor);
     let cmd_state_manager = Arc::clone(&state_manager);
+    let cmd_price_cache = Arc::clone(&price_cache);
 
     tokio::spawn(async move {
         let _ = cmd_handler_clone
@@ -403,6 +404,7 @@ async fn run_monitor_mode() -> Result<()> {
                 cmd_config,
                 cmd_state_manager,
                 feed_tx,
+                cmd_price_cache,
             )
             .await;
     });

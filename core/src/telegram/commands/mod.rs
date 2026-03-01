@@ -66,6 +66,7 @@ impl CommandHandler {
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
         feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
+        price_cache: crate::price_feed::PriceCache,
     ) -> Result<()> {
         println!("🚀 INICIANDO SISTEMA DE TELEGRAM COMMANDS (POLLING MANUAL)...");
 
@@ -152,6 +153,7 @@ impl CommandHandler {
                                     Arc::clone(&config),
                                     Arc::clone(&state_manager),
                                     feed_tx.clone(),
+                                    Arc::clone(&price_cache),
                                 )
                                 .await?
                             {
@@ -186,6 +188,7 @@ impl CommandHandler {
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
         feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
+        price_cache: crate::price_feed::PriceCache,
     ) -> Result<bool> {
         let mut is_reboot = false;
         match command.trim() {
@@ -230,7 +233,7 @@ impl CommandHandler {
             }
 
             "/status" => {
-                self.cmd_status(Arc::clone(&state_manager)).await?;
+                self.cmd_status(Arc::clone(&state_manager), Arc::clone(&price_cache)).await?;
             }
 
             "/settings" => {
@@ -277,7 +280,7 @@ impl CommandHandler {
             }
 
             "/positions" => {
-                self.cmd_positions(Arc::clone(&state_manager)).await?;
+                self.cmd_positions(Arc::clone(&state_manager), Arc::clone(&price_cache)).await?;
             }
 
             "/history" => {
@@ -451,8 +454,8 @@ impl CommandHandler {
         crate::telegram::commands::sell::cmd_panic_all(self, executor, state_manager).await
     }
 
-        async fn cmd_status(&self, state_manager: Arc<StateManager>) -> Result<()> {
-        crate::telegram::commands::dashboard::cmd_status(self, state_manager).await
+        async fn cmd_status(&self, state_manager: Arc<StateManager>, price_cache: crate::price_feed::PriceCache) -> Result<()> {
+        crate::telegram::commands::dashboard::cmd_status(self, state_manager, price_cache).await
     }
 
         async fn cmd_balance(&self, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
@@ -537,7 +540,7 @@ impl CommandHandler {
     }
 
     /// Comando /positions - Muestra posiciones activas desde la DB
-    async fn cmd_positions(&self, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_positions(&self, state_manager: Arc<StateManager>, price_cache: crate::price_feed::PriceCache) -> Result<()> {
         match state_manager.get_active_positions().await {
             Ok(positions) => {
                 if positions.is_empty() {
@@ -548,7 +551,15 @@ impl CommandHandler {
                 self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>")
                     .await?;
 
-                for pos in positions {
+                for mut pos in positions {
+                    {
+                        let cache = price_cache.read().await;
+                        if let Some(price_data) = cache.get(&pos.token_mint) {
+                            if price_data.price_native > 0.0 {
+                                pos.current_price = price_data.price_native;
+                            }
+                        }
+                    }
                     let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
                     let status_emoji = if dd > 20.0 {
                         "🟢"

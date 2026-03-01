@@ -5,7 +5,11 @@ use crate::wallet::WalletMonitor;
 use crate::config::AppConfig;
 
 /// Comando /status - Muestra el estado de todos los tokens
-    pub async fn cmd_status(handler: &super::CommandHandler, state_manager: Arc<StateManager>) -> Result<()> {
+    pub async fn cmd_status(
+        handler: &super::CommandHandler, 
+        state_manager: Arc<StateManager>,
+        price_cache: crate::price_feed::PriceCache,
+    ) -> Result<()> {
         let positions = match state_manager.get_active_positions().await {
             Ok(pos) => pos,
             Err(e) => {
@@ -24,7 +28,16 @@ use crate::config::AppConfig;
         let mut response =
             "<b>📡 LIVE TELEMETRY</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
 
-        for pos in positions {
+        for mut pos in positions {
+            {
+                let cache = price_cache.read().await;
+                if let Some(price_data) = cache.get(&pos.token_mint) {
+                    if price_data.price_native > 0.0 {
+                        pos.current_price = price_data.price_native;
+                    }
+                }
+            }
+
             let dd = if pos.entry_price > 0.0 {
                 ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0
             } else {
@@ -66,6 +79,11 @@ use crate::config::AppConfig;
                 dd,
                 current_value
             ));
+
+            if response.len() > 3000 {
+                handler.send_message(&response).await?;
+                response = "<b>📡 LIVE TELEMETRY (CONT.)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+            }
         }
 
         response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
@@ -125,6 +143,11 @@ use crate::config::AppConfig;
                         target.amount_sol,
                         status
                     ));
+                    
+                    if response.len() > 3000 {
+                        handler.send_message(&response).await?;
+                        response = "<b>🎯 SECURED TARGETS (CONT.)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
+                    }
                 }
             }
         }
