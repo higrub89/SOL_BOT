@@ -206,11 +206,17 @@ impl TelemetryServer {
         // Leer el último balance trackeado
         let wallet_balance = *self.cached_balance.read().unwrap();
 
+        // Obtener el precio actual de SOL
+        let sol_price = cache.get("So11111111111111111111111111111111111111112")
+            .map(|p| p.price_native)
+            .unwrap_or(0.0);
+
         Ok(TelemetryTick {
             t: now,
             net_pnl: total_pnl_sol,
             rpc_ping: 35, // Latencia simulada o real si se tuviera
             wallet_balance,
+            sol_price,
             status: status.to_string(),
             positions,
         })

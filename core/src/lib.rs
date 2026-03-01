@@ -343,6 +343,17 @@ async fn run_monitor_mode() -> Result<()> {
     // 5. PriceFeed (Telemetría de alta velocidad)
     let feed_config = PriceFeedConfig::from_env();
     let mut monitored_tokens: Vec<MonitoredToken> = Vec::new();
+    
+    // Trackear el precio de SOL por defecto siempre
+    monitored_tokens.push(MonitoredToken {
+        mint: "So11111111111111111111111111111111111111112".to_string(),
+        symbol: "SOL".to_string(),
+        pool_account: None,
+        coin_vault: None,
+        pc_vault: None,
+        token_decimals: 9, // SOL usa 9 decimales
+    });
+    
     if let Ok(db_positions) = state_manager.get_active_positions().await {
         for pos in db_positions {
             monitored_tokens.push(MonitoredToken {
