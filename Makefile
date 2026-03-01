@@ -5,8 +5,7 @@
 
 # Configuración del entorno
 CARGO := cargo
-RUST_LOG := info
-TARGET := target/release/the_chassis
+TARGET := target/release/the_chassis_app
 
 .PHONY: all build check test clean run monitor scan backtest help
 

@@ -29,6 +29,7 @@ pub mod raydium;
 pub mod scanner;
 pub mod state_manager;
 pub mod telegram; // El módulo telegram ahora incluye commands internamente
+pub mod telemetry_server;
 pub mod trailing_sl;
 pub mod validation;
 pub mod wallet;
@@ -362,7 +363,17 @@ async fn run_monitor_mode() -> Result<()> {
         Some(Arc::clone(&price_cache)),
     )?);
 
-    // 6. Telegram y Comandos
+    // 6. Telemetry Server (WebSocket para la UI)
+    let telemetry_server = Arc::new(crate::telemetry_server::TelemetryServer::new(
+        Arc::clone(&state_manager),
+        Arc::clone(&price_cache),
+    ));
+
+    tokio::spawn(async move {
+        let _ = telemetry_server.run("127.0.0.1:9001").await;
+    });
+
+    // 7. Telegram y Comandos
     let telegram = Arc::new(TelegramNotifier::new());
     let command_handler = Arc::new(CommandHandler::new());
 
@@ -440,9 +451,21 @@ async fn run_monitor_mode() -> Result<()> {
     });
 
     let router = crate::engine::router::ExecutionRouter::new(Arc::clone(&executor), Arc::clone(&state_manager), Arc::clone(&telegram), wallet_keypair, feedback_tx);
-    tokio::spawn(async move {
+    let router_handle = tokio::spawn(async move {
         Arc::new(router).run_dashboard(cmd_rx).await;
     });
+
+    println!("✅ The Chassis está en marcha. Pulsa Ctrl+C para detener.\n");
+    
+    // Mantener el proceso vivo hasta que se reciba una señal de interrupción
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("\n🛑 Señal de parada recibida. Cerrando The Chassis...");
+        }
+        _ = router_handle => {
+            println!("\n⚠️ El Execution Router se ha detenido inesperadamente.");
+        }
+    }
 
     Ok(())
 }

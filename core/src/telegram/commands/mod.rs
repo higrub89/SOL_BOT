@@ -477,9 +477,6 @@ impl CommandHandler {
 
         if offset != 0 {
             url.push_str(&format!("?offset={}", offset));
-        } else {
-            // Si es el inicio, obtener solo los nuevos (evitar procesar historial viejo)
-            url.push_str("?offset=-1");
         }
 
         let client = reqwest::Client::new();
