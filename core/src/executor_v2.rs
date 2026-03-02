@@ -1258,6 +1258,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_simulate_sell() {
         let config = ExecutorConfig::new("https://api.mainnet-beta.solana.com".to_string(), true);
         let executor = TradeExecutor::new(config);

@@ -59,11 +59,12 @@ impl PriceScanner {
         });
 
         if let Some(pair) = best_pair {
-            // Extraer valores con validación estricta
+            // Extraer valores con validación estricta, pero permitir fallback a 0.0 para evaluar tokens colapsados
             let price_usd_str = pair
                 .price_usd
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("DexScreener: price_usd missing"))?;
+                .map(|s| s.as_str())
+                .unwrap_or("0.0");
 
             let price_usd =
                 FinancialValidator::parse_price_safe(price_usd_str, "DexScreener price_usd")?;
@@ -76,12 +77,15 @@ impl PriceScanner {
 
             let liquidity_usd = pair.liquidity.as_ref().and_then(|l| l.usd).unwrap_or(0.0);
 
-            // Validar liquidez mínima (protección contra pools con liquidez muy baja)
-            FinancialValidator::validate_liquidity(
+            // Validar liquidez mínima (protección. Lo comentamos/logueamos pero NO fallamos)
+            // Si la liquidez colapsa (rug pull), necesitamos informar el precio a 0 para que salte el stop-loss.
+            if let Err(e) = FinancialValidator::validate_liquidity(
                 liquidity_usd,
                 100.0, // Mínimo $100 de liquidez
                 "DexScreener liquidity",
-            )?;
+            ) {
+                eprintln!("⚠️ [Scanner] Liquidity warning: {}", e);
+            }
 
             let volume_24h = pair.volume.as_ref().and_then(|v| v.h24).unwrap_or(0.0);
 
@@ -101,7 +105,16 @@ impl PriceScanner {
                 pair_address: pair.pair_address.clone(),
             })
         } else {
-            anyhow::bail!("No trading pairs found for token")
+            eprintln!("⚠️ [Scanner] No trading pairs found for token {} (Rug pull/Dead). Emitting 0 price.", token_address);
+            Ok(TokenPrice {
+                price_usd: 0.0,
+                price_native: 0.0,
+                liquidity_usd: 0.0,
+                volume_24h: 0.0,
+                price_change_24h: -100.0,
+                symbol: "UNKNOWN".to_string(),
+                pair_address: "".to_string(),
+            })
         }
     }
 

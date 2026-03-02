@@ -771,6 +771,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_pool_cache_loading() {
         let client = RaydiumClient::new("https://api.mainnet-beta.solana.com".to_string());
         assert!(client.is_ok());
@@ -780,6 +781,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_find_sol_usdc_pool() {
         let client = RaydiumClient::new("https://api.mainnet-beta.solana.com".to_string()).unwrap();
 

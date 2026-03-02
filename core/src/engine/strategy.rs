@@ -12,6 +12,7 @@ pub struct StrategyEngine {
     tp1_attempted: HashSet<String>,
     tp2_attempted: HashSet<String>,
     trailing_monitors: HashMap<String, TrailingStopLoss>,
+    failure_counts: HashMap<String, u8>,
 }
 
 impl StrategyEngine {
@@ -22,6 +23,7 @@ impl StrategyEngine {
             tp1_attempted: HashSet::new(),
             tp2_attempted: HashSet::new(),
             trailing_monitors: HashMap::new(),
+            failure_counts: HashMap::new(),
         }
     }
 
@@ -44,6 +46,16 @@ impl StrategyEngine {
             tokio::select! {
                 // CANAL 1: Telemetría de Mercado (Alta frecuencia)
                 Some(tick) = price_rx.recv() => {
+                    // Auto-reset Circuit Breaker if tripped for more than 5 minutes
+                    if is_circuit_breaker_tripped {
+                        let now = tokio::time::Instant::now();
+                        if now.duration_since(last_failure_time) > std::time::Duration::from_secs(300) {
+                            is_circuit_breaker_tripped = false;
+                            failed_execution_count = 0;
+                            println!("✅ [CIRCUIT BREAKER] Auto-restablecido (timeout de 5 min). Actuador en línea.");
+                        }
+                    }
+
                     if !is_circuit_breaker_tripped {
                         self.process_price_tick(tick, &cmd_tx).await;
                     }
@@ -180,7 +192,14 @@ impl StrategyEngine {
                 
                 match command_type {
                     CommandType::StopLoss => {
-                        self.sell_attempted.remove(&mint);
+                        let count = self.failure_counts.entry(mint.clone()).or_insert(0);
+                        *count += 1;
+                        if *count >= 5 {
+                            println!("💀 [ECU] Token {} falló StopLoss 5 veces. Marcado como MUERTO (Rug Pull / Zero Liq).", mint);
+                            let _ = self.state_manager.close_position(&mint).await;
+                        } else {
+                            self.sell_attempted.remove(&mint);
+                        }
                     }
                     CommandType::TakeProfit1 => {
                         self.tp1_attempted.remove(&mint);
