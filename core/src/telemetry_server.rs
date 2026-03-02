@@ -112,11 +112,22 @@ impl TelemetryServer {
 
         loop {
             tokio::select! {
-                Ok(tick) = rx.recv() => {
-                    let json = serde_json::to_string(&tick)?;
-                    if let Err(e) = ws_stream.send(Message::Text(json)).await {
-                        eprintln!("🔴 [TELEMETRY] UI desconectada: {}", e);
-                        break;
+                res = rx.recv() => {
+                    match res {
+                        Ok(tick) => {
+                            let json = serde_json::to_string(&tick)?;
+                            if let Err(e) = ws_stream.send(Message::Text(json)).await {
+                                eprintln!("🔴 [TELEMETRY] UI desconectada: {}", e);
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            eprintln!("⚠️ [TELEMETRY] Cliente rezagado por {} mensajes", n);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            eprintln!("🔴 [TELEMETRY] Canal de telemetría cerrado internamente");
+                            break;
+                        }
                     }
                 }
                 msg = ws_stream.next() => {
