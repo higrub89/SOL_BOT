@@ -159,6 +159,7 @@ impl PriceFeed {
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<FeedCommand>(32);
         let cache: PriceCache = Arc::new(RwLock::new(HashMap::new()));
         let shared_tokens = Arc::new(RwLock::new(tokens.clone()));
+        let sol_price_usd = Arc::new(RwLock::new(0.0));
 
         // ── Tarea de Gestión de Comandos (Dynamic Subscription) ──
         let cmd_tokens = Arc::clone(&shared_tokens);
@@ -185,9 +186,10 @@ impl PriceFeed {
         let dex_tokens = Arc::clone(&shared_tokens);
         let dex_interval = config.dexscreener_interval;
         let dex_cache = Arc::clone(&cache);
+        let dex_sol_price = Arc::clone(&sol_price_usd);
 
         tokio::spawn(async move {
-            Self::dexscreener_loop(dex_tx, dex_tokens, dex_interval, dex_cache).await;
+            Self::dexscreener_loop(dex_tx, dex_tokens, dex_interval, dex_cache, dex_sol_price).await;
         });
 
         // ── Tarea 2: Geyser Streaming (si está habilitado) ──
@@ -198,6 +200,7 @@ impl PriceFeed {
                 let geyser_tx = tx.clone();
                 let geyser_tokens = Arc::clone(&shared_tokens);
                 let geyser_cache = Arc::clone(&cache);
+                let geyser_sol_price = Arc::clone(&sol_price_usd);
 
                 tokio::spawn(async move {
                     Self::geyser_stream_loop(
@@ -206,6 +209,7 @@ impl PriceFeed {
                         endpoint,
                         token,
                         geyser_cache,
+                        geyser_sol_price,
                     )
                     .await;
                 });
@@ -254,23 +258,51 @@ impl PriceFeed {
         tokens_list: Arc<RwLock<Vec<MonitoredToken>>>,
         interval: Duration,
         cache: PriceCache,
+        sol_price_usd: Arc<RwLock<f64>>,
     ) {
         let scanner = PriceScanner::new();
+        const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
 
         loop {
+            // Cada x iteraciones (o siempre), actualizamos SOL price para normalización
+            if let Ok(sol_data) = scanner.get_token_price(SOL_MINT).await {
+                if sol_data.price_usd > 0.0 {
+                    let mut s = sol_price_usd.write().await;
+                    *s = sol_data.price_usd;
+                }
+            }
+
             let tokens = {
                 let r = tokens_list.read().await;
                 r.clone()
             };
 
             for token in &tokens {
+                if token.mint == SOL_MINT { continue; } // Ya lo pedimos arriba
+
                 match scanner.get_token_price(&token.mint).await {
                     Ok(price_data) => {
+                        let current_sol_price = *sol_price_usd.read().await;
+                        
+                        // NORMALIZACIÓN CRÍTICA: Asegurar que price_native sea siempre en SOL
+                        let price_native = if price_data.price_native > 0.0 && price_data.price_usd > 0.0 {
+                            // Si DexScreener ya nos da un precio relativo, verificamos si es contra SOL
+                            // (Heurística: si price_usd / price_native es aprox el precio de SOL)
+                            let implied_sol = price_data.price_usd / price_data.price_native;
+                            if (implied_sol - current_sol_price).abs() / current_sol_price < 0.1 {
+                                price_data.price_native
+                            } else {
+                                price_data.price_usd / current_sol_price.max(0.000001)
+                            }
+                        } else {
+                            price_data.price_usd / current_sol_price.max(0.000001)
+                        };
+
                         let update = PriceUpdate {
                             token_mint: token.mint.clone(),
                             symbol: token.symbol.clone(),
                             price_usd: price_data.price_usd,
-                            price_native: price_data.price_native,
+                            price_native,
                             liquidity_usd: price_data.liquidity_usd,
                             volume_24h: price_data.volume_24h,
                             price_change_24h: price_data.price_change_24h,
@@ -284,21 +316,14 @@ impl PriceFeed {
                             c.insert(token.mint.clone(), update.clone());
                         }
 
-                        // Enviar al canal (non-blocking: si el buffer se llena, descartamos)
-                        if tx.try_send(update).is_err() {
-                            // Buffer lleno — el monitor no está consumiendo rápido.
-                            // No es grave, el dato ya está en el caché.
-                        }
+                        if tx.try_send(update).is_err() {}
                     }
                     Err(e) => {
                         eprintln!("⚠️  [DexScreener] Error fetching {}: {}", token.symbol, e);
                     }
                 }
-
-                // Pequeña pausa entre tokens para no saturar la API
                 tokio::time::sleep(Duration::from_millis(300)).await;
             }
-
             tokio::time::sleep(interval).await;
         }
     }
@@ -330,10 +355,10 @@ impl PriceFeed {
         endpoint: String,
         api_token: String,
         cache: PriceCache,
+        sol_price: Arc<RwLock<f64>>,
     ) {
         use crate::amm_math::{
-            build_vault_tracker, new_sol_price_tracker, parse_spl_token_account_amount,
-            SolPriceUsd, VaultPair,
+            build_vault_tracker, parse_spl_token_account_amount, VaultPair,
         };
 
         let mut reconnect_delay = Duration::from_secs(2);
@@ -398,8 +423,7 @@ impl PriceFeed {
                 }
             }
 
-            // SOL price tracker (se actualiza desde el caché de DexScreener)
-            let sol_price: SolPriceUsd = new_sol_price_tracker();
+            // Ya no instanciamos localmente, usamos el inyectado sol_price
 
             println!("🔌 [Geyser] Conectando a {}...", endpoint);
 

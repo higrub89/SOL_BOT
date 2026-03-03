@@ -43,20 +43,23 @@ impl JitoClient {
     }
 
     /// Obtiene una cuenta de propina aleatoria
-    pub fn get_random_tip_account() -> Pubkey {
+    pub fn get_random_tip_account() -> Result<Pubkey> {
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
-        let account_str = JITO_TIP_ACCOUNTS.choose(&mut rng).unwrap();
-        Pubkey::from_str(account_str).unwrap()
+        let account_str = JITO_TIP_ACCOUNTS.choose(&mut rng)
+            .context("Lista de JITO_TIP_ACCOUNTS está vacía")?;
+        
+        Pubkey::from_str(account_str)
+            .map_err(|e| anyhow::anyhow!("Error parseando Jito Tip Account '{}': {}", account_str, e))
     }
 
     /// Crea una instrucción de transferencia para la propina
     pub fn create_tip_instruction(
         payer: &Pubkey,
         lamports: u64,
-    ) -> solana_sdk::instruction::Instruction {
-        let tip_account = Self::get_random_tip_account();
-        system_instruction::transfer(payer, &tip_account, lamports)
+    ) -> Result<solana_sdk::instruction::Instruction> {
+        let tip_account = Self::get_random_tip_account()?;
+        Ok(system_instruction::transfer(payer, &tip_account, lamports))
     }
 
     /// Envía un bundle de transacciones a Jito

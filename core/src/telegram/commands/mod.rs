@@ -83,7 +83,7 @@ impl CommandHandler {
             // pero el loop de abajo fallará rápido si no hay conexión.
         }
 
-        let mut next_offset: i64 = 0;
+        let mut next_offset: i64 = state_manager.get_telegram_offset().await.unwrap_or(0);
 
         loop {
             // Obtener actualizaciones recientes de Telegram usando el offset
@@ -162,7 +162,10 @@ impl CommandHandler {
                         }
                     }
 
-                    if should_reboot {
+                        // Persistir el offset después de procesar cada lote
+                        let _ = state_manager.set_telegram_offset(next_offset).await;
+
+                        if should_reboot {
                         println!("🔄 REBOOT: Acknowledging messages and exiting...");
                         // One last call with the latest offset to acknowledge all messages processed
                         let _ = self.get_updates(next_offset).await;
@@ -171,6 +174,8 @@ impl CommandHandler {
                 }
                 Err(e) => {
                     eprintln!("⚠️  Error obteniendo comandos (Polling): {}", e);
+                    // Si hay error de red, no queremos que el loop sea agresivo
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
 

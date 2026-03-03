@@ -704,10 +704,17 @@ impl RaydiumClient {
         let versioned_swap = VersionedTransaction::from(swap_tx);
 
         // TX 2: Jito Tip
-        let tip_ix = crate::jito::JitoClient::create_tip_instruction(
+        let tip_ix = match crate::jito::JitoClient::create_tip_instruction(
             &user_keypair.pubkey(),
             jito_tip_lamports,
-        );
+        ) {
+            Ok(ix) => ix,
+            Err(e) => {
+                eprintln!("⚠️ Error creando instrucción Jito: {}. Fallback a standard...", e);
+                // En este caso, como hay un fallback abajo, podemos reintentar o fallar esta parte
+                anyhow::bail!("Jito Ix Error: {}", e);
+            }
+        };
         let tip_msg =
             solana_sdk::message::Message::new(&[tip_ix], Some(&user_keypair.pubkey()));
         let mut tip_tx = Transaction::new_unsigned(tip_msg);

@@ -169,12 +169,11 @@ impl StateManager {
                 [],
             )?;
 
-            // Tabla de snapshots de configuración
+            // Tabla de metadatos (para offset de Telegram, etc.)
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS config_snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    config_json TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL
+                "CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
                 )",
                 [],
             )?;
@@ -715,6 +714,44 @@ impl StateManager {
     // ========================================================================
     // UTILITY OPERATIONS
     // ========================================================================
+
+    /// Guarda el offset de Telegram
+    pub async fn set_telegram_offset(&self, offset: i64) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let off_str = offset.to_string();
+
+        conn.interact(move |conn| -> Result<()> {
+            conn.execute(
+                "INSERT INTO metadata (key, value) VALUES ('telegram_offset', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![off_str],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+
+        Ok(())
+    }
+
+    /// Obtiene el offset de Telegram guardado
+    pub async fn get_telegram_offset(&self) -> Result<i64> {
+        let conn = self.pool.get().await?;
+
+        conn.interact(|conn| -> Result<i64> {
+            let mut stmt = conn.prepare("SELECT value FROM metadata WHERE key = 'telegram_offset'")?;
+            let mut rows = stmt.query([])?;
+
+            if let Some(row) = rows.next()? {
+                let val: String = row.get(0)?;
+                Ok(val.parse().unwrap_or(0))
+            } else {
+                Ok(0)
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
+    }
 
     /// Obtiene estadísticas del estado actual
     pub async fn get_stats(&self) -> Result<StateStats> {

@@ -9,11 +9,14 @@ use base64::{engine::general_purpose, Engine as _};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
+    compute_budget::ComputeBudgetInstruction,
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
-    transaction::VersionedTransaction,
+    system_instruction,
+    transaction::{Transaction, VersionedTransaction},
 };
+use spl_associated_token_account;
 use spl_token::state::Account as TokenAccount;
 use std::str::FromStr;
 
@@ -421,8 +424,14 @@ impl TradeExecutor {
                 "🛡️  Preparando Jito Bundle con Tip ({} SOL)...",
                 active_jito_tip as f64 / 1_000_000_000.0
             );
-
-            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, active_jito_tip); // ⚡ Inyección
+ 
+            let tip_ix = match JitoClient::create_tip_instruction(&user_pubkey, active_jito_tip) {
+                Ok(ix) => ix,
+                Err(e) => {
+                    eprintln!("⚠️ Error creando instrucción Jito: {}. Saltando bundle.", e);
+                    anyhow::bail!("Jito Ix Error: {}", e);
+                }
+            };
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
@@ -545,7 +554,13 @@ impl TradeExecutor {
                 priority_fee_lamports as f64 / 1_000_000_000.0
             );
 
-            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, priority_fee_lamports);
+            let tip_ix = match JitoClient::create_tip_instruction(&user_pubkey, priority_fee_lamports) {
+                Ok(ix) => ix,
+                Err(e) => {
+                    eprintln!("⚠️ Error creando instrucción Jito: {}. Saltando bundle.", e);
+                    anyhow::bail!("Jito Ix Error: {}", e);
+                }
+            };
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
@@ -776,7 +791,13 @@ impl TradeExecutor {
                 "🛡️  Preparando Jito Bundle con Tip ({} SOL)...",
                 jito_tip_lamports as f64 / 1_000_000_000.0
             );
-            let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
+            let tip_ix = match JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports) {
+                Ok(ix) => ix,
+                Err(e) => {
+                    eprintln!("⚠️ Error creando instrucción Jito: {}. Saltando bundle.", e);
+                    anyhow::bail!("Jito Ix Error: {}", e);
+                }
+            };
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
@@ -1049,7 +1070,13 @@ impl TradeExecutor {
             .unwrap_or(100_000);
 
         let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
-        let tip_ix = JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports);
+        let tip_ix = match JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports) {
+            Ok(ix) => ix,
+            Err(e) => {
+                eprintln!("⚠️ Error creando instrucción Jito: {}. Fallback a standard not supported in multi-bundle yet.", e);
+                anyhow::bail!("Jito Ix Error: {}", e);
+            }
+        };
         let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
         let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
         tip_tx.sign(&[wallet_keypair], recent_blockhash);
@@ -1172,8 +1199,9 @@ impl TradeExecutor {
     ) -> Result<BuyResult> {
         println!("🚀 [DEGEN MODE] Initiating Direct Raydium Assault...");
 
-        let token_mint =
-            crate::validation::FinancialValidator::validate_mint(token_mint, "DEGEN BUY")?;
+        let token_mint_str = token_mint.to_string();
+        let valid_mint =
+            crate::validation::FinancialValidator::validate_mint(&token_mint_str, "DEGEN BUY")?;
 
         let raydium = self
             .raydium
@@ -1181,39 +1209,113 @@ impl TradeExecutor {
             .context("Raydium engine not initialized")?;
         let keypair = wallet_keypair.context("Wallet keypair required for Degen Mode")?;
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
-        let amount_in = (amount_sol * 1_000_000_000.0) as u64;
-
-        // 1. Obtener balance PRE-compra
+        let sol_mint_pubkey = Pubkey::from_str(SOL_MINT).unwrap();
+        let token_mint_pubkey = Pubkey::from_str(&valid_mint).unwrap();
         let user_pubkey = keypair.pubkey();
+        
+        let amount_in_lamports = (amount_sol * 1_000_000_000.0) as u64;
+
+        // 1. Obtener decimales reales del token
+        let decimals = match self.rpc_client.get_token_supply(&token_mint_pubkey) {
+            Ok(supply) => supply.decimals,
+            Err(_) => {
+                println!("⚠️  No se pudieron obtener decimales. Usando 6 por defecto.");
+                6
+            }
+        };
+
+        // 2. Obtener balance PRE-compra
         let pre_balance = self
-            .get_token_account_balance(&user_pubkey, &token_mint)
+            .get_token_account_balance(&user_pubkey, &valid_mint)
             .map(|(_, bal)| bal)
             .unwrap_or(0);
 
-        // 2. Ejecutar
-        let _pool_info = raydium.find_pool(SOL_MINT, &token_mint).await?;
-        let sig = raydium
-            .execute_swap(SOL_MINT, &token_mint, amount_in, 1, keypair)
-            .await?;
+        // 3. Preparación de la transacción Hyper-Resilient
+        println!("🔍 Preparando transacción optimizada (Ata + Wrap + Priority)...");
+        let pool_info = raydium.find_pool(SOL_MINT, &valid_mint).await?;
+        let pool_keys = pool_info.to_pubkeys()?;
+        
+        // Cuentas ATA
+        let user_wsol_ata = spl_associated_token_account::get_associated_token_address(&user_pubkey, &sol_mint_pubkey);
+        let user_token_ata = spl_associated_token_account::get_associated_token_address(&user_pubkey, &token_mint_pubkey);
+        
+        let mut instructions = Vec::new();
 
-        // 3. Esperar confirmación
-        println!("⏳ Esperando confirmación para calcular precio real...");
-        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // 3.1. Priority Fee Dinámico
+        let dynamic_fee = self.get_dynamic_priority_fee().await;
+        instructions.push(ComputeBudgetInstruction::set_compute_unit_price(dynamic_fee));
 
+        // 3.2. Crear ATA de Destino si no existe
+        if self.rpc_client.get_account(&user_token_ata).is_err() {
+            println!("🛠️  Creando ATA de destino...");
+            instructions.push(
+                spl_associated_token_account::instruction::create_associated_token_account(
+                    &user_pubkey,
+                    &user_pubkey,
+                    &token_mint_pubkey,
+                    &spl_token::id(),
+                )
+            );
+        }
+
+        // 3.3. Crear ATA de WSOL si no existe y Wrappear SOL
+        if self.rpc_client.get_account(&user_wsol_ata).is_err() {
+            instructions.push(
+                spl_associated_token_account::instruction::create_associated_token_account(
+                    &user_pubkey,
+                    &user_pubkey,
+                    &sol_mint_pubkey,
+                    &spl_token::id(),
+                )
+            );
+        }
+        
+        instructions.push(system_instruction::transfer(&user_pubkey, &user_wsol_ata, amount_in_lamports));
+        instructions.push(spl_token::instruction::sync_native(&spl_token::id(), &user_wsol_ata)?);
+
+        // 3.4. Raydium Swap Instruction
+        let swap_ix = raydium.build_swap_instruction(
+            &pool_keys,
+            user_wsol_ata,
+            user_token_ata,
+            user_pubkey,
+            amount_in_lamports,
+            1, // Slippage 100% en Degen Mode
+        )?;
+        instructions.push(swap_ix);
+
+        // 3.5. Close WSOL account for refund
+        instructions.push(spl_token::instruction::close_account(&spl_token::id(), &user_wsol_ata, &user_pubkey, &user_pubkey, &[])?);
+
+        // 4. Enviar Transacción
+        let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
+        let transaction = Transaction::new_signed_with_payer(
+            &instructions,
+            Some(&user_pubkey),
+            &[keypair],
+            recent_blockhash,
+        );
+
+        println!("📡 Enviando Raydium Assault (Direct RPC)...");
+        let sig = self.rpc_client.send_and_confirm_transaction(&transaction)?;
+        println!("✅ Swap ejecutado: {}", sig);
+
+        // 5. Esperar confirmación y calcular balance
+        println!("⏳ Verificando balance post-maniobra...");
         let mut post_balance = pre_balance;
-        for i in 0..5 {
-            if let Ok((_, bal)) = self.get_token_account_balance(&user_pubkey, &token_mint) {
+        for i in 0..8 {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            if let Ok((_, bal)) = self.get_token_account_balance(&user_pubkey, &valid_mint) {
                 if bal > pre_balance {
                     post_balance = bal;
                     break;
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-            println!("   Reintentando lectura de balance ({} / 5)...", i + 1);
+            println!("   Buscando tokens ({} / 8)...", i + 1);
         }
 
         let tokens_received_raw = post_balance.saturating_sub(pre_balance);
-        let tokens_received = tokens_received_raw as f64 / 1_000_000.0;
+        let tokens_received = tokens_received_raw as f64 / 10f64.powi(decimals as i32);
 
         let price_per_token = if tokens_received > 0.0 {
             amount_sol / tokens_received
@@ -1222,22 +1324,17 @@ impl TradeExecutor {
         };
 
         if tokens_received <= 0.0 {
-            println!("⚠️ [WARNING] No se detectó cambio en el balance de tokens. El monitoreo podría fallar.");
-        } else {
-            println!(
-                "📊 [REAL DATA] Recibido: {:.4} tokens | Precio: {:.8} SOL/token",
-                tokens_received, price_per_token
-            );
+            println!("⚠️ [WARNING] No se detectó cambio en el balance. La red podría estar lenta.");
         }
 
         Ok(BuyResult {
-            signature: sig,
+            signature: sig.to_string(),
             sol_spent: amount_sol,
             tokens_received,
             price_per_token,
             route: "Raydium Direct (Degen Mode)".to_string(),
             price_impact_pct: 0.0,
-            fee_sol: 0.0, // Degen mode: fee se captura via jito_tip del AppConfig
+            fee_sol: Self::microlamports_to_sol(dynamic_fee * 200_000), // Estimado 200k CU
         })
     }
 }
