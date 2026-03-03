@@ -45,7 +45,7 @@ use crate::state_manager::StateManager;
                     let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
                     // Para Raydium, si el slippage es < 9000, calculamos min_out (TODO), por ahora el executor raydium usa 1
                     match executor
-                        .execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount)
+                        .execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount, slippage)
                         .await
                     {
                         Ok(res) => {

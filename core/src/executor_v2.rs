@@ -1190,12 +1190,13 @@ impl TradeExecutor {
         }
     }
 
-    /// Ejecuta una compra DEGENERATE (Pure Raydium, Zero Safety Check)
+    /// Ejecuta una compra DEGENERATE (Pure Raydium) con Límites de Seguridad
     pub async fn execute_raydium_buy(
         &self,
         token_mint: &str,
         wallet_keypair: Option<&Keypair>,
         amount_sol: f64,
+        slippage_bps: u16,
     ) -> Result<BuyResult> {
         println!("🚀 [DEGEN MODE] Initiating Direct Raydium Assault...");
 
@@ -1214,6 +1215,22 @@ impl TradeExecutor {
         let user_pubkey = keypair.pubkey();
         
         let amount_in_lamports = (amount_sol * 1_000_000_000.0) as u64;
+
+        // --- SECURITY LIMIT 1: Balance Buffer ---
+        let main_balance = self.rpc_client.get_balance(&user_pubkey).unwrap_or(0);
+        if main_balance < amount_in_lamports + 50_000_000 { // 0.05 SOL buffer
+             anyhow::bail!("❌ Insufficient SOL balance to maintain safety buffer (min 0.05 SOL required after trade)");
+        }
+
+        // --- SECURITY LIMIT 2: Liquidity Guard ---
+        let scanner = crate::scanner::PriceScanner::new();
+        println!("🛡️  Checking Liquidity Protection...");
+        if let Ok(price_data) = scanner.get_token_price(&valid_mint).await {
+            if price_data.liquidity_usd < 500.0 && price_data.liquidity_usd > 0.0 {
+                 anyhow::bail!("❌ LIQUIDITY BREACH: Pool has only ${:.2} liquidity. Assault aborted for your safety.", price_data.liquidity_usd);
+            }
+            println!("   ✅ Liquidity verified: ${:.2}", price_data.liquidity_usd);
+        }
 
         // 1. Obtener decimales reales del token
         let decimals = match self.rpc_client.get_token_supply(&token_mint_pubkey) {
@@ -1274,13 +1291,14 @@ impl TradeExecutor {
         instructions.push(spl_token::instruction::sync_native(&spl_token::id(), &user_wsol_ata)?);
 
         // 3.4. Raydium Swap Instruction
+        let min_amount_out = 1; // En Degen, solemos usar 1, pero podríamos calcularlo si tuviéramos un quote confiable
         let swap_ix = raydium.build_swap_instruction(
             &pool_keys,
             user_wsol_ata,
             user_token_ata,
             user_pubkey,
             amount_in_lamports,
-            1, // Slippage 100% en Degen Mode
+            min_amount_out,
         )?;
         instructions.push(swap_ix);
 
