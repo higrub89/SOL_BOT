@@ -242,6 +242,69 @@ impl RaydiumPoolState {
 
         ((price_after - price_before) / price_before) * 100.0
     }
+
+    /// ⚡ NATIVE ORACLE — Calcula el output de un swap usando la fórmula x*y=k
+    /// con el fee real de Raydium, sin ninguna llamada HTTP.
+    ///
+    /// # Parámetros
+    /// - `amount_in_raw`: Cantidad a inyectar en unidades raw (lamports para SOL, micro-tokens para SPL)
+    /// - `is_buy`: `true` = SOL→Token (compra), `false` = Token→SOL (venta)
+    ///
+    /// # Retorna
+    /// `(amount_out_raw: u64, price_impact_pct: f64)`
+    ///
+    /// El fee estándar de Raydium AMM v4 es 25/10_000 = 0.25%
+    pub fn calculate_swap_out(&self, amount_in_raw: u64, is_buy: bool) -> (u64, f64) {
+        // Elegir las reservas según la dirección del swap
+        // is_buy = true  → inyectamos SOL (quote), sacamos Token (base)
+        // is_buy = false → inyectamos Token (base), sacamos SOL (quote)
+        let (reserve_in, reserve_out) = if is_buy {
+            (self.quote_reserve_raw, self.base_reserve_raw)
+        } else {
+            (self.base_reserve_raw, self.quote_reserve_raw)
+        };
+
+        if reserve_in == 0 || reserve_out == 0 || amount_in_raw == 0 {
+            return (0, 0.0);
+        }
+
+        // Fórmula AMM (x * y = k) con fee incluido
+        // fee_numerator = 25, fee_denominator = 10_000  (0.25%)
+        // amount_in_after_fee = amount_in * (fee_denom - fee_num)
+        let fee_num = self.trade_fee_numerator.max(1);
+        let fee_denom = self.trade_fee_denominator.max(10_000);
+
+        // Usamos u128 para evitar overflow en el producto
+        let amount_in_u128 = amount_in_raw as u128;
+        let reserve_in_u128 = reserve_in as u128;
+        let reserve_out_u128 = reserve_out as u128;
+
+        let amount_in_with_fee = amount_in_u128 * (fee_denom - fee_num) as u128;
+        let numerator = amount_in_with_fee * reserve_out_u128;
+        let denominator = reserve_in_u128 * fee_denom as u128 + amount_in_with_fee;
+
+        if denominator == 0 {
+            return (0, 0.0);
+        }
+
+        let amount_out_raw = (numerator / denominator) as u64;
+
+        // Calcular price impact: diferencia entre precio ideal y precio real
+        // Precio ideal = amount_in / amount_out (sin fee, sin impact)
+        // Precio real  = usando las reservas con el AMM
+        let price_impact_pct = if amount_out_raw > 0 {
+            // Spot price antes del swap: reserve_out / reserve_in
+            let spot_price = reserve_out as f64 / reserve_in as f64;
+            // Precio real del swap: amount_out / amount_in (ajustado por fee)
+            let effective_price = amount_out_raw as f64 / amount_in_raw as f64;
+            // Impact = (spot - effective) / spot  (en %)
+            ((spot_price - effective_price) / spot_price) * 100.0
+        } else {
+            100.0 // Si no hay output, impacto total
+        };
+
+        (amount_out_raw, price_impact_pct)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════

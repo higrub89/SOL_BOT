@@ -765,13 +765,77 @@ impl RaydiumClient {
             .map(|p| format!("{} ({}/{})", p.name, &p.base_mint[..8], &p.quote_mint[..8]))
             .collect()
     }
-}
+
+    /// ⚡ NATIVE ORACLE — Calcula el output esperado de un swap usando datos on-chain.
+    ///
+    /// Lee el estado del pool directamente del RPC y aplica la fórmula
+    /// `x*y=k` con el fee real de Raydium (0.25%). Sin ninguna llamada HTTP.
+    ///
+    /// # Parámetros
+    /// - `amm_id`: Address de la cuenta AMM del pool (del `PoolInfo.amm_id`)
+    /// - `amount_in_raw`: Cantidad a inyectar en unidades raw (lamports si es SOL)
+    /// - `is_buy`: `true` = SOL→Token (compra), `false` = Token→SOL (venta)
+    ///
+    /// # Retorna
+    /// `Ok((estimated_out_raw, price_impact_pct))` o `Err` si el pool no existe o es inválido.
+    ///
+    /// # Latencia
+    /// ~10-30ms (solo 1 llamada RPC `getAccountInfo`)
+    pub fn get_quote_native(
+        &self,
+        amm_id: &str,
+        amount_in_raw: u64,
+        is_buy: bool,
+    ) -> Result<(u64, f64)> {
+        use crate::amm_math::RaydiumPoolState;
+
+        let amm_pubkey = Pubkey::from_str(amm_id)
+            .map_err(|e| anyhow::anyhow!("AMM ID inválido '{}': {}", amm_id, e))?;
+
+        // 1 sola llamada RPC — obtener el state account del pool
+        let account = self
+            .rpc_client
+            .get_account(&amm_pubkey)
+            .map_err(|e| anyhow::anyhow!("[NativeOracle] RPC fallo para {}: {}", &amm_id[..8], e))?;
+
+        // Parsear los bytes del AMM state
+        let pool_state = RaydiumPoolState::from_account_data(&account.data)
+            .ok_or_else(|| anyhow::anyhow!(
+                "[NativeOracle] Pool '{}' con data inválida (len={}). ¿Es un pool de Raydium AMM v4?",
+                &amm_id[..8],
+                account.data.len()
+            ))?;
+
+        // Calcular output con x*y=k + fee
+        let (amount_out_raw, price_impact_pct) =
+            pool_state.calculate_swap_out(amount_in_raw, is_buy);
+
+        println!(
+            "⚡ [NativeOracle] AMM: {}... | In: {} | Out: {} | Impact: {:.2}%",
+            &amm_id[..8],
+            amount_in_raw,
+            amount_out_raw,
+            price_impact_pct
+        );
+
+        if amount_out_raw == 0 {
+            anyhow::bail!(
+                "[NativeOracle] Cálculo retornó 0. Reservas: base={}, quote={}",
+                pool_state.base_reserve_raw,
+                pool_state.quote_reserve_raw
+            );
+        }
+
+        Ok((amount_out_raw, price_impact_pct))
+    }
+} // impl RaydiumClient
 
 // ============================================================================
 // TESTS
 // ============================================================================
 
 pub struct RaydiumExecutor;
+
 
 #[cfg(test)]
 mod tests {

@@ -4,72 +4,91 @@ use crate::wallet::WalletMonitor;
 use solana_client::rpc_client::RpcClient;
 use std::time::Instant;
 
-/// Comando /ping - Health Check institucional
-    pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
-        let uptime = handler.start_time.elapsed();
-        let hours = uptime.as_secs() / 3600;
-        let minutes = (uptime.as_secs() % 3600) / 60;
-        let secs = uptime.as_secs() % 60;
+/// Comando /ping — Diagnóstico de sistema al nivel institucional
+pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
+    let uptime = handler.start_time.elapsed();
+    let hours   = uptime.as_secs() / 3600;
+    let minutes = (uptime.as_secs() % 3600) / 60;
+    let secs    = uptime.as_secs() % 60;
 
-        // Check RPC
-        let rpc_status = if let Ok(api_key) = std::env::var("HELIUS_API_KEY") {
-            let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
-            let start = Instant::now();
-            let client = RpcClient::new(rpc_url);
-            match client.get_slot() {
-                Ok(slot) => {
-                    let latency = start.elapsed().as_millis();
-                    let quality = if latency < 200 {
-                        "🟢"
-                    } else if latency < 500 {
-                        "🟡"
-                    } else {
-                        "🔴"
-                    };
-                    format!("{} Helius RPC: {}ms (Slot: {})", quality, latency, slot)
-                }
-                Err(e) => format!("🔴 Helius RPC: ERROR ({})", e),
+    // ── RPC Latency Check ─────────────────────────────
+    let (rpc_line, rpc_latency_ms) = if let Ok(api_key) = std::env::var("HELIUS_API_KEY") {
+        let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
+        let t0 = Instant::now();
+        let client = RpcClient::new(rpc_url);
+        match client.get_slot() {
+            Ok(slot) => {
+                let ms = t0.elapsed().as_millis();
+                let bar = latency_bar(ms);
+                (format!("{}  {}ms  ·  slot #{}", bar, ms, slot), ms)
             }
-        } else {
-            "🔴 Helius RPC: API KEY no configurada".to_string()
-        };
+            Err(e) => (format!("◼  HELIUS FAULT  ·  {}", e), 9999),
+        }
+    } else {
+        ("◼  API KEY MISSING".to_string(), 9999)
+    };
 
-        // Check Wallet
-        let wallet_status = match wallet_monitor.get_sol_balance() {
-            Ok(balance) => {
-                let emoji = if balance > 0.05 {
-                    "🟢"
-                } else if balance > 0.02 {
-                    "🟡"
-                } else {
-                    "🔴"
-                };
-                format!("{} Wallet: {:.4} SOL", emoji, balance)
-            }
-            Err(e) => format!("🔴 Wallet: ERROR ({})", e),
-        };
+    // ── Wallet Balance ─────────────────────────────────
+    let wallet_line = match wallet_monitor.get_sol_balance() {
+        Ok(bal) => {
+            let dot = if bal > 0.05 { "◆" } else if bal > 0.01 { "◇" } else { "▽" };
+            format!("{}  {:.6} SOL", dot, bal)
+        }
+        Err(e) => format!("▽  VAULT ERROR  ·  {}", e),
+    };
 
-        // Hibernation status
-        let hibernate_status = if super::CommandHandler::is_hibernating() {
-            "🛑 <b>SUSPENDED</b>"
-        } else {
-            "🟢 <b>ENGAGED</b>"
-        };
+    // ── Engine State ───────────────────────────────────
+    let engine_state = if super::CommandHandler::is_hibernating() {
+        "[ SUSPENDED ]"
+    } else {
+        "[ ENGAGED   ]"
+    };
 
-        let response = format!(
-            "<b>🏓 SYSTEM DIAGNOSTICS</b>\n\
-            <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-            <b>⋄ Uptime:</b> <code>{}h {}m {}s</code>\n\
-            <b>⋄ {}</b>\n\
-            <b>⋄ {}</b>\n\
-            <b>⋄ Health:</b> {}\n\
-            <b>⋄ Engine:</b> <code>v2.0.0-institutional</code>\n\
-            <b>⋄ Marker:</b> <code>DIAG_CODE: b08ad</code>\n\n\
-            <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
-            hours, minutes, secs, rpc_status, wallet_status, hibernate_status
-        );
+    // ── Latency Grade ──────────────────────────────────
+    let grade = if rpc_latency_ms < 100 {
+        "S-CLASS"
+    } else if rpc_latency_ms < 250 {
+        "A-CLASS"
+    } else if rpc_latency_ms < 500 {
+        "B-CLASS"
+    } else {
+        "DEGRADED"
+    };
 
-        handler.send_message(&response).await?;
-        Ok(())
-    }
+    let msg = format!(
+"<b>THE CHASSIS</b>  <code>v2.1 · DIAGNOSTIC</code>
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
 
+<b>UPTIME</b>
+<code>  {h:02}h {m:02}m {s:02}s</code>
+
+<b>NETWORK</b>
+<code>  {rpc}</code>
+<code>  GRADE  {grade}</code>
+
+<b>VAULT</b>
+<code>  {wallet}</code>
+
+<b>EXECUTION ENGINE</b>
+<code>  {engine}</code>
+
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+<i>The Chassis · Institutional Execution Layer</i>",
+        h = hours, m = minutes, s = secs,
+        rpc    = rpc_line,
+        grade  = grade,
+        wallet = wallet_line,
+        engine = engine_state,
+    );
+
+    handler.send_message(&msg).await?;
+    Ok(())
+}
+
+/// Genera una barra de latencia minimalista
+fn latency_bar(ms: u128) -> &'static str {
+    if ms < 100  { "◆" }
+    else if ms < 250  { "◈" }
+    else if ms < 500  { "◇" }
+    else             { "▽" }
+}

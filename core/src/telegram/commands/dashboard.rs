@@ -4,318 +4,385 @@ use crate::state_manager::StateManager;
 use crate::wallet::WalletMonitor;
 use crate::config::AppConfig;
 
-/// Comando /status - Muestra el estado de todos los tokens
-    pub async fn cmd_status(
-        handler: &super::CommandHandler, 
-        state_manager: Arc<StateManager>,
-        price_cache: crate::price_feed::PriceCache,
-    ) -> Result<()> {
-        let positions = match state_manager.get_active_positions().await {
-            Ok(pos) => pos,
-            Err(e) => {
-                handler.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
-                    .await?;
-                return Ok(());
-            }
-        };
-
-        if positions.is_empty() {
-            handler.send_message("<b>🛡️ STATUS: NO ACTIVE ALLOCATIONS</b>")
-                .await?;
+// ─────────────────────────────────────────────────────────────────────────────
+// /status — Live Telemetry por posición
+// ─────────────────────────────────────────────────────────────────────────────
+pub async fn cmd_status(
+    handler: &super::CommandHandler,
+    state_manager: Arc<StateManager>,
+    price_cache: crate::price_feed::PriceCache,
+) -> Result<()> {
+    let positions = match state_manager.get_active_positions().await {
+        Ok(p) => p,
+        Err(e) => {
+            handler.send_message(&format!("<b>SYSTEM FAULT</b>\n<code>{}</code>", e)).await?;
             return Ok(());
         }
+    };
 
-        let mut response =
-            "<b>📡 LIVE TELEMETRY</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
-
-        for mut pos in positions {
-            {
-                let cache = price_cache.read().await;
-                if let Some(price_data) = cache.get(&pos.token_mint) {
-                    if price_data.price_native > 0.0 {
-                        pos.current_price = price_data.price_native;
-                    }
-                }
-            }
-
-            let dd = if pos.entry_price > 0.0 {
-                ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0
-            } else {
-                0.0
-            };
-
-            let current_value = if pos.entry_price > 0.0 {
-                (pos.amount_sol / pos.entry_price) * pos.current_price
-            } else {
-                0.0
-            };
-
-            let status_emoji = if dd > 0.0 {
-                "🟢"
-            } else if dd > -20.0 {
-                "🟡"
-            } else {
-                "🔴"
-            };
-
-            let mint_display = if pos.token_mint.len() > 8 {
-                &pos.token_mint[..8]
-            } else {
-                &pos.token_mint
-            };
-
-            response.push_str(&format!(
-                "{} <b>{}</b> (<code>{}...</code>)\n\
-                <b>⋄ Price:</b>   <code>{:.8} SOL</code>\n\
-                <b>⋄ Entry:</b>   <code>{:.8} SOL</code>\n\
-                <b>⋄ Yield:</b>   <b>{}{:.2}%</b>\n\
-                <b>⋄ Value:</b>   <code>{:.6} SOL</code>\n\n",
-                status_emoji,
-                pos.symbol,
-                mint_display,
-                pos.current_price,
-                pos.entry_price,
-                if dd > 0.0 { "+" } else { "" },
-                dd,
-                current_value
-            ));
-
-            if response.len() > 3000 {
-                handler.send_message(&response).await?;
-                response = "<b>📡 LIVE TELEMETRY (CONT.)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
-            }
-        }
-
-        response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
-        handler.send_message(&response).await?;
-        Ok(())
+    if positions.is_empty() {
+        handler.send_message(
+            "<b>THE CHASSIS</b>  <code>LIVE TELEMETRY</code>\n\
+            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n\
+            <code>  NO ACTIVE ALLOCATIONS</code>\n\n\
+            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+        ).await?;
+        return Ok(());
     }
 
-/// Comando /balance - Muestra el balance de la wallet
-    pub async fn cmd_balance(handler: &super::CommandHandler, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
-        match wallet_monitor.get_sol_balance() {
-            Ok(balance) => {
-                let message = format!(
-                    "<b>🏦 VAULT STATUS</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-                    <b>⋄ Allocation:</b> <code>{:.4} SOL</code>\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
-                    balance
-                );
-                handler.send_message(&message).await?;
-            }
-            Err(e) => {
-                handler.send_message(&format!("❌ <b>Vault Error:</b> {}", e))
-                    .await?;
-            }
-        }
-        Ok(())
-    }
+    let mut msg = "<b>THE CHASSIS</b>  <code>LIVE TELEMETRY</code>\n\
+        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
 
-/// Comando /targets - Muestra la lista de tokens monitoreados
-    pub async fn cmd_targets(
-        handler: &super::CommandHandler,
-        config: Arc<AppConfig>,
-        state_manager: Arc<StateManager>,
-    ) -> Result<()> {
-        let mut response =
-            "<b>🎯 SECURED TARGETS (DB)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
-
-        if let Ok(db_positions) = state_manager.get_active_positions().await {
-            if db_positions.is_empty() {
-                response.push_str("<i>No assets indexed.</i>\n\n");
-            } else {
-                for target in db_positions {
-                    let status = if target.active {
-                        "✅ ACTIVE"
-                    } else {
-                        "⏸ INACTIVE"
-                    };
-                    response.push_str(&format!(
-                        "<b>⬢ {}</b> <code>({})</code>\n\
-                        <b>⋄ Limits:</b> <code>{:.0}% / {:.0}%</code>\n\
-                        <b>⋄ Entry:</b>  <code>{:.3} SOL</code>\n\
-                        <b>⋄ Status:</b> {}\n\n",
-                        target.symbol,
-                        &target.token_mint[..8],
-                        target.stop_loss_percent,
-                        target.tp_percent.unwrap_or(100.0),
-                        target.amount_sol,
-                        status
-                    ));
-                    
-                    if response.len() > 3000 {
-                        handler.send_message(&response).await?;
-                        response = "<b>🎯 SECURED TARGETS (CONT.)</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
-                    }
-                }
+    for mut pos in positions {
+        {
+            let cache = price_cache.read().await;
+            if let Some(pd) = cache.get(&pos.token_mint) {
+                if pd.price_native > 0.0 { pos.current_price = pd.price_native; }
             }
         }
 
-        response.push_str(&format!(
-            "<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-            <b>⚙️ PREFERENCES</b>\n\
-            <b>⋄ Execution:</b> {}\n\
-            <b>⋄ Heartbeat:</b> <code>{}s</code>",
-            if config.global_settings.auto_execute {
-                "🔴 ARMED"
-            } else {
-                "🟡 DRY-RUN"
-            },
-            config.global_settings.monitor_interval_sec
+        let dd = if pos.entry_price > 0.0 {
+            ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0
+        } else { 0.0 };
+
+        let current_value = if pos.entry_price > 0.0 {
+            (pos.amount_sol / pos.entry_price) * pos.current_price
+        } else { 0.0 };
+
+        let pnl_sol = current_value - pos.amount_sol;
+
+        let signal = pnl_indicator(dd);
+        let sign   = if dd >= 0.0 { "+" } else { "" };
+        let psign  = if pnl_sol >= 0.0 { "+" } else { "" };
+
+        msg.push_str(&format!(
+"<b>{sym}</b>  <code>{signal}</code>
+<code>  ENTRY   {entry:.9} SOL</code>
+<code>  PRICE   {price:.9} SOL</code>
+<code>  YIELD   {sign}{dd:.2}%   ({psign}{pnl:.4} SOL)</code>
+<code>  SL      {sl:.0}%         TP  {tp:.0}%</code>
+
+",
+            sym   = pos.symbol,
+            signal = signal,
+            entry = pos.entry_price,
+            price = pos.current_price,
+            sign  = sign,
+            dd    = dd,
+            psign = psign,
+            pnl   = pnl_sol,
+            sl    = pos.stop_loss_percent,
+            tp    = pos.tp_percent.unwrap_or(100.0),
         ));
 
-        handler.send_message(&response).await?;
-        Ok(())
+        if msg.len() > 3200 {
+            handler.send_message(&msg).await?;
+            msg = "<b>THE CHASSIS</b>  <code>TELEMETRY · CONT.</code>\n\
+                <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+        }
     }
 
-/// Comando /fees - Dashboard de costes de gas (Priority Fee + Jito Tip)
-    pub async fn cmd_fees(handler: &super::CommandHandler, state_manager: Arc<StateManager>) -> Result<()> {
-        let all_time = match state_manager.get_fee_stats(None).await {
-            Ok(s) => s,
-            Err(e) => {
-                handler.send_message(&format!("❌ <b>DB Fault:</b> {}", e)).await?;
-                return Ok(());
-            }
-        };
+    msg.push_str("<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>");
+    handler.send_message(&msg).await?;
+    Ok(())
+}
 
-        let since_24h = chrono::Utc::now().timestamp() - 86400;
-        let last_24h = state_manager.get_fee_stats(Some(since_24h)).await.unwrap_or(
-            crate::state_manager::FeeStats {
-                total_fee_sol: 0.0,
-                total_trades: 0,
-                avg_fee_sol: 0.0,
-                total_pnl_gross: 0.0,
-                net_pnl_sol: 0.0,
-            }
-        );
+// ─────────────────────────────────────────────────────────────────────────────
+// /balance — Vault Status
+// ─────────────────────────────────────────────────────────────────────────────
+pub async fn cmd_balance(
+    handler: &super::CommandHandler,
+    wallet_monitor: Arc<WalletMonitor>,
+) -> Result<()> {
+    match wallet_monitor.get_sol_balance() {
+        Ok(balance) => {
+            let tier = if balance > 1.0 {
+                "TIER I   · OPERATIONAL"
+            } else if balance > 0.1 {
+                "TIER II  · REDUCED CAPACITY"
+            } else if balance > 0.01 {
+                "TIER III · CRITICAL RESERVE"
+            } else {
+                "TIER IV  · HIBERNATION ADVISED"
+            };
 
-        let net_emoji = if all_time.net_pnl_sol > 0.0 { "🟢" } else { "🔴" };
-        let net_sign = if all_time.net_pnl_sol > 0.0 { "+" } else { "" };
-        let gross_sign = if all_time.total_pnl_gross > 0.0 { "+" } else { "" };
+            let bar = sol_balance_bar(balance);
 
-        let sep = "━━━━━━━━━━━━━━━━━━━━━━";
-        let response = format!(
-            "<b>⛽ FEE BURN DASHBOARD</b>
-<b>{sep}</b>
+            let msg = format!(
+"<b>THE CHASSIS</b>  <code>VAULT STATUS</code>
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
 
-            <b>◈ LAST 24H</b>
-            ◉ <b>Trades:</b> <code>{t24}</code>
-            ◉ <b>Fee Burn:</b> <code>-{f24:.6} SOL</code>
-            ◉ <b>Avg/Trade:</b> <code>{a24:.6} SOL</code>
+<code>  {balance:.6} SOL</code>
+<code>  {bar}</code>
+<code>  {tier}</code>
 
-            <b>◈ ALL TIME</b>
-            ◉ <b>Trades:</b> <code>{tall}</code>
-            ◉ <b>Total Burn:</b> <code>-{fall:.6} SOL</code>
-            ◉ <b>Avg/Trade:</b> <code>{aall:.6} SOL</code>
-
-            <b>◈ P&amp;L ANALYSIS</b>
-            ◉ <b>Gross PnL:</b> <code>{gsign}{gross:.4} SOL</code>
-            ◉ <b>Fee Burn:</b>  <code>-{fall:.4} SOL</code>
-            ◉ {nem} <b>Net PnL:</b>   <code>{nsign}{net:.4} SOL</code>
-
-            <b>{sep}</b>
-            <i>fee_sol capturado desde v2.1 en adelante.</i>",
-            sep = sep,
-            t24 = last_24h.total_trades, f24 = last_24h.total_fee_sol, a24 = last_24h.avg_fee_sol,
-            tall = all_time.total_trades, fall = all_time.total_fee_sol, aall = all_time.avg_fee_sol,
-            gsign = gross_sign, gross = all_time.total_pnl_gross,
-            nem = net_emoji, nsign = net_sign, net = all_time.net_pnl_sol
-        );
-
-        handler.send_message(&response).await?;
-        Ok(())
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>",
+                balance = balance,
+                bar     = bar,
+                tier    = tier,
+            );
+            handler.send_message(&msg).await?;
+        }
+        Err(e) => {
+            handler.send_message(&format!(
+                "<b>VAULT FAULT</b>\n<code>{}</code>", e
+            )).await?;
+        }
     }
+    Ok(())
+}
 
-/// Comando /history - Muestra historial de trades (últimos 10)
-    pub async fn cmd_history(handler: &super::CommandHandler, state_manager: Arc<StateManager>) -> Result<()> {
-        match state_manager.get_trade_history(10).await {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    handler.send_message("<b>📜 TRADE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\nNo operations recorded.").await?;
-                    return Ok(());
+// ─────────────────────────────────────────────────────────────────────────────
+// /targets — Configuración de targets activos
+// ─────────────────────────────────────────────────────────────────────────────
+pub async fn cmd_targets(
+    handler: &super::CommandHandler,
+    config: Arc<AppConfig>,
+    state_manager: Arc<StateManager>,
+) -> Result<()> {
+    let mut msg = "<b>THE CHASSIS</b>  <code>TARGET REGISTRY</code>\n\
+        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+
+    if let Ok(db_positions) = state_manager.get_active_positions().await {
+        if db_positions.is_empty() {
+            msg.push_str("<code>  NO INDEXED ASSETS</code>\n\n");
+        } else {
+            for (i, t) in db_positions.iter().enumerate() {
+                let state = if t.active { "LIVE" } else { "PAUSED" };
+                let tp_pct = t.tp_percent.unwrap_or(100.0);
+
+                msg.push_str(&format!(
+"<code>  [{i:02}] {sym:<12} {state}</code>
+<code>       MINT  {mint}...</code>
+<code>       SL    {sl:.0}%     TP   {tp:.0}%</code>
+<code>       SIZE  {size:.4} SOL</code>
+
+",
+                    i    = i + 1,
+                    sym  = t.symbol,
+                    state = state,
+                    mint = &t.token_mint[..8],
+                    sl   = t.stop_loss_percent,
+                    tp   = tp_pct,
+                    size = t.amount_sol,
+                ));
+
+                if msg.len() > 3200 {
+                    handler.send_message(&msg).await?;
+                    msg = "<b>TARGET REGISTRY · CONT.</b>\n\
+                        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
                 }
-
-                let mut response =
-                    "<b>📜 RECENT EXECUTIONS</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n".to_string();
-
-                for trade in trades {
-                    let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
-                    let pnl_percent = trade.pnl_percent.unwrap_or(0.0);
-
-                    let pnl_emoji = if pnl_sol > 0.0 { "🟢" } else { "🔴" };
-                    let timestamp =
-                        chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
-                            .map(|dt| dt.format("%H:%M %m/%d").to_string())
-                            .unwrap_or_else(|| "N/A".to_string());
-
-                    response.push_str(&format!(
-                        "{} <b>{}</b> <i>({})</i>\n\
-                        <b>⋄ Type:</b>   {}\n\
-                        <b>⋄ PnL:</b>    <b>{}{:.3} SOL</b> <i>({:+.1}%)</i>\n\n",
-                        pnl_emoji,
-                        trade.symbol,
-                        timestamp,
-                        trade.trade_type,
-                        if pnl_sol > 0.0 { "+" } else { "" },
-                        pnl_sol,
-                        pnl_percent,
-                    ));
-                }
-
-                response.push_str("<b>━━━━━━━━━━━━━━━━━━━━━━</b>");
-                handler.send_message(&response).await?;
-            }
-            Err(e) => {
-                handler.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
-                    .await?;
             }
         }
-        Ok(())
     }
 
-/// Comando /stats - Muestra estadísticas completas
-    pub async fn cmd_stats(handler: &super::CommandHandler, state_manager: Arc<StateManager>) -> Result<()> {
-        match state_manager.get_stats().await {
-            Ok(stats) => {
-                let avg_pnl = if stats.total_trades > 0 {
-                    stats.total_pnl_sol / stats.total_trades as f64
-                } else {
-                    0.0
-                };
+    let exec_mode = if config.global_settings.auto_execute {
+        "ARMED   · LIVE EXECUTION"
+    } else {
+        "DRY-RUN · SIMULATION ONLY"
+    };
 
-                let status_emoji = if stats.total_pnl_sol > 0.0 {
-                    "🟢"
-                } else if stats.total_pnl_sol == 0.0 {
-                    "🟡"
-                } else {
-                    "🔴"
-                };
+    msg.push_str(&format!(
+"<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+<code>  ENGINE  {mode}</code>
+<code>  TICK    {tick}s interval</code>",
+        mode = exec_mode,
+        tick = config.global_settings.monitor_interval_sec,
+    ));
 
-                let response = format!(
-                    "<b>📈 PERFORMANCE METRICS</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-                    {} <b>Net Yield:</b> <b>{}{:.4} SOL</b>\n\
-                    <b>⋄ Scalps:</b>    <code>{}</code>\n\
-                    <b>⋄ Active:</b>    <code>{}</code>\n\
-                    <b>⋄ Avg/Pos:</b>   <code>{}{:.4} SOL</code>\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
-                    status_emoji,
-                    if stats.total_pnl_sol > 0.0 { "+" } else { "" },
-                    stats.total_pnl_sol,
-                    stats.total_trades,
-                    stats.active_positions,
-                    if avg_pnl > 0.0 { "+" } else { "" },
-                    avg_pnl
-                );
+    handler.send_message(&msg).await?;
+    Ok(())
+}
 
-                handler.send_message(&response).await?;
-            }
-            Err(e) => {
-                handler.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
-                    .await?;
-            }
+// ─────────────────────────────────────────────────────────────────────────────
+// /fees — Fee Burn Analysis
+// ─────────────────────────────────────────────────────────────────────────────
+pub async fn cmd_fees(
+    handler: &super::CommandHandler,
+    state_manager: Arc<StateManager>,
+) -> Result<()> {
+    let all_time = match state_manager.get_fee_stats(None).await {
+        Ok(s) => s,
+        Err(e) => {
+            handler.send_message(&format!("<b>DB FAULT</b>\n<code>{}</code>", e)).await?;
+            return Ok(());
         }
-        Ok(())
+    };
+
+    let since_24h = chrono::Utc::now().timestamp() - 86400;
+    let last_24h = state_manager.get_fee_stats(Some(since_24h)).await
+        .unwrap_or(crate::state_manager::FeeStats {
+            total_fee_sol: 0.0, total_trades: 0,
+            avg_fee_sol: 0.0, total_pnl_gross: 0.0, net_pnl_sol: 0.0,
+        });
+
+    let net_sign   = if all_time.net_pnl_sol  >= 0.0 { "+" } else { "" };
+    let gross_sign = if all_time.total_pnl_gross >= 0.0 { "+" } else { "" };
+    let net_ind    = if all_time.net_pnl_sol  >= 0.0 { "◆" } else { "▽" };
+
+    let msg = format!(
+"<b>THE CHASSIS</b>  <code>FEE ANALYTICS</code>
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+
+<b>LAST 24H</b>
+<code>  TRADES    {t24}</code>
+<code>  FEE BURN  -{f24:.6} SOL</code>
+<code>  AVG/TRADE  {a24:.6} SOL</code>
+
+<b>ALL TIME</b>
+<code>  TRADES    {tall}</code>
+<code>  FEE BURN  -{fall:.6} SOL</code>
+<code>  AVG/TRADE  {aall:.6} SOL</code>
+
+<b>P&amp;L BREAKDOWN</b>
+<code>  GROSS PNL  {gs}{gross:.6} SOL</code>
+<code>  FEE DRAG  -{fall_r:.6} SOL</code>
+<code>  ───────────────────────</code>
+<code>  {ni} NET PNL   {ns}{net:.6} SOL</code>
+
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+<i>Fee capture active since v2.1+</i>",
+        t24   = last_24h.total_trades,
+        f24   = last_24h.total_fee_sol,
+        a24   = last_24h.avg_fee_sol,
+        tall  = all_time.total_trades,
+        fall  = all_time.total_fee_sol,
+        aall  = all_time.avg_fee_sol,
+        gs    = gross_sign,
+        gross = all_time.total_pnl_gross,
+        fall_r = all_time.total_fee_sol,
+        ni    = net_ind,
+        ns    = net_sign,
+        net   = all_time.net_pnl_sol,
+    );
+
+    handler.send_message(&msg).await?;
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /history — Últimas 10 ejecuciones
+// ─────────────────────────────────────────────────────────────────────────────
+pub async fn cmd_history(
+    handler: &super::CommandHandler,
+    state_manager: Arc<StateManager>,
+) -> Result<()> {
+    let trades = match state_manager.get_trade_history(10).await {
+        Ok(t) => t,
+        Err(e) => {
+            handler.send_message(&format!("<b>DB FAULT</b>\n<code>{}</code>", e)).await?;
+            return Ok(());
+        }
+    };
+
+    if trades.is_empty() {
+        handler.send_message(
+            "<b>THE CHASSIS</b>  <code>EXECUTION LOG</code>\n\
+            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n\
+            <code>  NO OPERATIONS RECORDED</code>\n\n\
+            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+        ).await?;
+        return Ok(());
     }
 
+    let mut msg = "<b>THE CHASSIS</b>  <code>EXECUTION LOG</code>\n\
+        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+
+    for trade in trades {
+        let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
+        let pnl_pct = trade.pnl_percent.unwrap_or(0.0);
+        let sign    = if pnl_sol >= 0.0 { "+" } else { "" };
+        let ind     = if pnl_sol >= 0.0 { "◆" } else { "▽" };
+
+        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
+            .map(|dt| dt.format("%m/%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| "—".to_string());
+
+        msg.push_str(&format!(
+"<code>  {ind} {sym:<10}  {ts}</code>
+<code>    {ttype:<16}  {sign}{pnl:.4} SOL  ({pct:+.1}%)</code>
+
+",
+            ind   = ind,
+            sym   = trade.symbol,
+            ts    = ts,
+            ttype = trade.trade_type,
+            sign  = sign,
+            pnl   = pnl_sol,
+            pct   = pnl_pct,
+        ));
+    }
+
+    msg.push_str("<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>");
+    handler.send_message(&msg).await?;
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /stats — Performance Analytics
+// ─────────────────────────────────────────────────────────────────────────────
+pub async fn cmd_stats(
+    handler: &super::CommandHandler,
+    state_manager: Arc<StateManager>,
+) -> Result<()> {
+    match state_manager.get_stats().await {
+        Ok(stats) => {
+            let avg = if stats.total_trades > 0 {
+                stats.total_pnl_sol / stats.total_trades as f64
+            } else { 0.0 };
+
+            let net_sign = if stats.total_pnl_sol >= 0.0 { "+" } else { "" };
+            let avg_sign = if avg >= 0.0 { "+" } else { "" };
+            let ind      = if stats.total_pnl_sol >= 0.0 { "◆" } else { "▽" };
+
+            let msg = format!(
+"<b>THE CHASSIS</b>  <code>PERFORMANCE</code>
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+
+<code>  {ind} NET PNL       {ns}{pnl:.6} SOL</code>
+<code>  ─────────────────────────</code>
+<code>    TOTAL SCALPS   {trades}</code>
+<code>    OPEN POSITIONS {active}</code>
+<code>    AVG / POSITION {avgs}{avg:.6} SOL</code>
+
+<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>",
+                ind    = ind,
+                ns     = net_sign,
+                pnl    = stats.total_pnl_sol,
+                trades = stats.total_trades,
+                active = stats.active_positions,
+                avgs   = avg_sign,
+                avg    = avg,
+            );
+            handler.send_message(&msg).await?;
+        }
+        Err(e) => {
+            handler.send_message(&format!("<b>DB FAULT</b>\n<code>{}</code>", e)).await?;
+        }
+    }
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilidades de diseño
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Indicador de rendimiento: usa solo caracteres monoespaciados limpios
+fn pnl_indicator(dd: f64) -> &'static str {
+    if dd > 50.0      { "◆◆◆◆◆" }
+    else if dd > 20.0 { "◆◆◆◆◇" }
+    else if dd > 5.0  { "◆◆◆◇◇" }
+    else if dd > 0.0  { "◆◆◇◇◇" }
+    else if dd > -10.0{ "◈◇◇◇◇" }
+    else if dd > -25.0{ "▽▽◇◇◇" }
+    else              { "▽▽▽▽▽" }
+}
+
+/// Barra de balance de SOL (10 segmentos)
+fn sol_balance_bar(sol: f64) -> String {
+    let max = 2.0_f64;
+    let ratio = (sol / max).min(1.0);
+    let filled = (ratio * 20.0).round() as usize;
+    let empty  = 20 - filled;
+    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+}

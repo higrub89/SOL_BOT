@@ -198,33 +198,37 @@ impl CommandHandler {
         let mut is_reboot = false;
         match command.trim() {
             "/start" => {
-                let text = "<b>⚜️ THE CHASSIS v2.1.0 ⚜️</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-                    <i>Aegis Protocol: Institutional Execution</i>\n\n\
-                    <b>⬢ SYSTEM CONTROL</b>\n\
-                    ⬡ /ping - Health & Latency\n\
-                    ⬡ /balance - Vault Status\n\n\
-                    <b>⬢ TRADING</b>\n\
-                    ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
-                    ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
-                    ⬡ <code>/panic &lt;MINT&gt;</code>\n\
-                    ⬡ /panic_all - Liquidate All\n\n\
-                    <b>⬢ MONITORING</b>\n\
-                    ⬡ /positions - Live Ledger\n\
-                    ⬡ /targets - Traceability\n\
-                    ⬡ /history - Execution Log\n\
-                    ⬡ /fees - Fee Burn Dashboard\n\
-                    ⬡ /stats - Performance Analytics\n\n\
-                    <b>⬢ ENGINE</b>\n\
-                    ⬡ /hibernate - Halt Ops\n\
-                    ⬡ /wake - Active Mode\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>";
+                let text = concat!(
+                    "<b>THE CHASSIS</b>  <code>v2.1 · ARMED</code>\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<b>SYSTEM</b>\n",
+                    "<code>  /ping       Diagnostics</code>\n",
+                    "<code>  /balance    Vault Balance</code>\n",
+                    "<code>  /status     Live Telemetry</code>\n\n",
+                    "<b>TRADING</b>\n",
+                    "<code>  /buy  &lt;MINT&gt; &lt;SOL&gt;  Jupiter Route</code>\n",
+                    "<code>  /rbuy &lt;MINT&gt; &lt;SOL&gt;  Raydium Direct</code>\n",
+                    "<code>  /panic &lt;MINT&gt;         Emergency Exit</code>\n",
+                    "<code>  /panic_all             Liquidate All</code>\n\n",
+                    "<b>MONITORING</b>\n",
+                    "<code>  /positions  Active Ledger</code>\n",
+                    "<code>  /targets    Registry</code>\n",
+                    "<code>  /history    Execution Log</code>\n",
+                    "<code>  /fees       Fee Analytics</code>\n",
+                    "<code>  /stats      Performance</code>\n\n",
+                    "<b>ENGINE</b>\n",
+                    "<code>  /hibernate  Suspend</code>\n",
+                    "<code>  /wake       Resume</code>\n",
+                    "<code>  /settings   Gas Config</code>\n\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n",
+                    "<i>Institutional Execution · Solana Mainnet</i>"
+                );
 
                 let markup = serde_json::json!({
                     "keyboard": [
-                        [ { "text": "/positions" }, { "text": "/status" }, { "text": "/settings" } ],
-                        [ { "text": "/balance" }, { "text": "/fees" }, { "text": "/targets" } ],
-                        [ { "text": "/ping" }, { "text": "/stats" } ]
+                        [ { "text": "/positions" }, { "text": "/status" }, { "text": "/ping" } ],
+                        [ { "text": "/balance" }, { "text": "/fees" }, { "text": "/stats" } ],
+                        [ { "text": "/targets" }, { "text": "/history" }, { "text": "/settings" } ]
                     ],
                     "resize_keyboard": true,
                     "persistent": true
@@ -242,15 +246,17 @@ impl CommandHandler {
             }
 
             "/settings" => {
-                let msg = "<b>⚙️ SYSTEM SETTINGS</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    <i>Configure Jito Tip / Priority fees in real-time.</i>";
-
+                let msg = concat!(
+                    "<b>THE CHASSIS</b>  <code>GAS CONFIGURATION</code>\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>  Select Jito Bundle Tip Priority</code>\n",
+                    "<code>  Higher tip = faster block inclusion</code>"
+                );
                 let markup = serde_json::json!({
                     "inline_keyboard": [
-                        [ { "text": "⚡ Normal (0.001 SOL)", "callback_data": "/set_gas 0.001" } ],
-                        [ { "text": "🚀 Rápido (0.005 SOL)", "callback_data": "/set_gas 0.005" } ],
-                        [ { "text": "☢️ Ultra-Degen (0.01 SOL)", "callback_data": "/set_gas 0.01" } ]
+                        [ { "text": "◇  STANDARD     0.001 SOL", "callback_data": "/set_gas 0.001" } ],
+                        [ { "text": "◈  PRIORITY     0.005 SOL", "callback_data": "/set_gas 0.005" } ],
+                        [ { "text": "◆  AGGRESSIVE   0.010 SOL", "callback_data": "/set_gas 0.01" } ]
                     ]
                 });
                 self.send_message_with_markup(msg, Some(markup)).await?;
@@ -260,7 +266,16 @@ impl CommandHandler {
                 let parts: Vec<&str> = cmd.split_whitespace().collect();
                 if parts.len() > 1 {
                     let gas = parts[1];
-                    self.send_message(&format!("✅ <b>Gas limits updated:</b> <code>{} SOL</code>\n<i>(Jito Tip dynamically adjusted for next routes).</i>", gas)).await?;
+                    self.send_message(&format!(
+                        concat!(
+                            "<b>GAS CONFIG UPDATED</b>\n",
+                            "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                            "<code>  TIP SET    {} SOL</code>\n",
+                            "<code>  STATUS     ACTIVE ON NEXT ROUTE</code>\n\n",
+                            "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                        ),
+                        gas
+                    )).await?;
                 }
             }
 
@@ -302,56 +317,57 @@ impl CommandHandler {
 
             "/hibernate" => {
                 HIBERNATION_MODE.store(true, Ordering::Relaxed);
-                self.send_message(
-                    "<b>🛑 SYSTEM HALTED: HIBERNATION</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    Execution engine suspended.\n\
-                    Monitoring continues passively.\n\n\
-                    <i>Use /wake to resume operations.</i>",
-                )
-                .await?;
+                self.send_message(concat!(
+                    "<b>THE CHASSIS</b>  <code>ENGINE SUSPENDED</code>\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>  STATE      HIBERNATION</code>\n",
+                    "<code>  TRADING    DISABLED</code>\n",
+                    "<code>  MONITOR    PASSIVE</code>\n\n",
+                    "<code>  /wake to resume operations</code>\n\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                )).await?;
             }
 
             "/wake" => {
                 HIBERNATION_MODE.store(false, Ordering::Relaxed);
-                self.send_message(
-                    "<b>🟢 SYSTEM ONLINE: ENGAGED</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\
-                    Execution engine resumed.\n\
-                    All safety protocols active.",
-                )
-                .await?;
+                self.send_message(concat!(
+                    "<b>THE CHASSIS</b>  <code>ENGINE ENGAGED</code>\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>  STATE      OPERATIONAL</code>\n",
+                    "<code>  TRADING    ARMED</code>\n",
+                    "<code>  PROTOCOLS  ALL ACTIVE</code>\n\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                )).await?;
             }
 
             "/help" => {
-                self.send_message(
-                    "<b>📚 PROTOCOL MANUAL</b>\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n\
-                    <b>⬢ SYSTEM</b>\n\
-                    ⬡ /ping - Health Check\n\
-                    ⬡ /balance - Vault Status\n\
-                    ⬡ /reboot - Hot Reload\n\n\
-                    <b>⬢ TRADING</b>\n\
-                    ⬡ <code>/buy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
-                    ⬡ <code>/rbuy &lt;MINT&gt; &lt;SOL&gt;</code>\n\
-                    ⬡ <code>/panic &lt;MINT&gt;</code>\n\
-                    ⬡ /panic_all - Liquidate All\n\n\
-                    <b>⬢ MONITORING</b>\n\
-                    ⬡ /positions - Live Ledger\n\
-                    ⬡ /history - Execution Log\n\
-                    ⬡ /stats - Analytics\n\
-                    ⬡ /fees - Fee Burn Dashboard\n\
-                    ⬡ /targets - Traceability\n\n\
-                    <b>⬢ MANAGEMENT</b>\n\
-                    ⬡ <code>/track &lt;MINT&gt; &lt;SYM&gt; &lt;SOL&gt; &lt;SL&gt;</code>\n\
-                    ⬡ <code>/update &lt;MINT&gt; sl=-X tp=Y</code>\n\
-                    ⬡ <code>/untrack &lt;MINT&gt;</code>\n\n\
-                    <b>⬢ ENGINE</b>\n\
-                    ⬡ /hibernate - Halt Ops\n\
-                    ⬡ /wake - Active Mode\n\n\
-                    <b>━━━━━━━━━━━━━━━━━━━━━━</b>",
-                )
-                .await?;
+                self.send_message(concat!(
+                    "<b>THE CHASSIS</b>  <code>PROTOCOL MANUAL</code>\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<b>SYSTEM</b>\n",
+                    "<code>  /ping       Diagnostics</code>\n",
+                    "<code>  /balance    Vault Balance</code>\n",
+                    "<code>  /reboot     Hot Restart</code>\n\n",
+                    "<b>TRADING</b>\n",
+                    "<code>  /buy  &lt;MINT&gt; &lt;SOL&gt;    Jupiter Route</code>\n",
+                    "<code>  /rbuy &lt;MINT&gt; &lt;SOL&gt;    Raydium Direct</code>\n",
+                    "<code>  /panic &lt;MINT&gt;           Emergency Exit</code>\n",
+                    "<code>  /panic_all               Liquidate All</code>\n\n",
+                    "<b>MONITORING</b>\n",
+                    "<code>  /positions  Active Ledger</code>\n",
+                    "<code>  /history    Execution Log</code>\n",
+                    "<code>  /stats      Analytics</code>\n",
+                    "<code>  /fees       Fee Burn</code>\n",
+                    "<code>  /targets    Registry</code>\n\n",
+                    "<b>MANAGEMENT</b>\n",
+                    "<code>  /track &lt;MINT&gt; &lt;SYM&gt; &lt;SOL&gt; &lt;SL&gt;</code>\n",
+                    "<code>  /update &lt;MINT&gt; sl=-X tp=Y</code>\n",
+                    "<code>  /untrack &lt;MINT&gt;</code>\n\n",
+                    "<b>ENGINE</b>\n",
+                    "<code>  /hibernate  Suspend</code>\n",
+                    "<code>  /wake       Resume</code>\n\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                )).await?;
             }
 
             cmd if cmd.starts_with("/buy ") => {
@@ -375,8 +391,13 @@ impl CommandHandler {
             }
 
             "/reboot" => {
-                self.send_message("<b>🔄 SYSTEM REBOOT INITIATED</b>\nRestarting process...")
-                    .await?;
+                self.send_message(concat!(
+                    "<b>THE CHASSIS</b>  <code>SYSTEM REBOOT</code>\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>  Restarting process...</code>\n",
+                    "<code>  Reconnect in ~10 seconds</code>\n\n",
+                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                )).await?;
                 is_reboot = true;
             }
 
@@ -649,4 +670,15 @@ impl CommandHandler {
         async fn cmd_stats(&self, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::dashboard::cmd_stats(self, state_manager).await
     }
+}
+
+/// Genera una barra de progreso monocromática de 12 chars entre SL y TP.
+/// `progress` va de 0.0 (en SL) a 1.0 (en TP).
+/// Ejemplo: "[████░░░░░░░░]"
+pub(crate) fn position_bar(progress: f64) -> String {
+    let total = 12usize;
+    let filled = (progress * total as f64).round() as usize;
+    let filled = filled.min(total);
+    let empty  = total - filled;
+    format!("[{}{}]", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty))
 }

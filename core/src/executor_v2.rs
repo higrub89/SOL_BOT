@@ -660,27 +660,62 @@ impl TradeExecutor {
                 println!("⚡ [ULTRA-FAST PATH] Pool detectado: {}", pool_info.name);
                 println!("🚀 Intentando ejecución directa en Raydium...");
 
-                let oracle_quote = self
-                    .jupiter
-                    .get_quote(SOL_MINT, &token_mint, amount_in, 500)
-                    .await;
+                // ═══════════════════════════════════════════════════════════════
+                // ⚡ NATIVE ORACLE — Sin HTTP. RPC directo al AMM state. ~10-20ms
+                // Orden de prioridad:
+                //   1. Oráculo Nativo (RPC getAccountInfo → AMM Math)
+                //   2. Jupiter HTTP como fallback
+                //   3. DEGEN mode (1 lamport) como último recurso
+                // ═══════════════════════════════════════════════════════════════
+                let (estimated_out, price_impact_pct, oracle_label) =
+                    match raydium.get_quote_native(&pool_info.amm_id, amount_in, true) {
+                        Ok((native_out, native_impact)) => {
+                            println!(
+                                "✅ [NATIVE ORACLE] Estimado: {} tokens raw | Impact: {:.2}%",
+                                native_out, native_impact
+                            );
+                            (native_out, native_impact, "Native AMM")
+                        }
+                        Err(native_err) => {
+                            eprintln!(
+                                "⚠️ [NATIVE ORACLE FAIL] {}. Fallback a Jupiter HTTP...",
+                                native_err
+                            );
+                            // Fallback: Jupiter HTTP (el camino viejo)
+                            match self
+                                .jupiter
+                                .get_quote(SOL_MINT, &token_mint, amount_in, 500)
+                                .await
+                            {
+                                Ok(q) => {
+                                    let jup_out = FinancialValidator::parse_amount_safe(
+                                        &q.out_amount,
+                                        "Jup Estimate",
+                                    )
+                                    .unwrap_or(0);
+                                    let jup_impact =
+                                        q.price_impact_pct.parse::<f64>().unwrap_or(0.0);
+                                    println!(
+                                        "✅ [JUP ORACLE FALLBACK] Estimado: {} | Impact: {:.2}%",
+                                        jup_out, jup_impact
+                                    );
+                                    (jup_out, jup_impact, "Jupiter (fallback)")
+                                }
+                                Err(jup_err) => {
+                                    eprintln!(
+                                        "⚠️ [ORACLE FAIL TOTAL] Jupiter también falló: {}. DEGEN mode.",
+                                        jup_err
+                                    );
+                                    (0u64, 0.0f64, "DEGEN")
+                                }
+                            }
+                        }
+                    };
 
-                let (estimated_out, found_oracle) = match oracle_quote {
-                    Ok(q) => (
-                        FinancialValidator::parse_amount_safe(&q.out_amount, "Jup Estimate")
-                            .unwrap_or(0),
-                        true,
-                    ),
-                    Err(_) => {
-                        println!("⚠️ [ORACLE FAIL] Jupiter no conoce el token. Usando ejecución DEGEN...");
-                        (0, false)
-                    }
-                };
-
-                let min_out = if found_oracle && estimated_out > 0 {
+                let min_out = if estimated_out > 0 {
                     raydium.calculate_min_amount_out(estimated_out, self.config.slippage_bps)
                 } else {
-                    1 // 1 lamport mínimo
+                    1 // 1 lamport mínimo — último recurso
                 };
 
                 match raydium
@@ -690,11 +725,22 @@ impl TradeExecutor {
                     Ok(sig) => {
                         println!("✅ RAYDIUM SUCCESS: {}", sig);
 
+                        // Calcular tokens recibidos estimados (usamos decimales del pool si están disponibles)
                         let tokens_received = if estimated_out > 0 {
-                            estimated_out as f64 / 1_000_000.0
+                            // Intentar obtener los decimales reales del mint
+                            let decimals = match solana_sdk::pubkey::Pubkey::from_str(&token_mint) {
+                                Ok(pk) => self
+                                    .rpc_client
+                                    .get_token_supply(&pk)
+                                    .map(|s| s.decimals)
+                                    .unwrap_or(6),
+                                Err(_) => 6,
+                            };
+                            estimated_out as f64 / 10f64.powi(decimals as i32)
                         } else {
                             0.0
                         };
+
                         let price_per_token = if tokens_received > 0.0 {
                             amount_sol / tokens_received
                         } else {
@@ -704,16 +750,14 @@ impl TradeExecutor {
                         let raydium_jito = crate::config::AppConfig::load()
                             .map(|c| c.global_settings.jito_tip_lamports)
                             .unwrap_or(100_000);
+
                         return Ok(BuyResult {
                             signature: sig,
                             sol_spent: amount_sol,
                             tokens_received,
                             price_per_token,
-                            route: format!(
-                                "Raydium Direct (Oracle: {})",
-                                if found_oracle { "OK" } else { "BYPASSED" }
-                            ),
-                            price_impact_pct: 0.0,
+                            route: format!("Raydium Direct (Oracle: {})", oracle_label),
+                            price_impact_pct,
                             fee_sol: Self::lamports_to_sol(raydium_jito),
                         });
                     }
@@ -723,6 +767,7 @@ impl TradeExecutor {
                 }
             }
         }
+
 
         // 2. FALLBACK/STANDARD: JUPITER AGGREGATOR
         println!("🔄 [STANDARD PATH] Ruteando vía Jupiter Aggregator...");
