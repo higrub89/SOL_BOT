@@ -326,7 +326,15 @@ impl TradeExecutor {
         );
 
         if amount_to_sell == 0 {
-            anyhow::bail!("No hay suficiente balance para vender");
+            println!("⚠️  Detección de Balance Cero para {}. Ejecutando auto-limpieza técnica (GHOST_PURGE).", token_mint);
+            return Ok(SwapResult {
+                signature: "GHOST_PURGE_AUTO".to_string(),
+                input_amount: 0.0,
+                output_amount: 0.0,
+                route: "None (Internal Purge)".to_string(),
+                price_impact_pct: 0.0,
+                fee_sol: 0.0,
+            });
         }
 
         // ⚡ FAST PATH: Raydium Direct Sell (Prioridad Absoluta en Emergencias)
@@ -1184,10 +1192,18 @@ impl TradeExecutor {
             }
         }
 
-        anyhow::bail!(
-            "Fallo definitivo buscando ATA tras reintentos: {:?}",
-            last_error
-        );
+        // --- SISTEMA DE GHOST PURGE ---
+        // Si agotamos reintentos y el error es AccountNotFound, asumimos balance 0
+        // Esto permite que el monitor cierre posiciones que fueron vendidas manualmente fuera del bot.
+        if let Some(err) = last_error {
+            let err_msg = err.to_string();
+            if err_msg.contains("AccountNotFound") {
+                return Ok((token_account, 0));
+            }
+            anyhow::bail!("Fallo definitivo buscando ATA tras reintentos: {:?}", err);
+        }
+
+        anyhow::bail!("Fallo desconocido buscando ATA");
     }
 
     /// Envía una transacción con reintentos
@@ -1335,8 +1351,18 @@ impl TradeExecutor {
         instructions.push(system_instruction::transfer(&user_pubkey, &user_wsol_ata, amount_in_lamports));
         instructions.push(spl_token::instruction::sync_native(&spl_token::id(), &user_wsol_ata)?);
 
-        // 3.4. Raydium Swap Instruction
-        let min_amount_out = 1; // En Degen, solemos usar 1, pero podríamos calcularlo si tuviéramos un quote confiable
+        // 3.4. Raydium Swap Instruction with Native Oracle Quote
+        println!("🔮 Calculando quote nativo para protección de slippage...");
+        let (expected_out, _) = raydium.get_quote_native(&pool_info.amm_id, amount_in_lamports, true).unwrap_or((0, 0.0));
+        let min_amount_out = if expected_out > 0 {
+            let mo = raydium.calculate_min_amount_out(expected_out, slippage_bps);
+            println!("   Estimado: {} tokens (Min: {})", expected_out, mo);
+            mo
+        } else {
+            println!("   ⚠️  Quote nativo falló. Usando min_out=1 (Degen Mode)");
+            1
+        };
+
         let swap_ix = raydium.build_swap_instruction(
             &pool_keys,
             user_wsol_ata,

@@ -197,41 +197,44 @@ impl CommandHandler {
     ) -> Result<bool> {
         let mut is_reboot = false;
         match command.trim() {
-            "/start" => {
+            "/start" | "/help" => {
                 let text = concat!(
-                    "<b>THE CHASSIS</b>  <code>v2.1 · ARMED</code>\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
-                    "<b>SYSTEM</b>\n",
-                    "<code>  /ping       Diagnostics</code>\n",
-                    "<code>  /balance    Vault Balance</code>\n",
-                    "<code>  /status     Live Telemetry</code>\n\n",
-                    "<b>TRADING</b>\n",
-                    "<code>  /buy  &lt;MINT&gt; &lt;SOL&gt;  Jupiter Route</code>\n",
-                    "<code>  /rbuy &lt;MINT&gt; &lt;SOL&gt;  Raydium Direct</code>\n",
-                    "<code>  /panic &lt;MINT&gt;         Emergency Exit</code>\n",
-                    "<code>  /panic_all             Liquidate All</code>\n\n",
-                    "<b>MONITORING</b>\n",
-                    "<code>  /positions  Active Ledger</code>\n",
-                    "<code>  /targets    Registry</code>\n",
-                    "<code>  /history    Execution Log</code>\n",
-                    "<code>  /fees       Fee Analytics</code>\n",
-                    "<code>  /stats      Performance</code>\n\n",
-                    "<b>ENGINE</b>\n",
-                    "<code>  /hibernate  Suspend</code>\n",
-                    "<code>  /wake       Resume</code>\n",
-                    "<code>  /settings   Gas Config</code>\n\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n",
-                    "<i>Institutional Execution · Solana Mainnet</i>"
+                    "<b>THE CHASSIS</b>  <code>v2.2 · S-CLASS</code>\n",
+                    "<code>──────────────────────────</code>\n",
+                    "<b>OPERATIONAL STATUS:</b> <code>ARMED</code>\n\n",
+                    "<b>[ ENGINE ]</b>\n",
+                    "  /ping       · <i>Diagnostic & Latency</i>\n",
+                    "  /status     · <i>Live Telemetry</i>\n",
+                    "  /settings   · <i>System Config</i>\n\n",
+                    "<b>[ EXECUTION ]</b>\n",
+                    "  /buy <code>&lt;MINT&gt; &lt;SOL&gt;</code>  · <i>Acquisition</i>\n",
+                    "  /rbuy <code>&lt;MINT&gt; &lt;SOL&gt;</code> · <i>Direct Route</i>\n",
+                    "  /panic <code>&lt;MINT&gt;</code>      · <i>Liquidation</i>\n",
+                    "  /panic_all         · <i>Full Exit</i>\n",
+                    "  /balance           · <i>Vault Reserve</i>\n\n",
+                    "<b>[ ARCHIVE ]</b>\n",
+                    "  /positions  · <i>Active Ledger</i>\n",
+                    "  /history    · <i>Execution Log</i>\n",
+                    "  /stats      · <i>Yield Analytics</i>\n",
+                    "  /fees       · <i>Fee Dissection</i>\n",
+                    "  /targets    · <i>Strategy Registry</i>\n\n",
+                    "<code>──────────────────────────</code>\n",
+                    "<i>Institutional Grade · execution.chassis.io</i>"
                 );
 
                 let markup = serde_json::json!({
-                    "keyboard": [
-                        [ { "text": "/positions" }, { "text": "/status" }, { "text": "/ping" } ],
-                        [ { "text": "/balance" }, { "text": "/fees" }, { "text": "/stats" } ],
-                        [ { "text": "/targets" }, { "text": "/history" }, { "text": "/settings" } ]
-                    ],
-                    "resize_keyboard": true,
-                    "persistent": true
+                    "inline_keyboard": [
+                        [
+                            { "text": "⬢ STATUS",    "callback_data": "/status" },
+                            { "text": "⬢ POSITIONS", "callback_data": "/positions" },
+                            { "text": "⬢ BALANCE",   "callback_data": "/balance" }
+                        ],
+                        [
+                            { "text": "⬥ STATS", "callback_data": "/stats" },
+                            { "text": "⬥ FEES",  "callback_data": "/fees" },
+                            { "text": "⬥ PING",  "callback_data": "/ping" }
+                        ]
+                    ]
                 });
 
                 self.send_message_with_markup(text, Some(markup)).await?;
@@ -247,16 +250,16 @@ impl CommandHandler {
 
             "/settings" => {
                 let msg = concat!(
-                    "<b>THE CHASSIS</b>  <code>GAS CONFIGURATION</code>\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
-                    "<code>  Select Jito Bundle Tip Priority</code>\n",
-                    "<code>  Higher tip = faster block inclusion</code>"
+                    "<b>THE CHASSIS</b>  <code>SYSTEM CONFIG</code>\n",
+                    "<code>──────────────────────────</code>\n\n",
+                    "<code>  JITO BUNDLE TIP PRIORITY</code>\n",
+                    "<code>  Higher tip = faster inclusion</code>"
                 );
                 let markup = serde_json::json!({
                     "inline_keyboard": [
-                        [ { "text": "◇  STANDARD     0.001 SOL", "callback_data": "/set_gas 0.001" } ],
-                        [ { "text": "◈  PRIORITY     0.005 SOL", "callback_data": "/set_gas 0.005" } ],
-                        [ { "text": "◆  AGGRESSIVE   0.010 SOL", "callback_data": "/set_gas 0.01" } ]
+                        [ { "text": "─── 0.001 SOL · STANDARD",   "callback_data": "/set_gas 0.001" } ],
+                        [ { "text": "─⬥─ 0.005 SOL · PRIORITY",  "callback_data": "/set_gas 0.005" } ],
+                        [ { "text": "─⬢─ 0.010 SOL · AGGRESSIVE", "callback_data": "/set_gas 0.01" } ]
                     ]
                 });
                 self.send_message_with_markup(msg, Some(markup)).await?;
@@ -268,11 +271,11 @@ impl CommandHandler {
                     let gas = parts[1];
                     self.send_message(&format!(
                         concat!(
-                            "<b>GAS CONFIG UPDATED</b>\n",
-                            "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
-                            "<code>  TIP SET    {} SOL</code>\n",
-                            "<code>  STATUS     ACTIVE ON NEXT ROUTE</code>\n\n",
-                            "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                            "<b>CONFIG UPDATED</b>\n",
+                            "<code>──────────────────────────</code>\n\n",
+                            "<code>  TIP       {} SOL</code>\n",
+                            "<code>  STATUS    ACTIVE NEXT ROUTE</code>\n\n",
+                            "<code>──────────────────────────</code>"
                         ),
                         gas
                     )).await?;
@@ -317,58 +320,33 @@ impl CommandHandler {
 
             "/hibernate" => {
                 HIBERNATION_MODE.store(true, Ordering::Relaxed);
-                self.send_message(concat!(
+                let msg = concat!(
                     "<b>THE CHASSIS</b>  <code>ENGINE SUSPENDED</code>\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>──────────────────────────</code>\n\n",
                     "<code>  STATE      HIBERNATION</code>\n",
                     "<code>  TRADING    DISABLED</code>\n",
                     "<code>  MONITOR    PASSIVE</code>\n\n",
-                    "<code>  /wake to resume operations</code>\n\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
-                )).await?;
+                    "<code>──────────────────────────</code>"
+                );
+                let markup = serde_json::json!({
+                    "inline_keyboard": [[ { "text": "⬢ RESUME ENGINE", "callback_data": "/wake" } ]]
+                });
+                self.send_message_with_markup(msg, Some(markup)).await?;
             }
 
             "/wake" => {
                 HIBERNATION_MODE.store(false, Ordering::Relaxed);
                 self.send_message(concat!(
                     "<b>THE CHASSIS</b>  <code>ENGINE ENGAGED</code>\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>──────────────────────────</code>\n\n",
                     "<code>  STATE      OPERATIONAL</code>\n",
                     "<code>  TRADING    ARMED</code>\n",
                     "<code>  PROTOCOLS  ALL ACTIVE</code>\n\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                    "<code>──────────────────────────</code>"
                 )).await?;
             }
 
-            "/help" => {
-                self.send_message(concat!(
-                    "<b>THE CHASSIS</b>  <code>PROTOCOL MANUAL</code>\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
-                    "<b>SYSTEM</b>\n",
-                    "<code>  /ping       Diagnostics</code>\n",
-                    "<code>  /balance    Vault Balance</code>\n",
-                    "<code>  /reboot     Hot Restart</code>\n\n",
-                    "<b>TRADING</b>\n",
-                    "<code>  /buy  &lt;MINT&gt; &lt;SOL&gt;    Jupiter Route</code>\n",
-                    "<code>  /rbuy &lt;MINT&gt; &lt;SOL&gt;    Raydium Direct</code>\n",
-                    "<code>  /panic &lt;MINT&gt;           Emergency Exit</code>\n",
-                    "<code>  /panic_all               Liquidate All</code>\n\n",
-                    "<b>MONITORING</b>\n",
-                    "<code>  /positions  Active Ledger</code>\n",
-                    "<code>  /history    Execution Log</code>\n",
-                    "<code>  /stats      Analytics</code>\n",
-                    "<code>  /fees       Fee Burn</code>\n",
-                    "<code>  /targets    Registry</code>\n\n",
-                    "<b>MANAGEMENT</b>\n",
-                    "<code>  /track &lt;MINT&gt; &lt;SYM&gt; &lt;SOL&gt; &lt;SL&gt;</code>\n",
-                    "<code>  /update &lt;MINT&gt; sl=-X tp=Y</code>\n",
-                    "<code>  /untrack &lt;MINT&gt;</code>\n\n",
-                    "<b>ENGINE</b>\n",
-                    "<code>  /hibernate  Suspend</code>\n",
-                    "<code>  /wake       Resume</code>\n\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
-                )).await?;
-            }
+
 
             cmd if cmd.starts_with("/buy ") => {
                 self.cmd_buy(cmd, executor, state_manager, feed_tx).await?;
@@ -393,10 +371,10 @@ impl CommandHandler {
             "/reboot" => {
                 self.send_message(concat!(
                     "<b>THE CHASSIS</b>  <code>SYSTEM REBOOT</code>\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n",
+                    "<code>──────────────────────────</code>\n\n",
                     "<code>  Restarting process...</code>\n",
-                    "<code>  Reconnect in ~10 seconds</code>\n\n",
-                    "<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
+                    "<code>  Reconnect in ~10s</code>\n\n",
+                    "<code>──────────────────────────</code>"
                 )).await?;
                 is_reboot = true;
             }
@@ -565,17 +543,28 @@ impl CommandHandler {
         Ok(())
     }
 
-    /// Comando /positions - Muestra posiciones activas desde la DB
+    /// Comando /positions - Muestra posiciones activas con Titanium Interface
     async fn cmd_positions(&self, state_manager: Arc<StateManager>, price_cache: crate::price_feed::PriceCache) -> Result<()> {
         match state_manager.get_active_positions().await {
             Ok(positions) => {
                 if positions.is_empty() {
-                    self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>\nNo active allocations detected.").await?;
+                    self.send_message(concat!(
+                        "<b>THE CHASSIS</b>  <code>ACTIVE LEDGER</code>\n",
+                        "<code>──────────────────────────</code>\n\n",
+                        "<code>  NO ACTIVE ALLOCATIONS</code>\n\n",
+                        "<code>──────────────────────────</code>"
+                    )).await?;
                     return Ok(());
                 }
 
-                self.send_message("<b>📋 ACTIVE LEDGER</b>\n<b>━━━━━━━━━━━━━━━━━━━━━━</b>")
-                    .await?;
+                self.send_message(
+                    &format!(
+                        "<b>THE CHASSIS</b>  <code>ACTIVE LEDGER</code>\n\
+                        <code>──────────────────────────</code>\n\
+                        <code>  {} TRACKED INSTRUMENTS</code>",
+                        positions.len()
+                    )
+                ).await?;
 
                 for mut pos in positions {
                     {
@@ -586,65 +575,57 @@ impl CommandHandler {
                             }
                         }
                     }
-                    let dd = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0;
-                    let status_emoji = if dd > 20.0 {
-                        "🟢"
-                    } else if dd > 0.0 {
-                        "🟡"
-                    } else {
-                        "🔴"
-                    };
-                    let tokens_held = pos.amount_sol / pos.entry_price;
+                    let dd = if pos.entry_price > 0.0 {
+                        ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0
+                    } else { 0.0 };
+
+                    let tokens_held = if pos.entry_price > 0.0 { pos.amount_sol / pos.entry_price } else { 0.0 };
                     let current_value_sol = tokens_held * pos.current_price;
                     let pnl = current_value_sol - pos.amount_sol;
 
                     let tp_safe = pos.tp_percent.unwrap_or(100.0);
                     let sl_safe = pos.stop_loss_percent;
+                    let dir = if dd >= 0.0 { "⏶" } else { "⏷" };
+                    let sign = if dd >= 0.0 { "+" } else { "" };
+                    let psign = if pnl >= 0.0 { "+" } else { "" };
+
+                    // Luxury Exposure Grid
                     let mut pct = (dd - sl_safe) / (tp_safe - sl_safe).max(0.1);
                     pct = pct.clamp(0.0, 1.0);
-
-                    let total_chars = 10;
-                    let active_idx = (pct * (total_chars as f64 - 1.0)).round() as usize;
-
-                    let mut bar = String::new();
-                    for i in 0..total_chars {
-                        if i == active_idx {
-                            bar.push('💰');
-                        } else {
-                            bar.push('—');
-                        }
-                    }
-                    let visual_bar = format!("<code>[🔴]</code> {} <code>[🟢]</code>", bar);
+                    let bar = luxury_progress_bar(pct);
 
                     let pos_text = format!(
-                        "{} <b>{}</b>\n\
-                        <b>⋄ Entry:</b>   <code>{:.8} SOL</code>\n\
-                        <b>⋄ Price:</b>   <code>{:.8} SOL</code>\n\
-                        <b>⋄ PnL:</b>     <b>{}{:.2}%</b> <i>({}{:.3} SOL)</i>\n\
-                        <b>⋄ Status:</b>  {}\n",
-                        status_emoji,
-                        pos.symbol,
-                        pos.entry_price,
-                        pos.current_price,
-                        if dd > 0.0 { "+" } else { "" },
-                        dd,
-                        if pnl > 0.0 { "+" } else { "" },
-                        pnl,
-                        visual_bar
+"<b>{sym}</b>  <code>{dir} {sign}{dd:.2}%</code>\n\
+<code>──────────────────────────</code>\n\
+<code>  ENTRY   {entry:.9}</code>\n\
+<code>  MARKET  {price:.9}</code>\n\
+<code>  YIELD   {psign}{pnl:.4} SOL</code>\n\n\
+<code>  EXPOSURE GRID</code>\n\
+<code>  [ SL {sl:.0}% ] {bar} [ TP {tp:.0}% ]</code>\n\
+<code>──────────────────────────</code>",
+                        sym   = pos.symbol,
+                        dir   = dir,
+                        sign  = sign,
+                        dd    = dd,
+                        entry = pos.entry_price,
+                        price = pos.current_price,
+                        psign = psign,
+                        pnl   = pnl,
+                        bar   = bar,
+                        sl    = sl_safe,
+                        tp    = tp_safe,
                     );
 
                     let markup = serde_json::json!({
                         "inline_keyboard": [
                             [
-                                { "text": "🔴 PANIC SELL", "callback_data": format!("/panic {}", pos.token_mint) },
-                                { "text": "♻️ DCA 0.1 SOL", "callback_data": format!("/rbuy {} 0.1", pos.token_mint) }
+                                { "text": "⬢ PANIC", "callback_data": format!("/panic {}", pos.token_mint) },
+                                { "text": "⬥ DCA 0.1", "callback_data": format!("/rbuy {} 0.1", pos.token_mint) }
                             ],
                             [
-                                { "text": "🛡️ SL -20%", "callback_data": format!("/update {} sl=-20", pos.token_mint) },
-                                { "text": "🎯 TP 100%", "callback_data": format!("/update {} tp=100", pos.token_mint) }
-                            ],
-                            [
-                                { "text": "🗑️ UNTRACK", "callback_data": format!("/untrack {}", pos.token_mint) }
+                                { "text": "SL -20%", "callback_data": format!("/update {} sl=-20", pos.token_mint) },
+                                { "text": "TP 100%", "callback_data": format!("/update {} tp=100", pos.token_mint) },
+                                { "text": "⊘ UNTRACK", "callback_data": format!("/untrack {}", pos.token_mint) }
                             ]
                         ]
                     });
@@ -653,32 +634,43 @@ impl CommandHandler {
                         .await?;
                 }
 
-                self.send_message("<b>━━━━━━━━━━━━━━━━━━━━━━</b>").await?;
+                let footer = serde_json::json!({
+                    "inline_keyboard": [[
+                        { "text": "⟳ REFRESH", "callback_data": "/positions" },
+                        { "text": "⬢ PANIC ALL", "callback_data": "/panic_all" }
+                    ]]
+                });
+                self.send_message_with_markup("<code>──────────────────────────</code>", Some(footer)).await?;
             }
             Err(e) => {
-                self.send_message(&format!("❌ <b>DB Fault:</b> {}", e))
+                self.send_message(&format!("<b>DB FAULT</b>\n<code>{}</code>", e))
                     .await?;
             }
         }
         Ok(())
     }
 
-        async fn cmd_history(&self, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_history(&self, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::dashboard::cmd_history(self, state_manager).await
     }
 
-        async fn cmd_stats(&self, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_stats(&self, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::dashboard::cmd_stats(self, state_manager).await
     }
 }
 
-/// Genera una barra de progreso monocromática de 12 chars entre SL y TP.
-/// `progress` va de 0.0 (en SL) a 1.0 (en TP).
-/// Ejemplo: "[████░░░░░░░░]"
-pub(crate) fn position_bar(progress: f64) -> String {
-    let total = 12usize;
-    let filled = (progress * total as f64).round() as usize;
-    let filled = filled.min(total);
-    let empty  = total - filled;
-    format!("[{}{}]", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty))
+/// Luxury Progress Bar — Titanium precision indicator.
+/// Renders a 15-char exposure grid: `───⬢───────────`
+pub(crate) fn luxury_progress_bar(progress: f64) -> String {
+    let total_chars: usize = 15;
+    let position = (progress * (total_chars - 1) as f64).round() as usize;
+    let mut bar = String::new();
+    for i in 0..total_chars {
+        if i == position {
+            bar.push('⬢');
+        } else {
+            bar.push('─');
+        }
+    }
+    bar
 }

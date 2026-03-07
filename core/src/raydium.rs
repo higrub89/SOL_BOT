@@ -239,7 +239,7 @@ impl RaydiumClient {
         let base_mint_pubkey = Pubkey::from_str(base_mint)?;
         let quote_mint_pubkey = Pubkey::from_str(quote_mint)?;
 
-        // Filtros para buscar pools de Raydium con estos mints específicos
+        // --- NIVEL 1: Filtro Dual (Base + Quote) ---
         // Estructura del account de Raydium AMM v4:
         // - Offset 400: coin_mint (base)
         // - Offset 432: pc_mint (quote)
@@ -265,59 +265,95 @@ impl RaydiumClient {
             with_context: Some(false),
         };
 
-        println!("📡 Consultando RPC (esto puede tardar 5-10s)...");
-        let accounts = self
-            .rpc_client
-            .get_program_accounts_with_config(&self.program_id, config)?;
-
-        if accounts.is_empty() {
-            // Intentar con los mints invertidos
-            println!("⚠️  No se encontró pool. Intentando con mints invertidos...");
-            let filters_reversed = vec![
-                RpcFilterType::DataSize(752),
-                RpcFilterType::Memcmp(Memcmp::new(
-                    400,
-                    MemcmpEncodedBytes::Base58(quote_mint_pubkey.to_string()),
-                )),
-                RpcFilterType::Memcmp(Memcmp::new(
-                    432,
-                    MemcmpEncodedBytes::Base58(base_mint_pubkey.to_string()),
-                )),
-            ];
-
-            let config_reversed = RpcProgramAccountsConfig {
-                filters: Some(filters_reversed),
-                account_config: RpcAccountInfoConfig {
-                    encoding: Some(UiAccountEncoding::Base64),
-                    commitment: Some(CommitmentConfig::confirmed()),
-                    ..Default::default()
-                },
-                with_context: Some(false),
-            };
-
-            let accounts_reversed = self
-                .rpc_client
-                .get_program_accounts_with_config(&self.program_id, config_reversed)?;
-
-            if accounts_reversed.is_empty() {
-                anyhow::bail!(
-                    "❌ Pool no encontrado on-chain para {}/{}\n\
-                     Posibles causas:\n\
-                     1. El pool no existe en Raydium (usa Jupiter como fallback)\n\
-                     2. El pool está en otro DEX\n\
-                     3. Verifica los mints en Solscan",
-                    base_mint,
-                    quote_mint
-                );
+        println!("📡 Consultando RPC (Dual Filter)...");
+        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, config.clone()) {
+            if !accounts.is_empty() {
+                println!("✅ Pool encontrado con filtro dual!");
+                return self.parse_pool_account(&accounts[0].0, &accounts[0].1, false);
             }
-
-            // Parsear el primer pool encontrado (invertido)
-            return self.parse_pool_account(&accounts_reversed[0].0, &accounts_reversed[0].1, true);
         }
 
-        // Parsear el primer pool encontrado
-        println!("✅ Pool encontrado on-chain!");
-        self.parse_pool_account(&accounts[0].0, &accounts[0].1, false)
+        // --- NIVEL 2: Filtro Dual Invertido ---
+        let filters_rev = vec![
+            RpcFilterType::DataSize(752),
+            RpcFilterType::Memcmp(Memcmp::new(
+                400,
+                MemcmpEncodedBytes::Base58(quote_mint_pubkey.to_string()),
+            )),
+            RpcFilterType::Memcmp(Memcmp::new(
+                432,
+                MemcmpEncodedBytes::Base58(base_mint_pubkey.to_string()),
+            )),
+        ];
+        let config_rev = RpcProgramAccountsConfig {
+            filters: Some(filters_rev),
+            ..config.clone()
+        };
+
+        println!("📡 Consultando RPC (Dual Filter Reversed)...");
+        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, config_rev) {
+            if !accounts.is_empty() {
+                println!("✅ Pool encontrado con filtro dual invertido!");
+                return self.parse_pool_account(&accounts[0].0, &accounts[0].1, true);
+            }
+        }
+
+        // --- NIVEL 3: Búsqueda Exhaustiva (Single Mint Filter) ---
+        // Útil cuando el RPC no ha indexado ambos campos pero sí uno.
+        // Buscamos pools que tengan el base_mint y filtramos localmente el quote_mint.
+        println!("⚠️  Filtro dual falló. Iniciando búsqueda exhaustiva por mint único...");
+        
+        let target_mint = if base_mint == "So11111111111111111111111111111111111111112" { quote_mint } else { base_mint };
+        let target_pubkey = Pubkey::from_str(target_mint)?;
+        
+        // Buscar como base
+        let f_base = vec![
+            RpcFilterType::DataSize(752),
+            RpcFilterType::Memcmp(Memcmp::new(400, MemcmpEncodedBytes::Base58(target_pubkey.to_string()))),
+        ];
+        let c_base = RpcProgramAccountsConfig { filters: Some(f_base), ..config.clone() };
+        
+        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, c_base) {
+            for (pk, acc) in accounts {
+                let data = &acc.data;
+                let pc_mint_on_chain = Pubkey::new_from_array(data[432..464].try_into().unwrap()).to_string();
+                let other_mint = if target_mint == base_mint { quote_mint } else { base_mint };
+                
+                if pc_mint_on_chain == other_mint {
+                    println!("✅ Pool encontrado vía Single Mint Filter (Base)!");
+                    let reversed = target_mint != base_mint;
+                    return self.parse_pool_account(&pk, &acc, reversed);
+                }
+            }
+        }
+
+        // Buscar como quote
+        let f_quote = vec![
+            RpcFilterType::DataSize(752),
+            RpcFilterType::Memcmp(Memcmp::new(432, MemcmpEncodedBytes::Base58(target_pubkey.to_string()))),
+        ];
+        let c_quote = RpcProgramAccountsConfig { filters: Some(f_quote), ..config.clone() };
+        
+        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, c_quote) {
+            for (pk, acc) in accounts {
+                let data = &acc.data;
+                let coin_mint_on_chain = Pubkey::new_from_array(data[400..432].try_into().unwrap()).to_string();
+                let other_mint = if target_mint == base_mint { quote_mint } else { base_mint };
+                
+                if coin_mint_on_chain == other_mint {
+                    println!("✅ Pool encontrado vía Single Mint Filter (Quote)!");
+                    let reversed = target_mint == base_mint; // Si el target es base pero está en quote slot -> reversed
+                    return self.parse_pool_account(&pk, &acc, reversed);
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "❌ Pool no encontrado on-chain tras búsqueda exhaustiva para {}/{}\n\
+             Note: Los pools extremadamente nuevos (< 30s) pueden no ser indexados aún.",
+            base_mint,
+            quote_mint
+        );
     }
 
     /// Parsea un account de pool de Raydium y extrae toda la información necesaria

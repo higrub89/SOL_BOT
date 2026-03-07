@@ -110,7 +110,18 @@ impl ExecutionRouter {
                     eprintln!("⚠️ [RUTEO] Intento {}/{} fallido para {} ({}): {}", attempt, max_attempts, symbol, trade_type, e);
 
                     if attempt == max_attempts {
-                        let error_msg = format!("❌ <b>Fallo definitivo ({}) en {}</b>: {}\nPosición sigue abierta. ¡Revisa manualmente!", trade_type, symbol, e);
+                        let error_msg = format!(
+                            "<b>CRITICAL FAILURE: {}</b>\n\
+                            <code>──────────────────────────</code>\n\
+                            <b>EVENT:</b> <code>{}_EXHAUSTED</code>\n\
+                            <b>ATTEMPTS:</b> <code>{}/{}</code>\n\
+                            <b>REASON:</b> <code>{}</code>\n\
+                            <code>──────────────────────────</code>\n\
+                            <b>ACTION:</b> <code>POSITION OPEN · MANUAL REVIEW</code>\n\
+                            <i>{}</i>",
+                            symbol, trade_type, attempt, max_attempts, e,
+                            chrono::Utc::now().format("%H:%M:%S UTC")
+                        );
                         let _ = self.telegram.send_error_alert(&error_msg).await;
                         
                         let _ = self.feedback_tx.send(ExecutionFeedback::Failure {
@@ -143,10 +154,33 @@ impl ExecutionRouter {
         trade_type: &str,
         cmd_type: CommandType,
     ) {
-        let _ = self.telegram.send_message(
-            &format!("✅ <b>{} EJECUTADO para {}</b>\nTx: {}\n⛽ Fee: {:.6} SOL", trade_type, symbol, res.signature, res.fee_sol),
-            true
-        ).await;
+        if res.signature == "GHOST_PURGE_AUTO" {
+            let _ = self.telegram.send_message(
+                &format!(
+                    "<b>GHOST PURGE: {}</b>\n\
+                    <code>──────────────────────────</code>\n\
+                    <b>EVENT:</b> <code>ZERO_BALANCE_DETECTED</code>\n\
+                    <b>ORIGIN:</b> <code>{}</code>\n\
+                    <b>ACTION:</b> <code>POSITION CLOSED IN DB</code>\n\
+                    <code>──────────────────────────</code>\n\
+                    <i>Tokens not found on-chain. Verify external activity.</i>",
+                    symbol, trade_type
+                ),
+                true
+            ).await;
+        } else {
+            let _ = self.telegram.send_message(
+                &format!(
+                    "<b>{} EXECUTED: {}</b>\n\
+                    <code>──────────────────────────</code>\n\
+                    <b>TX:</b> <code>{}</code>\n\
+                    <b>FEE:</b> <code>{:.6} SOL</code>\n\
+                    <code>──────────────────────────</code>",
+                    trade_type, symbol, res.signature, res.fee_sol
+                ),
+                true
+            ).await;
+        }
 
         let sol_received = res.output_amount;
         

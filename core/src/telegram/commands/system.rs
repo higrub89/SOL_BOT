@@ -4,7 +4,7 @@ use crate::wallet::WalletMonitor;
 use solana_client::rpc_client::RpcClient;
 use std::time::Instant;
 
-/// Comando /ping — Diagnóstico de sistema al nivel institucional
+/// Comando /ping — Diagnostic & Latency (Titanium Interface)
 pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
     let uptime = handler.start_time.elapsed();
     let hours   = uptime.as_secs() / 3600;
@@ -19,76 +19,68 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
         match client.get_slot() {
             Ok(slot) => {
                 let ms = t0.elapsed().as_millis();
-                let bar = latency_bar(ms);
-                (format!("{}  {}ms  ·  slot #{}", bar, ms, slot), ms)
+                (format!("{}ms  ·  slot #{}", ms, slot), ms)
             }
-            Err(e) => (format!("◼  HELIUS FAULT  ·  {}", e), 9999),
+            Err(e) => (format!("FAULT  ·  {}", e), 9999),
         }
     } else {
-        ("◼  API KEY MISSING".to_string(), 9999)
+        ("API KEY MISSING".to_string(), 9999)
+    };
+
+    // ── Latency Grade (S-CLASS through DEGRADED) ─────
+    let (grade, grade_desc) = if rpc_latency_ms < 100 {
+        ("S-CLASS", "Optimal")
+    } else if rpc_latency_ms < 250 {
+        ("A-CLASS", "High Performance")
+    } else if rpc_latency_ms < 500 {
+        ("B-CLASS", "Acceptable")
+    } else {
+        ("DEGRADED", "Network Issues")
     };
 
     // ── Wallet Balance ─────────────────────────────────
     let wallet_line = match wallet_monitor.get_sol_balance() {
         Ok(bal) => {
-            let dot = if bal > 0.05 { "◆" } else if bal > 0.01 { "◇" } else { "▽" };
+            let dot = if bal > 0.05 { "⬢" } else if bal > 0.01 { "⬥" } else { "⏷" };
             format!("{}  {:.6} SOL", dot, bal)
         }
-        Err(e) => format!("▽  VAULT ERROR  ·  {}", e),
+        Err(e) => format!("⏷  VAULT ERROR  ·  {}", e),
     };
 
     // ── Engine State ───────────────────────────────────
     let engine_state = if super::CommandHandler::is_hibernating() {
-        "[ SUSPENDED ]"
+        "SUSPENDED"
     } else {
-        "[ ENGAGED   ]"
-    };
-
-    // ── Latency Grade ──────────────────────────────────
-    let grade = if rpc_latency_ms < 100 {
-        "S-CLASS"
-    } else if rpc_latency_ms < 250 {
-        "A-CLASS"
-    } else if rpc_latency_ms < 500 {
-        "B-CLASS"
-    } else {
-        "DEGRADED"
+        "ENGAGED"
     };
 
     let msg = format!(
-"<b>THE CHASSIS</b>  <code>v2.1 · DIAGNOSTIC</code>
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+"<b>THE CHASSIS</b>  <code>DIAGNOSTIC</code>
+<code>──────────────────────────</code>
 
 <b>UPTIME</b>
 <code>  {h:02}h {m:02}m {s:02}s</code>
 
 <b>NETWORK</b>
 <code>  {rpc}</code>
-<code>  GRADE  {grade}</code>
+<code>  GRADE  {grade} ({desc})</code>
 
 <b>VAULT</b>
 <code>  {wallet}</code>
 
-<b>EXECUTION ENGINE</b>
+<b>ENGINE</b>
 <code>  {engine}</code>
 
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+<code>──────────────────────────</code>
 <i>The Chassis · Institutional Execution Layer</i>",
         h = hours, m = minutes, s = secs,
         rpc    = rpc_line,
         grade  = grade,
+        desc   = grade_desc,
         wallet = wallet_line,
         engine = engine_state,
     );
 
     handler.send_message(&msg).await?;
     Ok(())
-}
-
-/// Genera una barra de latencia minimalista
-fn latency_bar(ms: u128) -> &'static str {
-    if ms < 100  { "◆" }
-    else if ms < 250  { "◈" }
-    else if ms < 500  { "◇" }
-    else             { "▽" }
 }

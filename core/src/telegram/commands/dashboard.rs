@@ -5,7 +5,7 @@ use crate::wallet::WalletMonitor;
 use crate::config::AppConfig;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /status — Live Telemetry por posición
+// /status — Live Telemetry por posición (Titanium Interface)
 // ─────────────────────────────────────────────────────────────────────────────
 pub async fn cmd_status(
     handler: &super::CommandHandler,
@@ -21,18 +21,26 @@ pub async fn cmd_status(
     };
 
     if positions.is_empty() {
-        handler.send_message(
-            "<b>THE CHASSIS</b>  <code>LIVE TELEMETRY</code>\n\
-            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n\
-            <code>  NO ACTIVE ALLOCATIONS</code>\n\n\
-            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
-        ).await?;
+        handler.send_message(concat!(
+            "<b>THE CHASSIS</b>  <code>LIVE TELEMETRY</code>\n",
+            "<code>──────────────────────────</code>\n\n",
+            "<code>  NO ACTIVE ALLOCATIONS</code>\n\n",
+            "<code>──────────────────────────</code>"
+        )).await?;
         return Ok(());
     }
 
-    let mut msg = "<b>THE CHASSIS</b>  <code>LIVE TELEMETRY</code>\n\
-        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+    // Header
+    handler.send_message(
+        &format!(
+            "<b>THE CHASSIS</b>  <code>LIVE TELEMETRY</code>\n\
+            <code>──────────────────────────</code>\n\
+            <code>  {} INSTRUMENTS TRACKED</code>",
+            positions.len()
+        )
+    ).await?;
 
+    // Individual position cards
     for mut pos in positions {
         {
             let cache = price_cache.read().await;
@@ -50,45 +58,65 @@ pub async fn cmd_status(
         } else { 0.0 };
 
         let pnl_sol = current_value - pos.amount_sol;
+        let dir   = if dd >= 0.0 { "⏶" } else { "⏷" };
+        let sign  = if dd >= 0.0 { "+" } else { "" };
+        let psign = if pnl_sol >= 0.0 { "+" } else { "" };
+        let tp_safe = pos.tp_percent.unwrap_or(100.0);
 
-        let signal = pnl_indicator(dd);
-        let sign   = if dd >= 0.0 { "+" } else { "" };
-        let psign  = if pnl_sol >= 0.0 { "+" } else { "" };
+        // Exposure Grid
+        let mut pct = (dd - pos.stop_loss_percent) / (tp_safe - pos.stop_loss_percent).max(0.1);
+        pct = pct.clamp(0.0, 1.0);
+        let bar = super::luxury_progress_bar(pct);
 
-        msg.push_str(&format!(
-"<b>{sym}</b>  <code>{signal}</code>
-<code>  ENTRY   {entry:.9} SOL</code>
-<code>  PRICE   {price:.9} SOL</code>
-<code>  YIELD   {sign}{dd:.2}%   ({psign}{pnl:.4} SOL)</code>
-<code>  SL      {sl:.0}%         TP  {tp:.0}%</code>
+        let msg = format!(
+"<b>{sym}</b>  <code>{dir} {sign}{dd:.2}%</code>
+<code>──────────────────────────</code>
+<code>  ENTRY   {entry:.9}</code>
+<code>  MARKET  {price:.9}</code>
+<code>  YIELD   {psign}{pnl:.4} SOL</code>
 
-",
+<code>  EXPOSURE GRID</code>
+<code>  [ SL {sl:.0}% ] {bar} [ TP {tp:.0}% ]</code>
+<code>──────────────────────────</code>",
             sym   = pos.symbol,
-            signal = signal,
-            entry = pos.entry_price,
-            price = pos.current_price,
+            dir   = dir,
             sign  = sign,
             dd    = dd,
+            entry = pos.entry_price,
+            price = pos.current_price,
             psign = psign,
             pnl   = pnl_sol,
+            bar   = bar,
             sl    = pos.stop_loss_percent,
-            tp    = pos.tp_percent.unwrap_or(100.0),
-        ));
+            tp    = tp_safe,
+        );
 
-        if msg.len() > 3200 {
-            handler.send_message(&msg).await?;
-            msg = "<b>THE CHASSIS</b>  <code>TELEMETRY · CONT.</code>\n\
-                <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
-        }
+        let markup = serde_json::json!({
+            "inline_keyboard": [
+                [
+                    { "text": "⬢ PANIC", "callback_data": format!("/panic {}", pos.token_mint) },
+                    { "text": "⊘ UNTRACK", "callback_data": format!("/untrack {}", pos.token_mint) }
+                ]
+            ]
+        });
+
+        handler.send_message_with_markup(&msg, Some(markup)).await?;
     }
 
-    msg.push_str("<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>");
-    handler.send_message(&msg).await?;
+    // Footer with global actions
+    let footer = serde_json::json!({
+        "inline_keyboard": [[
+            { "text": "⟳ REFRESH",   "callback_data": "/status" },
+            { "text": "⬢ PANIC ALL", "callback_data": "/panic_all" }
+        ]]
+    });
+    handler.send_message_with_markup("<code>──────────────────────────</code>", Some(footer)).await?;
+
     Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /balance — Vault Status
+// /balance — Vault Reserve
 // ─────────────────────────────────────────────────────────────────────────────
 pub async fn cmd_balance(
     handler: &super::CommandHandler,
@@ -109,14 +137,14 @@ pub async fn cmd_balance(
             let bar = sol_balance_bar(balance);
 
             let msg = format!(
-"<b>THE CHASSIS</b>  <code>VAULT STATUS</code>
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+"<b>THE CHASSIS</b>  <code>VAULT RESERVE</code>
+<code>──────────────────────────</code>
 
 <code>  {balance:.6} SOL</code>
 <code>  {bar}</code>
 <code>  {tier}</code>
 
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>",
+<code>──────────────────────────</code>",
                 balance = balance,
                 bar     = bar,
                 tier    = tier,
@@ -133,15 +161,15 @@ pub async fn cmd_balance(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /targets — Configuración de targets activos
+// /targets — Strategy Registry
 // ─────────────────────────────────────────────────────────────────────────────
 pub async fn cmd_targets(
     handler: &super::CommandHandler,
     config: Arc<AppConfig>,
     state_manager: Arc<StateManager>,
 ) -> Result<()> {
-    let mut msg = "<b>THE CHASSIS</b>  <code>TARGET REGISTRY</code>\n\
-        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+    let mut msg = "<b>THE CHASSIS</b>  <code>STRATEGY REGISTRY</code>\n\
+        <code>──────────────────────────</code>\n\n".to_string();
 
     if let Ok(db_positions) = state_manager.get_active_positions().await {
         if db_positions.is_empty() {
@@ -169,8 +197,8 @@ pub async fn cmd_targets(
 
                 if msg.len() > 3200 {
                     handler.send_message(&msg).await?;
-                    msg = "<b>TARGET REGISTRY · CONT.</b>\n\
-                        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+                    msg = "<b>REGISTRY · CONT.</b>\n\
+                        <code>──────────────────────────</code>\n\n".to_string();
                 }
             }
         }
@@ -183,7 +211,7 @@ pub async fn cmd_targets(
     };
 
     msg.push_str(&format!(
-"<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+"<code>──────────────────────────</code>
 <code>  ENGINE  {mode}</code>
 <code>  TICK    {tick}s interval</code>",
         mode = exec_mode,
@@ -195,7 +223,7 @@ pub async fn cmd_targets(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /fees — Fee Burn Analysis
+// /fees — Fee Dissection
 // ─────────────────────────────────────────────────────────────────────────────
 pub async fn cmd_fees(
     handler: &super::CommandHandler,
@@ -218,11 +246,11 @@ pub async fn cmd_fees(
 
     let net_sign   = if all_time.net_pnl_sol  >= 0.0 { "+" } else { "" };
     let gross_sign = if all_time.total_pnl_gross >= 0.0 { "+" } else { "" };
-    let net_ind    = if all_time.net_pnl_sol  >= 0.0 { "◆" } else { "▽" };
+    let net_ind    = if all_time.net_pnl_sol  >= 0.0 { "⏶" } else { "⏷" };
 
     let msg = format!(
-"<b>THE CHASSIS</b>  <code>FEE ANALYTICS</code>
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+"<b>THE CHASSIS</b>  <code>FEE DISSECTION</code>
+<code>──────────────────────────</code>
 
 <b>LAST 24H</b>
 <code>  TRADES    {t24}</code>
@@ -240,7 +268,7 @@ pub async fn cmd_fees(
 <code>  ───────────────────────</code>
 <code>  {ni} NET PNL   {ns}{net:.6} SOL</code>
 
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+<code>──────────────────────────</code>
 <i>Fee capture active since v2.1+</i>",
         t24   = last_24h.total_trades,
         f24   = last_24h.total_fee_sol,
@@ -261,7 +289,7 @@ pub async fn cmd_fees(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /history — Últimas 10 ejecuciones
+// /history — Execution Log
 // ─────────────────────────────────────────────────────────────────────────────
 pub async fn cmd_history(
     handler: &super::CommandHandler,
@@ -276,23 +304,23 @@ pub async fn cmd_history(
     };
 
     if trades.is_empty() {
-        handler.send_message(
-            "<b>THE CHASSIS</b>  <code>EXECUTION LOG</code>\n\
-            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n\
-            <code>  NO OPERATIONS RECORDED</code>\n\n\
-            <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>"
-        ).await?;
+        handler.send_message(concat!(
+            "<b>THE CHASSIS</b>  <code>EXECUTION LOG</code>\n",
+            "<code>──────────────────────────</code>\n\n",
+            "<code>  NO OPERATIONS RECORDED</code>\n\n",
+            "<code>──────────────────────────</code>"
+        )).await?;
         return Ok(());
     }
 
     let mut msg = "<b>THE CHASSIS</b>  <code>EXECUTION LOG</code>\n\
-        <code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>\n\n".to_string();
+        <code>──────────────────────────</code>\n\n".to_string();
 
     for trade in trades {
         let pnl_sol = trade.pnl_sol.unwrap_or(0.0);
         let pnl_pct = trade.pnl_percent.unwrap_or(0.0);
         let sign    = if pnl_sol >= 0.0 { "+" } else { "" };
-        let ind     = if pnl_sol >= 0.0 { "◆" } else { "▽" };
+        let ind     = if pnl_sol >= 0.0 { "⏶" } else { "⏷" };
 
         let ts = chrono::DateTime::<chrono::Utc>::from_timestamp(trade.timestamp, 0)
             .map(|dt| dt.format("%m/%d %H:%M UTC").to_string())
@@ -313,13 +341,13 @@ pub async fn cmd_history(
         ));
     }
 
-    msg.push_str("<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>");
+    msg.push_str("<code>──────────────────────────</code>");
     handler.send_message(&msg).await?;
     Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /stats — Performance Analytics
+// /stats — Yield Analytics
 // ─────────────────────────────────────────────────────────────────────────────
 pub async fn cmd_stats(
     handler: &super::CommandHandler,
@@ -333,11 +361,11 @@ pub async fn cmd_stats(
 
             let net_sign = if stats.total_pnl_sol >= 0.0 { "+" } else { "" };
             let avg_sign = if avg >= 0.0 { "+" } else { "" };
-            let ind      = if stats.total_pnl_sol >= 0.0 { "◆" } else { "▽" };
+            let ind      = if stats.total_pnl_sol >= 0.0 { "⏶" } else { "⏷" };
 
             let msg = format!(
-"<b>THE CHASSIS</b>  <code>PERFORMANCE</code>
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>
+"<b>THE CHASSIS</b>  <code>YIELD ANALYTICS</code>
+<code>──────────────────────────</code>
 
 <code>  {ind} NET PNL       {ns}{pnl:.6} SOL</code>
 <code>  ─────────────────────────</code>
@@ -345,7 +373,7 @@ pub async fn cmd_stats(
 <code>    OPEN POSITIONS {active}</code>
 <code>    AVG / POSITION {avgs}{avg:.6} SOL</code>
 
-<code>━━━━━━━━━━━━━━━━━━━━━━━━━━</code>",
+<code>──────────────────────────</code>",
                 ind    = ind,
                 ns     = net_sign,
                 pnl    = stats.total_pnl_sol,
@@ -364,25 +392,28 @@ pub async fn cmd_stats(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Utilidades de diseño
+// Utility functions — Titanium Design System
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Indicador de rendimiento: usa solo caracteres monoespaciados limpios
-fn pnl_indicator(dd: f64) -> &'static str {
-    if dd > 50.0      { "◆◆◆◆◆" }
-    else if dd > 20.0 { "◆◆◆◆◇" }
-    else if dd > 5.0  { "◆◆◆◇◇" }
-    else if dd > 0.0  { "◆◆◇◇◇" }
-    else if dd > -10.0{ "◈◇◇◇◇" }
-    else if dd > -25.0{ "▽▽◇◇◇" }
-    else              { "▽▽▽▽▽" }
+/// Precision PnL direction indicator.
+/// Replaces noisy emoji bars with clean vector arrows.
+pub fn pnl_indicator(dd: f64) -> &'static str {
+    if dd > 0.0 { "⏶" } else { "⏷" }
 }
 
-/// Barra de balance de SOL (10 segmentos)
+/// SOL Balance bar — Titanium gauge (20 segments)
 fn sol_balance_bar(sol: f64) -> String {
     let max = 2.0_f64;
     let ratio = (sol / max).min(1.0);
-    let filled = (ratio * 20.0).round() as usize;
-    let empty  = 20 - filled;
-    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+    let total = 20usize;
+    let position = (ratio * (total - 1) as f64).round() as usize;
+    let mut bar = String::new();
+    for i in 0..total {
+        if i == position {
+            bar.push('⬢');
+        } else {
+            bar.push('─');
+        }
+    }
+    format!("[{}]", bar)
 }
