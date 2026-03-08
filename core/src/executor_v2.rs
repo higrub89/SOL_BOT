@@ -1376,18 +1376,59 @@ impl TradeExecutor {
         // 3.5. Close WSOL account for refund
         instructions.push(spl_token::instruction::close_account(&spl_token::id(), &user_wsol_ata, &user_pubkey, &user_pubkey, &[])?);
 
-        // 4. Enviar Transacción
+        // 4. Construir Transacciones para Jito Bundle
+        use solana_sdk::transaction::VersionedTransaction;
+        
+        // El tip de Jito suele ser 0.001 SOL (1_000_000 lamports) a 0.0001 dependiendo del hambre
+        let jito_tip_lamports = 100_000; 
+
         let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
-        let transaction = Transaction::new_signed_with_payer(
+        
+        // Paquete A: Toda la operativa de ATA, Envoltorio WSOL, Swapeo y Cierre WSOL
+        let swap_tx = Transaction::new_signed_with_payer(
             &instructions,
             Some(&user_pubkey),
             &[keypair],
             recent_blockhash,
         );
+        let versioned_swap = VersionedTransaction::from(swap_tx);
 
-        println!("📡 Enviando Raydium Assault (Direct RPC)...");
-        let sig = self.rpc_client.send_and_confirm_transaction(&transaction)?;
-        println!("✅ Swap ejecutado: {}", sig);
+        // Paquete B: La Propina de Jito 
+        let mut bundle_sent = false;
+        let mut final_signature = versioned_swap.signatures[0].to_string();
+
+        if let Ok(tip_ix) = crate::jito::JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports) {
+            let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
+            let mut tip_tx = Transaction::new_unsigned(tip_msg);
+            tip_tx.sign(&[keypair], recent_blockhash);
+            let versioned_tip = VersionedTransaction::from(tip_tx);
+
+            // Armar Bundle Encriptado
+            let bundle = vec![versioned_swap.clone(), versioned_tip];
+            let jito_client = crate::jito::JitoClient::new();
+            
+            println!("📡 Enviando Raydium Assault (JITO BUNDLE)...");
+            if let Ok(bundle_id) = jito_client.send_bundle(bundle).await {
+                println!("✅ Swap ejecutado privadamente [JITO BUNDLE ID: {}]: {}", bundle_id, final_signature);
+                bundle_sent = true;
+            } else {
+                println!("⚠️  Fallo envío Jito. Usando túnel RPC de emergencia...");
+            }
+        }
+
+        // Fallback: Si Jito falla o el nodo está offline temporalmente
+        if !bundle_sent {
+            println!("📡 Ejecutando Raydium Assault directo en Mempool Público...");
+            // Recuperamos la transacción inicial ya ensamblada y la empujamos
+            let fallback_tx = Transaction::new_signed_with_payer(
+                &instructions,
+                Some(&user_pubkey),
+                &[keypair],
+                recent_blockhash,
+            );
+            final_signature = self.rpc_client.send_and_confirm_transaction(&fallback_tx)?.to_string();
+            println!("✅ Swap ejecutado [MEMPOOL PUBLICO]: {}", final_signature);
+        }
 
         // 5. Esperar confirmación y calcular balance
         println!("⏳ Verificando balance post-maniobra...");
@@ -1417,11 +1458,11 @@ impl TradeExecutor {
         }
 
         Ok(BuyResult {
-            signature: sig.to_string(),
+            signature: final_signature,
             sol_spent: amount_sol,
             tokens_received,
             price_per_token,
-            route: "Raydium Direct (Degen Mode)".to_string(),
+            route: "Raydium Direct (Jito MEV Protected)".to_string(),
             price_impact_pct: 0.0,
             fee_sol: Self::microlamports_to_sol(dynamic_fee * 200_000), // Estimado 200k CU
         })

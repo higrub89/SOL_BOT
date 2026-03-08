@@ -263,6 +263,7 @@ impl RaydiumClient {
                 ..Default::default()
             },
             with_context: Some(false),
+            sort_results: None,
         };
 
         println!("📡 Consultando RPC (Dual Filter)...");
@@ -590,6 +591,98 @@ impl RaydiumClient {
         println!("🔗 https://solscan.io/tx/{}", signature);
 
         Ok(signature.to_string())
+    }
+
+    /// Ejecuta un swap completo utilizando Jito Bundle para protección MEV.
+    pub async fn execute_swap_with_jito(
+        &self,
+        base_mint: &str,
+        quote_mint: &str,
+        amount_in: u64,
+        min_amount_out: u64,
+        jito_tip_lamports: u64,
+        user_keypair: &Keypair,
+    ) -> Result<String> {
+        use solana_sdk::transaction::VersionedTransaction;
+        
+        println!("🚀 Iniciando swap [RAYDIUM+JITO] PROTEGIDO...");
+        println!("   {} → {}", base_mint, quote_mint);
+        println!("   Amount In: {}", amount_in);
+        println!("   Min Amount Out: {}", min_amount_out);
+        println!("   Jito Tip: {:.6} SOL", jito_tip_lamports as f64 / 1e9);
+
+        // 1. Encontrar pool
+        let pool_info = self.find_pool(base_mint, quote_mint).await?;
+        let pool_keys = pool_info.to_pubkeys()?;
+
+        // 2. Derivar token accounts del usuario
+        let base_mint_pubkey = Pubkey::from_str(base_mint)?;
+        let quote_mint_pubkey = Pubkey::from_str(quote_mint)?;
+
+        let user_source = spl_associated_token_account::get_associated_token_address(
+            &user_keypair.pubkey(),
+            &base_mint_pubkey,
+        );
+
+        let user_dest = spl_associated_token_account::get_associated_token_address(
+            &user_keypair.pubkey(),
+            &quote_mint_pubkey,
+        );
+
+        // 3. Construir instrucción principal
+        let swap_ix = self.build_swap_instruction(
+            &pool_keys,
+            user_source,
+            user_dest,
+            user_keypair.pubkey(),
+            amount_in,
+            min_amount_out,
+        )?;
+
+        let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
+        
+        // TX 1: El swap normal
+        let swap_tx = Transaction::new_signed_with_payer(
+            &[swap_ix],
+            Some(&user_keypair.pubkey()),
+            &[user_keypair],
+            recent_blockhash,
+        );
+        let versioned_swap = VersionedTransaction::from(swap_tx);
+
+        // TX 2: Instrucción de Propina Jito
+        let tip_ix = crate::jito::JitoClient::create_tip_instruction(
+            &user_keypair.pubkey(),
+            jito_tip_lamports,
+        ).map_err(|e| anyhow::anyhow!("Error creando Jito tip ix: {}", e))?;
+        
+        let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_keypair.pubkey()));
+        let mut tip_tx = Transaction::new_unsigned(tip_msg);
+        tip_tx.sign(&[user_keypair], recent_blockhash);
+        let versioned_tip = VersionedTransaction::from(tip_tx);
+
+        // 5. Agrupar el Bundle
+        let bundle = vec![versioned_swap.clone(), versioned_tip];
+
+        // 6. Enviar a Jito Block Engine con Fallback a RPC
+        let jito_client = crate::jito::JitoClient::new();
+        match jito_client.send_bundle(bundle).await {
+            Ok(bundle_id) => {
+                let sig = versioned_swap.signatures[0].to_string();
+                println!("✅ [RAYDIUM+JITO] Swap Entregado. Bundle ID: {}, Tx: {}", bundle_id, sig);
+                Ok(sig)
+            }
+            Err(e) => {
+                eprintln!("⚠️ Error Jito Bundle (Bypassing a RPC Standar): {}", e);
+                // Fallback de emergencia, mismo flujo pero sin Jito (usa RPC default):
+                let fallback_blockhash = self.rpc_client.get_latest_blockhash()?;
+                let fallback_ix = self.build_swap_instruction(&pool_keys, user_source, user_dest, user_keypair.pubkey(), amount_in, min_amount_out)?;
+                let fallback_tx = Transaction::new_signed_with_payer(&[fallback_ix], Some(&user_keypair.pubkey()), &[user_keypair], fallback_blockhash);
+                let fallback_sig = self.rpc_client.send_and_confirm_transaction(&fallback_tx)?;
+                println!("✅ [FALLBACK RPC] Swap ejecutado: {}", fallback_sig);
+                Ok(fallback_sig.to_string())
+            }
+        }
     }
 
     // =========================================================================

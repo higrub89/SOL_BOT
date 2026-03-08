@@ -7,15 +7,15 @@ description = "High-performance Solana trading engine - The Chassis"
 default-run = "the_chassis_app"
 
 [dependencies]
-# Solana Core (Versiones estables)
-solana-client = "1.18"
-solana-sdk = "1.18"
-solana-account-decoder = "1.18"
-solana-program = "1.18"
-# Pinning exacto requerido por solana-client 1.18
-spl-token = "^4.0"
-spl-associated-token-account = "^2.3"
-spl-memo = "^4.0"
+# Solana Core (Actualizado a v2.0+ para matar incompatibilidades futuras y preparar Jito)
+solana-client = "2.0.0"
+solana-sdk = "2.0.0"
+solana-account-decoder = "2.0.0"
+solana-program = "2.0.0"
+# Pinning actualizado requerido por solana-client 2.0
+spl-token = "^5.0"
+spl-associated-token-account = "^4.0"
+spl-memo = "^5.0"
 libc = "0.2"
 
 # Async Runtime
