@@ -374,11 +374,16 @@ async fn run_monitor_mode() -> Result<()> {
         Some(Arc::clone(&price_cache)),
     )?);
 
+    use crate::engine::commands::{ExecutionCommand, ExecutionFeedback};
+    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<ExecutionCommand>(1024);
+    let (feedback_tx, feedback_rx) = tokio::sync::mpsc::channel::<ExecutionFeedback>(1024);
+
     // 6. Telemetry Server (WebSocket para la UI)
     let telemetry_server = Arc::new(crate::telemetry_server::TelemetryServer::new(
         Arc::clone(&state_manager),
         Arc::clone(&price_cache),
         Arc::clone(&wallet_monitor),
+        cmd_tx.clone(),
     ));
 
     tokio::spawn(async move {
@@ -455,13 +460,10 @@ async fn run_monitor_mode() -> Result<()> {
     // ============================================================================
     println!("🏎️  Chassis ensamblado. Arrancando subsistemas asíncronos...\n");
 
-    use crate::engine::commands::{ExecutionCommand, ExecutionFeedback};
-    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<ExecutionCommand>(1024);
-    let (feedback_tx, feedback_rx) = tokio::sync::mpsc::channel::<ExecutionFeedback>(1024);
-
+    let engine_cmd_tx = cmd_tx.clone();
     let engine = crate::engine::strategy::StrategyEngine::new(Arc::clone(&state_manager));
     tokio::spawn(async move {
-        engine.run_loop(price_rx, cmd_tx, feedback_rx).await;
+        engine.run_loop(price_rx, engine_cmd_tx, feedback_rx).await;
     });
 
     let router = crate::engine::router::ExecutionRouter::new(Arc::clone(&executor), Arc::clone(&state_manager), Arc::clone(&telegram), wallet_keypair, feedback_tx);

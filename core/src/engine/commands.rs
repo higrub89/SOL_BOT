@@ -26,6 +26,7 @@ pub enum ExecutionCommand {
         amount_invested: f64,
         is_emergency: bool,
     },
+    PanicAll,
 }
 
 #[derive(Debug, Clone)]

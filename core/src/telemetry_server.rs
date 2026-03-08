@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 #[derive(Deserialize)]
 struct UiCommand {
     command: String,
+    #[allow(dead_code)]
     timestamp: Option<u64>,
 }
 
@@ -42,11 +43,12 @@ pub struct TelemetryServer {
     price_cache: PriceCache,
     wallet_monitor: Arc<WalletMonitor>,
     cached_balance: Arc<std::sync::RwLock<f64>>,
+    cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>,
 }
 
 impl TelemetryServer {
-    pub fn new(state_manager: Arc<StateManager>, price_cache: PriceCache, wallet_monitor: Arc<WalletMonitor>) -> Self {
-        Self { state_manager, price_cache, wallet_monitor, cached_balance: Arc::new(std::sync::RwLock::new(0.0)) }
+    pub fn new(state_manager: Arc<StateManager>, price_cache: PriceCache, wallet_monitor: Arc<WalletMonitor>, cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>) -> Self {
+        Self { state_manager, price_cache, wallet_monitor, cached_balance: Arc::new(std::sync::RwLock::new(0.0)), cmd_tx }
     }
 
     pub async fn run(self: Arc<Self>, addr: &str) -> anyhow::Result<()> {
@@ -96,8 +98,9 @@ impl TelemetryServer {
 
         while let Ok((stream, _)) = listener.accept().await {
             let rx = tx.subscribe();
+            let cmd_tx_clone = self.cmd_tx.clone();
             tokio::spawn(async move {
-                if let Err(e) = Self::handle_connection(stream, rx).await {
+                if let Err(e) = Self::handle_connection(cmd_tx_clone, stream, rx).await {
                     eprintln!("❌ [TELEMETRY] Error en conexión: {}", e);
                 }
             });
@@ -106,7 +109,7 @@ impl TelemetryServer {
         Ok(())
     }
 
-    async fn handle_connection(stream: TcpStream, mut rx: tokio::sync::broadcast::Receiver<TelemetryTick>) -> anyhow::Result<()> {
+    async fn handle_connection(cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>, stream: TcpStream, mut rx: tokio::sync::broadcast::Receiver<TelemetryTick>) -> anyhow::Result<()> {
         let mut ws_stream = accept_async(stream).await?;
         println!("✅ [TELEMETRY] UI conectada");
 
@@ -143,8 +146,8 @@ impl TelemetryServer {
                                         }
                                         "PANIC_ALL" => {
                                             println!("💥 [UI-COMMAND] PANIC ALL EJECUTADO DESDE LA UI.");
-                                            println!("💥 [UI-COMMAND] (WIP: Aquí se inyectarán las órdenes a mercado para liquidar todo)");
-                                            // TODO: Integrar aquí la llamada al ExecutionRouter o TradingEngine para hacer close_all_positions
+                                            println!("💥 [UI-COMMAND] Inyectando comando en el ExecutionRouter...");
+                                            let _ = cmd_tx.send(crate::engine::commands::ExecutionCommand::PanicAll).await;
                                         }
                                         _ => {
                                             println!("⚠️ [TELEMETRY] Comando desconocido: {}", parsed.command);
@@ -212,11 +215,11 @@ impl TelemetryServer {
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
-        // Leer el último balance trackeado
-        let wallet_balance = *self.cached_balance.read().unwrap();
+        // Leer el último balance trackeado manejando un posible thread panic poison
+        let wallet_balance = *self.cached_balance.read().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         // Obtener el precio actual de SOL
         let sol_price = cache.get("So11111111111111111111111111111111111111112")

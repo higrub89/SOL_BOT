@@ -1271,8 +1271,8 @@ impl TradeExecutor {
             .context("Raydium engine not initialized")?;
         let keypair = wallet_keypair.context("Wallet keypair required for Degen Mode")?;
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
-        let sol_mint_pubkey = Pubkey::from_str(SOL_MINT).unwrap();
-        let token_mint_pubkey = Pubkey::from_str(&valid_mint).unwrap();
+        let sol_mint_pubkey = Pubkey::from_str(SOL_MINT).context("Could not parse SOL MINT")?;
+        let token_mint_pubkey = Pubkey::from_str(&valid_mint).context("Invalid token mint string")?;
         let user_pubkey = keypair.pubkey();
         
         let amount_in_lamports = (amount_sol * 1_000_000_000.0) as u64;

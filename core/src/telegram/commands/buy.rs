@@ -43,7 +43,7 @@ use crate::state_manager::StateManager;
                     handler.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}</code>\n<i>Bypassing all guards...</i>", valid_mint, amount, slippage_text)).await?;
 
                     let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
-                    // Para Raydium, si el slippage es < 9000, calculamos min_out (TODO), por ahora el executor raydium usa 1
+                    // El executor calcula internamente el min_out nativo usando el 'slippage', con fallback a 1 (Degen Mode) si el oráculo falla.
                     match executor
                         .execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount, slippage)
                         .await

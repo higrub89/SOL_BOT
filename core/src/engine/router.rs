@@ -46,6 +46,15 @@ impl ExecutionRouter {
 
     async fn process_command(&self, command: ExecutionCommand) {
         match command {
+            ExecutionCommand::PanicAll => {
+                println!("💥 [RUTEO] PANIC ALL EJECUTADO - LIQUIDANDO TODAS LAS POSICIONES ACTIVAS");
+                if let Ok(positions) = self.state_manager.get_active_positions().await {
+                    for pos in positions {
+                        println!("🚨 [PANIC] Liquidando {} ({} SOL investidos)", pos.symbol, pos.amount_sol);
+                        self.execute_with_backoff(&pos.token_mint, &pos.symbol, pos.amount_sol, 100, true, "PANIC_ALL", CommandType::StopLoss).await;
+                    }
+                }
+            }
             ExecutionCommand::StopLoss {
                 mint,
                 symbol,
