@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, Cpu, DollarSign, LayoutDashboard, Radio, Settings as SettingsIcon, Zap, FileText, Clock, TrendingUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, AlertTriangle, Cpu, DollarSign, LayoutDashboard, Radio, Settings as SettingsIcon, Zap, FileText, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { socketClient } from './socket';
 import './index.css';
