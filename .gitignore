@@ -14,6 +14,7 @@ operational/.rpc_config
 
 # BUILD ARTIFACTS
 **/target/
+core/target/
 *.o
 *.a
 *.so
@@ -33,7 +34,9 @@ trading_state.db*
 # LOGS
 *.log
 logs/
+core/logs/
 operational/logs/
+backend.log
 
 # CACHE & TEMP
 *.bak
@@ -46,6 +49,9 @@ operational/logs/
 bot.pid
 result.json
 pools_cache.json
+*sqlite::memory:*
+log.db
+core/.env
 
 # IDE
 .vscode/

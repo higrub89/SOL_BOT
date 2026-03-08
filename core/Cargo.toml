@@ -4,6 +4,7 @@ version = "0.9.0"
 edition = "2021"
 authors = ["Ruben"]
 description = "High-performance Solana trading engine - The Chassis"
+default-run = "the_chassis_app"
 
 [dependencies]
 # Solana Core (Versiones estables)
