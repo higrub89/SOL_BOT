@@ -1279,8 +1279,8 @@ impl TradeExecutor {
 
         // --- SECURITY LIMIT 1: Balance Buffer ---
         let main_balance = self.rpc_client.get_balance(&user_pubkey).unwrap_or(0);
-        if main_balance < amount_in_lamports + 50_000_000 { // 0.05 SOL buffer
-             anyhow::bail!("❌ Insufficient SOL balance to maintain safety buffer (min 0.05 SOL required after trade)");
+        if main_balance < amount_in_lamports + 15_000_000 { // 0.015 SOL buffer (Ajustado para permitir pruebas con pocos fondos)
+             anyhow::bail!("❌ Insufficient SOL balance to maintain safety buffer (min 0.015 SOL required after trade)");
         }
 
         // --- SECURITY LIMIT 2: Liquidity Guard ---
