@@ -36,6 +36,7 @@ pub struct TelemetryTick {
     pub sol_price: f64,
     pub status: String,
     pub positions: Vec<PositionUpdate>,
+    pub recent_trades: Vec<crate::state_manager::TradeRecord>,
 }
 
 pub struct TelemetryServer {
@@ -226,6 +227,8 @@ impl TelemetryServer {
             .map(|p| p.price_native)
             .unwrap_or(0.0);
 
+        let recent_trades = self.state_manager.get_trade_history(15).await.unwrap_or_default();
+
         Ok(TelemetryTick {
             t: now,
             net_pnl: total_pnl_sol,
@@ -234,6 +237,7 @@ impl TelemetryServer {
             sol_price,
             status: status.to_string(),
             positions,
+            recent_trades,
         })
     }
 }
