@@ -11,13 +11,15 @@ export class TelemetryClient {
   private onMessageCallback: ((data: TelemetryData) => void) | null = null;
   private onConnectionChange: ((connected: boolean) => void) | null = null;
   private reconnecting = false;
-  private url = 'ws://127.0.0.1:8765';
+  private connectionStart: number | null = null;
+  private url = 'ws://127.0.0.1:9001';
 
   constructor() {}
 
   connect(onMessage: (data: TelemetryData) => void, onConnectionChange: (connected: boolean) => void) {
     this.onMessageCallback = onMessage;
     this.onConnectionChange = onConnectionChange;
+    this.connectionStart = Date.now();
     this._connect();
   }
 
@@ -29,13 +31,26 @@ export class TelemetryClient {
       this.socket.onopen = () => {
         console.log("Connected to The Chassis Telemetry");
         this.reconnecting = false;
+        this.connectionStart = Date.now();
         if (this.onConnectionChange) this.onConnectionChange(true);
       };
 
       this.socket.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (this.onMessageCallback) this.onMessageCallback(data);
+          const raw = JSON.parse(event.data);
+          const mappedData = {
+            positions: raw.positions ? raw.positions.map((p: any) => ({
+              mint: p.mint,
+              symbol: p.symbol,
+              amount: 'LIVE', 
+              pnl_pct: p.yield_pct
+            })) : [],
+            balance: typeof raw.wallet_balance === 'number' ? raw.wallet_balance : 0,
+            uptime: this.connectionStart ? Math.floor((Date.now() - this.connectionStart) / 1000) : 0,
+            pnl: typeof raw.net_pnl === 'number' ? raw.net_pnl : 0,
+            last_updates: []
+          };
+          if (this.onMessageCallback) this.onMessageCallback(mappedData as any);
         } catch (err) {
           console.error("Payload Parse Error", err);
         }

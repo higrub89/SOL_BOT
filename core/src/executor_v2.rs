@@ -1319,8 +1319,9 @@ impl TradeExecutor {
         
         let mut instructions = Vec::new();
 
-        // 3.1. Priority Fee Dinámico
+        // 3.1. Priority Fee Dinámico y Compute Limit
         let dynamic_fee = self.get_dynamic_priority_fee().await;
+        instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(500_000));
         instructions.push(ComputeBudgetInstruction::set_compute_unit_price(dynamic_fee));
 
         // 3.2. Crear ATA de Destino si no existe
@@ -1426,8 +1427,8 @@ impl TradeExecutor {
                 &[keypair],
                 recent_blockhash,
             );
-            final_signature = self.rpc_client.send_and_confirm_transaction(&fallback_tx)?.to_string();
-            println!("✅ Swap ejecutado [MEMPOOL PUBLICO]: {}", final_signature);
+            final_signature = self.rpc_client.send_transaction(&fallback_tx)?.to_string();
+            println!("✅ Swap enviado [MEMPOOL PUBLICO]: {}", final_signature);
         }
 
         // 5. Esperar confirmación y calcular balance
