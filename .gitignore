@@ -80,3 +80,7 @@ package-lock.json
 
 # DOCKER (build context)
 *.zip
+
+# Project specific database and cache
+trading_state.db*
+pools_cache.json
