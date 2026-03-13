@@ -9,6 +9,7 @@ use deadpool_sqlite::{Config, Pool, Runtime};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use rusqlite::Connection;
 
 // ============================================================================
 // DATA STRUCTURES
@@ -58,6 +59,22 @@ pub struct TradeRecord {
     /// Coste real en SOL: Priority Fee + Jito Tip pagados en esta transacción
     pub fee_sol: f64,
     pub timestamp: i64,
+}
+
+/// Registro de auditoría de ejecución (Determinismo Temporal)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionAudit {
+    pub id: Option<i64>,
+    pub signal_id: String,
+    pub token_mint: String,
+    pub command_type: String,
+    pub strategy_name: String,
+    pub rationale: String,
+    pub decision_timestamp: i64,
+    pub execution_timestamp: Option<i64>,
+    pub signature: Option<String>,
+    pub success: bool,
+    pub error_msg: Option<String>,
 }
 
 /// Estadísticas de fees acumulados
@@ -165,6 +182,24 @@ impl StateManager {
                     price_impact_pct REAL NOT NULL,
                     fee_sol REAL NOT NULL DEFAULT 0.0,
                     timestamp INTEGER NOT NULL
+                )",
+                [],
+            )?;
+
+            // Tabla de auditoría de ejecución (Determinismo)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS execution_audits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signal_id TEXT NOT NULL,
+                    token_mint TEXT NOT NULL,
+                    command_type TEXT NOT NULL,
+                    strategy_name TEXT NOT NULL,
+                    rationale TEXT NOT NULL,
+                    decision_timestamp INTEGER NOT NULL,
+                    execution_timestamp INTEGER,
+                    signature TEXT,
+                    success INTEGER NOT NULL,
+                    error_msg TEXT
                 )",
                 [],
             )?;
@@ -720,7 +755,7 @@ impl StateManager {
         let conn = self.pool.get().await?;
         let off_str = offset.to_string();
 
-        conn.interact(move |conn| -> Result<()> {
+        conn.interact(move |conn: &mut Connection| -> Result<()> {
             conn.execute(
                 "INSERT INTO metadata (key, value) VALUES ('telegram_offset', ?1)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -738,7 +773,7 @@ impl StateManager {
     pub async fn get_telegram_offset(&self) -> Result<i64> {
         let conn = self.pool.get().await?;
 
-        conn.interact(|conn| -> Result<i64> {
+        conn.interact(|conn: &mut Connection| -> Result<i64> {
             let mut stmt = conn.prepare("SELECT value FROM metadata WHERE key = 'telegram_offset'")?;
             let mut rows = stmt.query([])?;
 
@@ -753,11 +788,42 @@ impl StateManager {
         .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
     }
 
+    /// Registra una auditoría de ejecución (Determinismo Temporal)
+    pub async fn record_audit(&self, audit: ExecutionAudit) -> Result<()> {
+        let conn = self.pool.get().await?;
+
+        conn.interact(move |conn: &mut Connection| -> Result<()> {
+            conn.execute(
+                "INSERT INTO execution_audits (
+                    signal_id, token_mint, command_type, strategy_name, rationale,
+                    decision_timestamp, execution_timestamp, signature, success, error_msg
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    audit.signal_id,
+                    audit.token_mint,
+                    audit.command_type,
+                    audit.strategy_name,
+                    audit.rationale,
+                    audit.decision_timestamp,
+                    audit.execution_timestamp,
+                    audit.signature,
+                    audit.success as i32,
+                    audit.error_msg,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+
+        Ok(())
+    }
+
     /// Obtiene estadísticas del estado actual
     pub async fn get_stats(&self) -> Result<StateStats> {
         let conn = self.pool.get().await?;
 
-        conn.interact(|conn| -> Result<StateStats> {
+        conn.interact(|conn: &mut Connection| -> Result<StateStats> {
             let active_positions: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM positions WHERE active = 1",
                 [],

@@ -60,7 +60,7 @@ impl HeliusSensor {
         let helius_api_key = if rpc_url.contains("helius-rpc.com") {
             rpc_url.split("api-key=").nth(1).map(|k| k.to_string())
         } else {
-            std::env::var("HELIUS_API_KEY").ok()
+            Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY"))
         };
 
         let rpc_client = Arc::new(RpcClient::new_with_commitment(

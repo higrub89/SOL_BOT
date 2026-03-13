@@ -7,6 +7,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;
 use std::env;
+use std::process::Command;
 use std::str::FromStr;
 
 pub struct WalletMonitor {
@@ -42,12 +43,56 @@ impl WalletMonitor {
     }
 }
 
-/// Carga un Keypair desde variable de entorno.
-/// Acepta formato Base58 o JSON array de bytes.
-pub fn load_keypair_from_env(var_name: &str) -> Result<Keypair> {
-    let raw =
-        env::var(var_name).with_context(|| format!("{} no encontrado en el entorno", var_name))?;
+/// Obtiene una variable de entorno o, si no existe, intenta recuperarla de GCP Secret Manager.
+pub fn get_env_or_secret(name: &str) -> String {
+    // 1. Intentar desde variable de entorno
+    if let Ok(val) = env::var(name) {
+        return val;
+    }
+
+    // 2. Intentar desde GCP
+    println!("🔐 {} no encontrado en ENV. Intentando recuperar desde GCP Secret Manager...", name);
+    
+    // Mapeo especial para compatibilidad si es necesario
+    let secret_name = match name {
+        "WALLET_PRIVATE_KEY" => "CHASSIS_WALLET_KEY",
+        _ => name,
+    };
+
+    match fetch_secret_from_gcp(secret_name) {
+        Ok(secret) => secret,
+        Err(e) => {
+            eprintln!("❌ Error crítico: No se pudo obtener {} de ENV ni SM: {}", name, e);
+            panic!("Fallo en configuración de seguridad: {}", name);
+        }
+    }
+}
+
+/// Carga un Keypair buscando primero en el entorno y luego en GCP Secret Manager si es necesario.
+pub fn load_keypair_secure(var_name: &str) -> Result<Keypair> {
+    let raw = get_env_or_secret(var_name);
     parse_keypair(&raw)
+}
+
+pub fn fetch_secret_from_gcp(secret_name: &str) -> Result<String> {
+    let output = Command::new("gcloud")
+        .args([
+            "secrets",
+            "versions",
+            "access",
+            "latest",
+            &format!("--secret={}", secret_name),
+            "--project=project-828d4ae0-6385-40d2-aa6",
+        ])
+        .output()
+        .context("Fallo al ejecutar el comando gcloud")?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("gcloud error: {}", err));
+    }
+
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
 fn parse_keypair(raw: &str) -> Result<Keypair> {

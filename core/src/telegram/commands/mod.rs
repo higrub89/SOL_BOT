@@ -39,8 +39,8 @@ impl Default for CommandHandler {
 
 impl CommandHandler {
     pub fn new() -> Self {
-        let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
-        let chat_id = std::env::var("TELEGRAM_CHAT_ID").unwrap_or_default();
+        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN");
+        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID");
 
         let enabled = !bot_token.is_empty() && !chat_id.is_empty();
 
@@ -76,7 +76,7 @@ impl CommandHandler {
         }
 
         // Test de Conexión Inicial (GetMe) para verificar token
-        let token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
+        let token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN");
         if !token.is_empty() {
             println!("📝 Token detectado: {}...", &token[..5]);
             // Podríamos hacer un reqwest::get("getMe") aquí para validar,

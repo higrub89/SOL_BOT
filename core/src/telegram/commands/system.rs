@@ -12,7 +12,8 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
     let secs    = uptime.as_secs() % 60;
 
     // ── RPC Latency Check ─────────────────────────────
-    let (rpc_line, rpc_latency_ms) = if let Ok(api_key) = std::env::var("HELIUS_API_KEY") {
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let (rpc_line, rpc_latency_ms) = {
         let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
         let t0 = Instant::now();
         let client = RpcClient::new(rpc_url);
@@ -23,8 +24,6 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
             }
             Err(e) => (format!("FAULT  ·  {}", e), 9999),
         }
-    } else {
-        ("API KEY MISSING".to_string(), 9999)
     };
 
     // ── Latency Grade (S-CLASS through DEGRADED) ─────

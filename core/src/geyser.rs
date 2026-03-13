@@ -33,7 +33,7 @@ pub struct GeyserConfig {
 
 impl Default for GeyserConfig {
     fn default() -> Self {
-        let token = std::env::var("HELIUS_API_KEY").ok();
+        let token = Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY"));
         Self {
             endpoint: "https://mainnet.helius-rpc.com".to_string(),
             token,

@@ -42,7 +42,7 @@ use crate::state_manager::StateManager;
                     };
                     handler.send_message(&format!("<b>☢️ DEGENERATE RAYDIUM ENTRY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}</code>\n<i>Bypassing all guards...</i>", valid_mint, amount, slippage_text)).await?;
 
-                    let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+                    let kp_opt = crate::wallet::load_keypair_secure("WALLET_PRIVATE_KEY").ok();
                     // El executor calcula internamente el min_out nativo usando el 'slippage', con fallback a 1 (Degen Mode) si el oráculo falla.
                     match executor
                         .execute_raydium_buy(&valid_mint, kp_opt.as_ref(), amount, slippage)
@@ -188,7 +188,7 @@ use crate::state_manager::StateManager;
 
         handler.send_message(&format!("<b>🛒 INITIATING BUY</b>\n<b>Asset:</b> <code>{}</code>\n<b>Amount:</b> <code>{} SOL</code>\n<b>Slippage:</b> <code>{}%</code>", valid_mint, amount, slippage_bps as f64 / 100.0)).await?;
 
-        let kp_opt = crate::wallet::load_keypair_from_env("WALLET_PRIVATE_KEY").ok();
+        let kp_opt = crate::wallet::load_keypair_secure("WALLET_PRIVATE_KEY").ok();
 
         // Ejecutar con parámetros custom
         match executor

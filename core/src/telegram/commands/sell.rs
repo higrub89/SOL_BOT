@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use crate::executor_v2::TradeExecutor;
 use crate::state_manager::StateManager;
-use crate::wallet::load_keypair_from_env;
+use crate::wallet::load_keypair_secure;
 
 /// Comando /panic - Vende TODO inmediatamente
     pub async fn cmd_panic(
@@ -25,7 +25,7 @@ use crate::wallet::load_keypair_from_env;
         ))
         .await?;
 
-        let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
+        let kp_opt = match load_keypair_secure("WALLET_PRIVATE_KEY") {
             Ok(kp) => Some(kp),
             Err(e) => {
                 handler.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e))
@@ -101,7 +101,7 @@ use crate::wallet::load_keypair_from_env;
         ))
         .await?;
 
-        let kp_opt = match load_keypair_from_env("WALLET_PRIVATE_KEY") {
+        let kp_opt = match load_keypair_secure("WALLET_PRIVATE_KEY") {
             Ok(kp) => Some(kp),
             Err(e) => {
                 handler.send_message(&format!("⚠️ <b>Key Vault Error:</b> {}", e))

@@ -119,9 +119,7 @@ impl PriceFeedConfig {
         let geyser_endpoint = std::env::var("GEYSER_ENDPOINT")
             .ok()
             .filter(|s| !s.trim().is_empty());
-        let geyser_token = std::env::var("HELIUS_API_KEY")
-            .ok()
-            .filter(|s| !s.trim().is_empty());
+        let geyser_token = Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY"));
 
         let geyser_enabled = geyser_endpoint.is_some();
 

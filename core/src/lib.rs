@@ -55,7 +55,7 @@ use state_manager::StateManager;
 use telegram::TelegramNotifier;
 use telegram::commands::CommandHandler;
 
-use wallet::{load_keypair_from_env, WalletMonitor};
+use wallet::{load_keypair_secure, WalletMonitor};
 
 /// Argumentos de línea de comandos para The Chassis
 #[derive(Parser)]
@@ -135,7 +135,7 @@ pub async fn run() -> Result<()> {
 
 async fn handle_buy_mode(mint: String, sol: f64, slippage: u16) -> Result<()> {
     println!("🚀 INICIANDO MODO COMPRA DIRECTA...");
-    let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY missing");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
 
     let config = ExecutorConfig {
@@ -145,7 +145,7 @@ async fn handle_buy_mode(mint: String, sol: f64, slippage: u16) -> Result<()> {
         dry_run: false,
     };
     let executor = TradeExecutor::new(config);
-    let keypair = load_keypair_from_env("WALLET_PRIVATE_KEY")?;
+    let keypair = load_keypair_secure("WALLET_PRIVATE_KEY")?;
     executor.execute_buy(&mint, Some(&keypair), sol).await?;
     Ok(())
 }
@@ -162,9 +162,9 @@ async fn handle_auto_buy_mode(
     println!("║      🤖 AUTO-BUY INTELIGENTE - Raydium Directo           ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
-    let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY missing");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
-    let keypair = load_keypair_from_env("WALLET_PRIVATE_KEY")?;
+    let keypair = load_keypair_secure("WALLET_PRIVATE_KEY")?;
     let buyer = AutoBuyer::new(rpc_url)?;
 
     let config = AutoBuyConfig {
@@ -197,9 +197,32 @@ async fn handle_scan_mode() -> Result<()> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║         📡 NETWORK SCANNER - Pump.fun Telemetry          ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
+    
     use websocket::{SolanaWebSocket, WebSocketConfig};
+    use auto_buyer::AutoBuyer;
+    use wallet::load_keypair_secure;
+    use std::sync::Arc;
+
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
+    
+    // 1. Cargar dependencias para el HunterLoop
+    let buyer = Arc::new(AutoBuyer::new(rpc_url.clone())?);
+    let wallet = Arc::new(load_keypair_secure("WALLET_PRIVATE_KEY")?);
+    
+    // 2. Configuración (Por defecto DEVNET para seguridad inicial)
+    let hunter_mode = crate::wallet::get_env_or_secret("HUNTER_MODE");
+    let devnet_mode = hunter_mode == "devnet";
+    
+    if devnet_mode {
+        println!("🧪 MODO HUNTER: DEVNET (Simulación activa)");
+    } else {
+        println!("🔥 MODO HUNTER: MAINNET (⚠️ EJECUCIÓN REAL)");
+    }
+
     let config = WebSocketConfig::from_env();
-    let scanner = SolanaWebSocket::new(config);
+    let scanner = SolanaWebSocket::new(config, buyer, wallet, devnet_mode);
+    
     scanner.listen_to_pump_events().await?;
     Ok(())
 }
@@ -224,9 +247,9 @@ async fn run_monitor_mode() -> Result<()> {
         app_config.global_settings.auto_execute
     );
 
-    let api_key = std::env::var("HELIUS_API_KEY").expect("HELIUS_API_KEY must be set");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
-    let wallet_addr = std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS must be set");
+    let wallet_addr = crate::wallet::get_env_or_secret("WALLET_ADDRESS");
 
     // 1. Wallet Monitor
     let wallet_monitor = Arc::new(WalletMonitor::new(rpc_url.clone(), &wallet_addr)?);
@@ -335,7 +358,7 @@ async fn run_monitor_mode() -> Result<()> {
     let mut wallet_keypair: Option<Keypair> = None;
 
     if app_config.global_settings.auto_execute {
-        if let Ok(kp) = load_keypair_from_env("WALLET_PRIVATE_KEY") {
+        if let Ok(kp) = load_keypair_secure("WALLET_PRIVATE_KEY") {
             wallet_keypair = Some(kp);
         }
     }

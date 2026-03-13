@@ -43,13 +43,9 @@ fn main() -> Result<()> {
     let token_mint = &args[1];
 
     // Obtener RPC URL
-    let api_key = std::env::var("HELIUS_API_KEY").unwrap_or_else(|_| "".to_string());
+    let api_key = the_chassis::wallet::get_env_or_secret("HELIUS_API_KEY");
 
-    let rpc_url = if api_key.is_empty() {
-        "https://api.mainnet-beta.solana.com".to_string()
-    } else {
-        format!("https://mainnet.helius-rpc.com/?api-key={}", api_key)
-    };
+    let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
 
     println!("╔════════════════════════════════════════════════╗");
     println!("║  🔍 Find Vaults — Pool Discovery Tool         ║");
