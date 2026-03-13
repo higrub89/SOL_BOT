@@ -50,7 +50,7 @@ impl RiskManager {
         }
 
         // 2. Verificar número máximo de posiciones abiertas
-        let open_positions = current_positions.len() as u32;
+        let open_positions = u32::try_from(current_positions.len()).unwrap_or(u32::MAX);
         if open_positions >= self.config.max_open_positions {
             return RiskDecision::Rejected(format!(
                 "Límite de posiciones alcanzado: {}/{}",

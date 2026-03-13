@@ -85,9 +85,8 @@ impl PolymarketClient {
 
         if !response.status().is_success() {
             anyhow::bail!(
-                "API respondió con error: {} - {}",
+                "API respondió con error: {}",
                 response.status(),
-                response.text().await.unwrap_or_default()
             );
         }
 
@@ -127,6 +126,10 @@ impl PolymarketClient {
             price,
         };
 
+        if self.config.api_key.is_empty() {
+            anyhow::bail!("API key no configurada — establecer POLYMARKET_API_KEY");
+        }
+
         let url = format!("{}/order", self.config.rest_url);
 
         let response = self.http
@@ -139,9 +142,8 @@ impl PolymarketClient {
 
         if !response.status().is_success() {
             anyhow::bail!(
-                "Error colocando orden: {} - {}",
+                "Error colocando orden: {}",
                 response.status(),
-                response.text().await.unwrap_or_default()
             );
         }
 
@@ -168,7 +170,15 @@ impl PolymarketClient {
 
     /// Cancela una orden existente
     pub async fn cancel_order(&self, order_id: &str) -> Result<bool> {
-        let url = format!("{}/order/{}", self.config.rest_url, order_id);
+        if self.config.api_key.is_empty() {
+            anyhow::bail!("API key no configurada — establecer POLYMARKET_API_KEY");
+        }
+
+        // URL-encode el order_id para prevenir path traversal
+        let encoded_id: String = order_id.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        let url = format!("{}/order/{}", self.config.rest_url, encoded_id);
 
         let response = self.http
             .delete(&url)

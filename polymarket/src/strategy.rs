@@ -100,6 +100,8 @@ pub struct EdgeDetectorStrategy {
 
 impl EdgeDetectorStrategy {
     pub fn new(min_edge: f64, base_size_usdc: f64) -> Self {
+        assert!(min_edge > 0.0, "min_edge must be > 0.0");
+        assert!(base_size_usdc > 0.0, "base_size_usdc must be > 0.0");
         Self {
             min_edge,
             base_size_usdc,
@@ -170,8 +172,11 @@ impl PredictionStrategy for EdgeDetectorStrategy {
 
         let recent = &snapshot.yes_price_history;
         let len = recent.len();
-        let avg_recent: f64 = recent[len.saturating_sub(5)..].iter().sum::<f64>()
-            / recent[len.saturating_sub(5)..].len() as f64;
+        let slice = &recent[len.saturating_sub(5)..];
+        if slice.is_empty() {
+            return None;
+        }
+        let avg_recent: f64 = slice.iter().sum::<f64>() / slice.len() as f64;
 
         Some(avg_recent)
     }
