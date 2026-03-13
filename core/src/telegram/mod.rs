@@ -17,16 +17,16 @@ pub struct TelegramNotifier {
 
 impl Default for TelegramNotifier {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to initialize TelegramNotifier default")
     }
 }
 
 impl TelegramNotifier {
     /// Crea un nuevo notificador de Telegram
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         // Usamos el fetcher seguro que cae a Secret Manager
-        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN");
-        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID");
+        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN").ok().unwrap_or_default();
+        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID").ok().unwrap_or_default();
 
         let enabled = !bot_token.is_empty() && !chat_id.is_empty();
 
@@ -37,11 +37,11 @@ impl TelegramNotifier {
             println!("📱 Telegram Notifier: DESACTIVADO (configura TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID)");
         }
 
-        Self {
+        Ok(Self {
             bot_token,
             chat_id,
             enabled,
-        }
+        })
     }
 
     /// Envía una alerta de Stop-Loss activado

@@ -107,7 +107,7 @@ impl TradeExecutor {
         const DEFAULT: u64 = 100_000; // 100k micro-lamports
         const MAX_FEE: u64 = 2_000_000; // 2M micro-lamports cap
 
-        let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+        let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY").ok().unwrap_or_default();
 
         let url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
         let body = serde_json::json!({

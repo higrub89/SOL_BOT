@@ -92,11 +92,11 @@ impl AutoBuyer {
             dry_run: false,
         };
 
-        let helius_api_key = Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY"));
+        let helius_api_key = Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY")?);
         let helius_sensor = if let Some(key) = helius_api_key {
             HeliusSensor::new_with_key(key)
         } else {
-            HeliusSensor::new(rpc_url.clone())
+            HeliusSensor::new(rpc_url.clone())?
         };
 
         Ok(Self {
