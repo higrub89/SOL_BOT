@@ -296,7 +296,7 @@ mod tests {
         let executor_config = ExecutorConfig::new("http://127.0.0.1:0".to_string(), true);
         let executor = Arc::new(TradeExecutor::new(executor_config)); 
         let state_manager = Arc::new(StateManager::new("sqlite::memory:").await.unwrap());
-        let telegram = Arc::new(TelegramNotifier::new()); // Mock al estar vacío env
+        let telegram = Arc::new(TelegramNotifier::new().expect("Failed to initialize mock/test telegram")); 
         
         let router = ExecutionRouter::new(
             executor,

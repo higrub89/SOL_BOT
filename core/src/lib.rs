@@ -135,7 +135,7 @@ pub async fn run() -> Result<()> {
 
 async fn handle_buy_mode(mint: String, sol: f64, slippage: u16) -> Result<()> {
     println!("🚀 INICIANDO MODO COMPRA DIRECTA...");
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
 
     let config = ExecutorConfig {
@@ -162,7 +162,7 @@ async fn handle_auto_buy_mode(
     println!("║      🤖 AUTO-BUY INTELIGENTE - Raydium Directo           ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     let keypair = load_keypair_secure("WALLET_PRIVATE_KEY")?;
     let buyer = AutoBuyer::new(rpc_url)?;
@@ -203,7 +203,7 @@ async fn handle_scan_mode() -> Result<()> {
     use wallet::load_keypair_secure;
     use std::sync::Arc;
 
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     
     // 1. Cargar dependencias para el HunterLoop
@@ -211,7 +211,7 @@ async fn handle_scan_mode() -> Result<()> {
     let wallet = Arc::new(load_keypair_secure("WALLET_PRIVATE_KEY")?);
     
     // 2. Configuración (Por defecto DEVNET para seguridad inicial)
-    let hunter_mode = crate::wallet::get_env_or_secret("HUNTER_MODE");
+    let hunter_mode = crate::wallet::get_env_or_secret("HUNTER_MODE").unwrap_or_else(|_| "devnet".to_string());
     let devnet_mode = hunter_mode == "devnet";
     
     if devnet_mode {
@@ -220,7 +220,7 @@ async fn handle_scan_mode() -> Result<()> {
         println!("🔥 MODO HUNTER: MAINNET (⚠️ EJECUCIÓN REAL)");
     }
 
-    let config = WebSocketConfig::from_env();
+    let config = WebSocketConfig::from_env()?;
     let scanner = SolanaWebSocket::new(config, buyer, wallet, devnet_mode);
     
     scanner.listen_to_pump_events().await?;
@@ -247,9 +247,9 @@ async fn run_monitor_mode() -> Result<()> {
         app_config.global_settings.auto_execute
     );
 
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
-    let wallet_addr = crate::wallet::get_env_or_secret("WALLET_ADDRESS");
+    let wallet_addr = crate::wallet::get_env_or_secret("WALLET_ADDRESS")?;
 
     // 1. Wallet Monitor
     let wallet_monitor = Arc::new(WalletMonitor::new(rpc_url.clone(), &wallet_addr)?);
@@ -414,8 +414,8 @@ async fn run_monitor_mode() -> Result<()> {
     });
 
     // 7. Telegram y Comandos
-    let telegram = Arc::new(TelegramNotifier::new());
-    let command_handler = Arc::new(CommandHandler::new());
+    let telegram = Arc::new(TelegramNotifier::new().expect("TelegramNotifier initialization failed"));
+    let command_handler = Arc::new(CommandHandler::new()?);
 
     let cmd_handler_clone = Arc::clone(&command_handler);
     let cmd_wallet_monitor = Arc::clone(&wallet_monitor);

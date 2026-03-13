@@ -44,7 +44,7 @@ pub async fn ws_price_loop(
     let max_reconnect_delay = Duration::from_secs(60);
     let mut reconnection_count: u32 = 0;
     let staleness_timeout = Duration::from_secs(60); // WS es más lento que gRPC
-    let notifier = TelegramNotifier::new();
+    let notifier = TelegramNotifier::new().expect("TelegramNotifier initialization failed");
 
     // ── Construir vault tracking ──
     let vault_pairs: Vec<VaultPair> = tokens

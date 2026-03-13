@@ -31,7 +31,7 @@ impl JupiterClient {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             base_url: "https://api.jup.ag/swap/v1".to_string(),
-            api_key: Some(crate::wallet::get_env_or_secret("JUPITER_API_KEY")),
+            api_key: crate::wallet::get_env_or_secret("JUPITER_API_KEY").ok(),
         }
     }
 

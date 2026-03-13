@@ -119,7 +119,7 @@ impl PriceFeedConfig {
         let geyser_endpoint = std::env::var("GEYSER_ENDPOINT")
             .ok()
             .filter(|s| !s.trim().is_empty());
-        let geyser_token = Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY"));
+        let geyser_token = crate::wallet::get_env_or_secret("HELIUS_API_KEY").ok();
 
         let geyser_enabled = geyser_endpoint.is_some();
 
@@ -363,7 +363,7 @@ impl PriceFeed {
         let max_reconnect_delay = Duration::from_secs(60);
         let mut reconnection_count: u32 = 0;
         let staleness_timeout = Duration::from_secs(45);
-        let notifier = TelegramNotifier::new();
+        let notifier = TelegramNotifier::new().expect("TelegramNotifier initialization failed");
 
         loop {
             let tokens = {

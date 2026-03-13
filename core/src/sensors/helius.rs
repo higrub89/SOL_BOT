@@ -54,13 +54,13 @@ pub struct HeliusSensor {
 
 impl HeliusSensor {
     /// Crea un nuevo sensor conectado al RPC especificado
-    pub fn new(rpc_url: String) -> Self {
+    pub fn new(rpc_url: String) -> Result<Self> {
         // Extraer API key de la URL de Helius si está presente
         // URL format: https://mainnet.helius-rpc.com/?api-key=XXXX
         let helius_api_key = if rpc_url.contains("helius-rpc.com") {
             rpc_url.split("api-key=").nth(1).map(|k| k.to_string())
         } else {
-            Some(crate::wallet::get_env_or_secret("HELIUS_API_KEY"))
+            crate::wallet::get_env_or_secret("HELIUS_API_KEY").ok()
         };
 
         let rpc_client = Arc::new(RpcClient::new_with_commitment(
@@ -68,10 +68,10 @@ impl HeliusSensor {
             CommitmentConfig::confirmed(),
         ));
 
-        Self {
+        Ok(Self {
             rpc_client,
             helius_api_key,
-        }
+        })
     }
 
     /// Crea sensor desde API key directamente

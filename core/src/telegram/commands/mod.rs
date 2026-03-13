@@ -33,23 +33,23 @@ pub struct CommandHandler {
 
 impl Default for CommandHandler {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to initialize CommandHandler default")
     }
 }
 
 impl CommandHandler {
-    pub fn new() -> Self {
-        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN");
-        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID");
+    pub fn new() -> Result<Self> {
+        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN").ok().unwrap_or_default();
+        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID").ok().unwrap_or_default();
 
         let enabled = !bot_token.is_empty() && !chat_id.is_empty();
 
-        Self {
+        Ok(Self {
             bot_token,
             chat_id,
             enabled,
             start_time: Instant::now(),
-        }
+        })
     }
 
     /// Verifica si el bot está en modo hibernación
@@ -76,11 +76,12 @@ impl CommandHandler {
         }
 
         // Test de Conexión Inicial (GetMe) para verificar token
-        let token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN");
-        if !token.is_empty() {
-            println!("📝 Token detectado: {}...", &token[..5]);
-            // Podríamos hacer un reqwest::get("getMe") aquí para validar,
-            // pero el loop de abajo fallará rápido si no hay conexión.
+        if let Ok(token) = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN") {
+            if !token.is_empty() {
+                println!("📝 Token detectado: {}...", &token[..5]);
+                // Podríamos hacer un reqwest::get("getMe") aquí para validar,
+                // pero el loop de abajo fallará rápido si no hay conexión.
+            }
         }
 
         let mut next_offset: i64 = state_manager.get_telegram_offset().await.unwrap_or(0);

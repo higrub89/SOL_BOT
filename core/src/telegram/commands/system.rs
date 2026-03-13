@@ -12,7 +12,7 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
     let secs    = uptime.as_secs() % 60;
 
     // ── RPC Latency Check ─────────────────────────────
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY").ok().unwrap_or_default();
     let (rpc_line, rpc_latency_ms) = {
         let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
         let t0 = Instant::now();

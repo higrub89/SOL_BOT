@@ -31,10 +31,10 @@ pub struct WebSocketConfig {
 }
 
 impl WebSocketConfig {
-    pub fn from_env() -> Self {
-        let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY");
+    pub fn from_env() -> Result<Self> {
+        let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
         let ws_url = std::env::var("SOLANA_WS_URL").unwrap_or_else(|_| format!("wss://mainnet.helius-rpc.com/?api-key={}", api_key));
-        Self { rpc_url: ws_url }
+        Ok(Self { rpc_url: ws_url })
     }
 }
 
@@ -183,22 +183,35 @@ impl SolanaWebSocket {
 
     /// Extrae la dirección del mint de los logs de la instrucción
     fn extract_mint_from_logs(&self, logs: &[String]) -> Option<String> {
-        // Buscar patrones base58 plausibles y validar con Pubkey::from_str para evitar falsos positivos.
-        // Regex: caracteres base58 sin 0,O,I,l; longitud típica entre 32 y 44.
         let re = match Regex::new(r"[1-9A-HJ-NP-Za-km-z]{32,44}") {
             Ok(r) => r,
             Err(_) => return None,
         };
 
+        let mut candidates = Vec::new();
         for log in logs {
             for mat in re.find_iter(log) {
                 let candidate = mat.as_str();
                 if Pubkey::from_str(candidate).is_ok() {
-                    return Some(candidate.to_string());
+                    // Excluir IDs de programas comunes para evitar falsos positivos
+                    if candidate == "11111111111111111111111111111111" || 
+                       candidate == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" ||
+                       candidate == "ATokenGPvbdPwn1i2CcDEvccS8S87pL97LSCGP6ADX" ||
+                       candidate == "ComputeBudget111111111111111111111111111111" {
+                        continue;
+                    }
+                    candidates.push(candidate.to_string());
                 }
             }
         }
-        None
+
+        // Prioridad 1: Cualquier dirección que termine en 'pump' (típico de pump.fun)
+        if let Some(pump_mint) = candidates.iter().find(|c| c.ends_with("pump")) {
+            return Some(pump_mint.clone());
+        }
+
+        // Prioridad 2: El primer Pubkey válido que no sea un programa conocido
+        candidates.first().cloned()
     }
 
     /// Orquestador del HunterLoop para un token candidato
@@ -308,4 +321,60 @@ struct LogContext {
 struct LogValue {
     signature: String,
     logs: Vec<String>,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_extract_mint_from_logs_valid_pump() {
+        let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
+        let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
+        let wallet = Arc::new(Keypair::new());
+        let ws = SolanaWebSocket::new(ws_config, auto_buyer, wallet, false);
+
+        let logs = vec![
+            "Program 11111111111111111111111111111111 invoke [1]".to_string(),
+            "Program log: Mint DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m detected".to_string(),
+            "Program log: Token tokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".to_string(),
+        ];
+        let mint = ws.extract_mint_from_logs(&logs);
+        assert!(mint.is_some());
+        assert_eq!(mint.unwrap(), "DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m");
+    }
+
+    #[tokio::test]
+    async fn test_extract_mint_from_logs_invalid() {
+        let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
+        let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
+        let wallet = Arc::new(Keypair::new());
+        let ws = SolanaWebSocket::new(ws_config, auto_buyer, wallet, false);
+
+        let logs = vec![
+            "Program log: This is just some text".to_string(),
+            "Program log: Numbers like 1234567890".to_string(),
+            "Program log: Base58-ish but too short: ABC123".to_string(),
+            "Program log: Base58-ish but invalid chars: 0OIl".to_string(),
+        ];
+
+        let mint = ws.extract_mint_from_logs(&logs);
+        assert!(mint.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_extract_mint_from_logs_multiple_candidates() {
+        let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
+        let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
+        let wallet = Arc::new(Keypair::new());
+        let ws = SolanaWebSocket::new(ws_config, auto_buyer, wallet, false);
+
+        let logs = vec![
+            "Program log: Instruction: Create".to_string(),
+            "Program log: System: 11111111111111111111111111111111".to_string(), // Excluded
+            "Program log: Real Mint: DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m".to_string(),
+        ];
+        let mint = ws.extract_mint_from_logs(&logs);
+        assert!(mint.is_some());
+        assert_eq!(mint.unwrap(), "DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m");
+    }
 }
