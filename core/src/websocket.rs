@@ -326,8 +326,16 @@ struct LogValue {
 mod tests {
     use super::*;
 
+    fn ensure_dummy_api_key() {
+        // Avoid Secret Manager lookups during tests
+        if std::env::var_os("HELIUS_API_KEY").is_none() {
+            std::env::set_var("HELIUS_API_KEY", "test-key");
+        }
+    }
+
     #[tokio::test]
     async fn test_extract_mint_from_logs_valid_pump() {
+        ensure_dummy_api_key();
         let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
         let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
         let wallet = Arc::new(Keypair::new());
@@ -345,6 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_mint_from_logs_invalid() {
+        ensure_dummy_api_key();
         let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
         let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
         let wallet = Arc::new(Keypair::new());
@@ -363,6 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_mint_from_logs_multiple_candidates() {
+        ensure_dummy_api_key();
         let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
         let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
         let wallet = Arc::new(Keypair::new());
