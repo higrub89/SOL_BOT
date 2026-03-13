@@ -6,6 +6,7 @@ on:
     paths:
       - 'core/**'
       - 'intelligence/**'
+      - 'polymarket/**'
       - 'settings.json'
       - 'docker-compose.yml'
       - 'Dockerfile'
@@ -44,6 +45,7 @@ jobs:
             code:
               - 'core/**'
               - 'intelligence/**'
+              - 'polymarket/**'
               - 'Cargo.toml'
               - 'Dockerfile'
               - '.github/workflows/**'

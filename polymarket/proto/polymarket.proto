@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package polymarket;
+
+// ============================================================================
+// POLYMARKET BOT — gRPC Service Definition
+// Bot automático de compra/venta de posiciones en mercados de predicción.
+// Arquitectura inspirada en The Chassis (SOL_BOT), adaptada para Polymarket.
+// ============================================================================
+
+// --- Servicio Principal ---
+
+service PolymarketBot {
+  // Consulta de mercados disponibles
+  rpc GetMarkets (GetMarketsRequest) returns (GetMarketsResponse);
+
+  // Colocar una orden (compra/venta de shares YES/NO)
+  rpc PlaceOrder (PlaceOrderRequest) returns (PlaceOrderResponse);
+
+  // Cancelar una orden activa
+  rpc CancelOrder (CancelOrderRequest) returns (CancelOrderResponse);
+
+  // Consultar posiciones abiertas
+  rpc GetPositions (GetPositionsRequest) returns (GetPositionsResponse);
+
+  // Stream en tiempo real de actualizaciones de mercado
+  rpc StreamMarketUpdates (MarketStreamRequest) returns (stream MarketUpdate);
+}
+
+// --- Enums ---
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+}
+
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  YES = 1;
+  NO = 2;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  PENDING = 1;
+  FILLED = 2;
+  PARTIALLY_FILLED = 3;
+  CANCELLED = 4;
+  REJECTED = 5;
+}
+
+enum MarketStatus {
+  MARKET_STATUS_UNSPECIFIED = 0;
+  ACTIVE = 1;
+  CLOSED = 2;
+  RESOLVED = 3;
+}
+
+// --- Mensajes de Mercados ---
+
+message GetMarketsRequest {
+  // Filtro opcional por estado del mercado
+  MarketStatus status_filter = 1;
+  // Límite de resultados (default: 50)
+  int32 limit = 2;
+  // Cursor de paginación
+  string cursor = 3;
+}
+
+message GetMarketsResponse {
+  repeated Market markets = 1;
+  string next_cursor = 2;
+}
+
+message Market {
+  // ID único del mercado en Polymarket
+  string market_id = 1;
+  // Pregunta / título del mercado (ej: "¿Ganará X las elecciones?")
+  string question = 2;
+  // Descripción detallada del evento
+  string description = 3;
+  // Probabilidad implícita del YES (0.0 - 1.0)
+  double yes_price = 4;
+  // Probabilidad implícita del NO (0.0 - 1.0)
+  double no_price = 5;
+  // Volumen total negociado (en USDC)
+  double volume = 6;
+  // Liquidez disponible (en USDC)
+  double liquidity = 7;
+  // Fecha de cierre del mercado (Unix timestamp ms)
+  int64 end_date_ms = 8;
+  // Estado actual del mercado
+  MarketStatus status = 9;
+  // Categoría del evento (ej: "Politics", "Sports", "Crypto")
+  string category = 10;
+  // Resultado final si está resuelto
+  Outcome resolved_outcome = 11;
+}
+
+// --- Mensajes de Órdenes ---
+
+message PlaceOrderRequest {
+  // ID del mercado donde operar
+  string market_id = 1;
+  // Outcome a comprar/vender (YES o NO)
+  Outcome outcome = 2;
+  // Dirección: compra o venta
+  Side side = 3;
+  // Cantidad de shares
+  double amount = 4;
+  // Precio límite (probabilidad, 0.0 - 1.0)
+  double limit_price = 5;
+}
+
+message PlaceOrderResponse {
+  bool success = 1;
+  string order_id = 2;
+  string error_message = 3;
+}
+
+message CancelOrderRequest {
+  string order_id = 1;
+}
+
+message CancelOrderResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// --- Mensajes de Posiciones ---
+
+message GetPositionsRequest {
+  // Filtro opcional por market_id
+  string market_id = 1;
+}
+
+message GetPositionsResponse {
+  repeated Position positions = 1;
+  double total_pnl = 2;
+}
+
+message Position {
+  // ID del mercado
+  string market_id = 1;
+  // Pregunta del mercado
+  string question = 2;
+  // Outcome que se tiene (YES o NO)
+  Outcome outcome = 3;
+  // Cantidad de shares
+  double shares = 4;
+  // Precio medio de entrada (probabilidad)
+  double avg_entry_price = 5;
+  // Precio actual del outcome
+  double current_price = 6;
+  // PnL no realizado en porcentaje
+  double pnl_percent = 7;
+  // PnL no realizado en USDC
+  double pnl_usdc = 8;
+  // Estado del mercado
+  MarketStatus market_status = 9;
+}
+
+// --- Mensajes de Streaming ---
+
+message MarketStreamRequest {
+  // IDs de mercados a seguir (vacío = todos)
+  repeated string market_ids = 1;
+}
+
+message MarketUpdate {
+  // ID del mercado actualizado
+  string market_id = 1;
+  // Nuevo precio YES
+  double yes_price = 2;
+  // Nuevo precio NO
+  double no_price = 3;
+  // Volumen del último trade
+  double last_trade_volume = 4;
+  // Timestamp de la actualización (Unix ms)
+  int64 timestamp_ms = 5;
+  // Estado del mercado
+  MarketStatus status = 6;
+}

@@ -1,0 +1,46 @@
+[package]
+name = "polymarket_bot"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ruben"]
+description = "High-performance Polymarket prediction market trading engine"
+default-run = "polymarket_app"
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+tokio-stream = "0.1"
+
+# gRPC & Protobuf (Comunicación entre servicios)
+tonic = { version = "0.8", features = ["tls", "tls-roots"] }
+prost = "0.11"
+
+# Observability - Telemetría
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Networking (REST + WebSocket para Polymarket API)
+reqwest = { version = "0.11", features = ["json"] }
+tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+anyhow = "1.0"
+chrono = "0.4"
+dotenv = "0.15"
+clap = { version = "4.0", features = ["derive"] }
+
+# Intelligence (reutilización del motor de estrategias)
+intelligence_rs = { path = "../intelligence" }
+
+[[bin]]
+name = "polymarket_app"
+path = "src/bin/main.rs"
+
+[build-dependencies]
+tonic-build = "0.8"

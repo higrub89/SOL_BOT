@@ -24,6 +24,15 @@ bot_trading/
 │   │   └── telegram_commands.rs # Control remoto + /buy command
 │   └── proto/           # Contratos gRPC para Fase 3
 │
+├── polymarket/          # 🎯 MOTOR DE PREDICCIÓN (Polymarket Bot)
+│   ├── src/             
+│   │   ├── main.rs      # CLI (markets/positions/serve/config)
+│   │   ├── client.rs    # Cliente HTTP/WebSocket para Polymarket API
+│   │   ├── strategy.rs  # Estrategias de predicción (EdgeDetector)
+│   │   └── risk.rs      # Gestión de riesgo (oráculo, deadlines)
+│   ├── proto/           # Contratos gRPC (PolymarketBot service)
+│   └── scripts/         # Cliente Python para estrategias rápidas
+│
 ├── intelligence/        # 🧠 MÓDULO DE INTELIGENCIA (Auto-Audit)
 │   └── scripts/         
 │       ├── auto_audit.py  # Auditoría 2s (RugCheck + DexScreener API)
@@ -124,6 +133,14 @@ Protección automática de posiciones.
 - [ ] **gRPC / Geyser:** Migración de WebSockets a gRPC (Latencia de grado militar <20ms).
 - [ ] **Dashboard Telemetría:** Interfaz visual estilo cockpit de F1.
 - [ ] **ML Pattern Detection:** Detección de patrones de "Smart Money" usando históricos.
+
+### 🎯 Polymarket Bot (En Paralelo)
+- [x] **Arquitectura gRPC:** Servicio `PolymarketBot` con proto + tipos de dominio.
+- [x] **Estrategias de Predicción:** Trait `PredictionStrategy` + EdgeDetector.
+- [x] **Gestión de Riesgo:** RiskManager para mercados de predicción.
+- [ ] **Servidor gRPC completo:** tonic::Server para ejecución de órdenes.
+- [ ] **WebSocket streaming:** Precios en tiempo real desde Polymarket.
+- [ ] **Ver:** [`docs/POLYMARKET_ARCHITECTURE.md`](docs/POLYMARKET_ARCHITECTURE.md)
 
 ---
 
