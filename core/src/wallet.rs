@@ -98,14 +98,18 @@ pub fn fetch_secret_from_gcp(secret_name: &str) -> Result<String> {
 fn parse_keypair(raw: &str) -> Result<Keypair> {
     let trimmed = raw.trim();
 
+    if trimmed.is_empty() {
+        return Err(anyhow!("Keypair string is empty"));
+    }
+
     if trimmed.starts_with('[') {
         let bytes: Vec<u8> = serde_json::from_str(trimmed)
-            .context("WALLET_PRIVATE_KEY debe ser JSON array de bytes")?;
-        Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Keypair JSON inválido: {}", e))
+            .map_err(|e| anyhow!("Failed to parse JSON keypair: {} (Starts with: {})", e, &trimmed[..5.min(trimmed.len())]))?;
+        Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Invalid JSON keypair: {}", e))
     } else {
         let bytes = bs58::decode(trimmed)
             .into_vec()
-            .context("WALLET_PRIVATE_KEY no es Base58 válido")?;
-        Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Keypair Base58 inválido: {}", e))
+            .map_err(|e| anyhow!("Failed to decode Base58 keypair: {} (Starts with: {})", e, &trimmed[..5.min(trimmed.len())]))?;
+        Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Invalid Base58 keypair: {}", e))
     }
 }
