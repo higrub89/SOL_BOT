@@ -1,8 +1,9 @@
+#![allow(clippy::too_many_arguments)]
 //! # The Chassis - Solana Trading Engine
 //!
 //! v2.0.0-HFT - Asynchronous Execution & Dynamic Configuration
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use clap::{Parser, Subcommand};
 use solana_sdk::program_pack::Pack;
@@ -207,8 +208,8 @@ async fn handle_scan_mode() -> Result<()> {
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     
     // 1. Cargar dependencias para el HunterLoop
-    let buyer = Arc::new(AutoBuyer::new(rpc_url.clone())?);
-    let wallet = Arc::new(load_keypair_secure("WALLET_PRIVATE_KEY")?);
+    let buyer = Arc::new(AutoBuyer::new(rpc_url.clone()).context("No se pudo inicializar AutoBuyer")?);
+    let wallet = Arc::new(load_keypair_secure("WALLET_PRIVATE_KEY").context("Fallo crítico cargando WALLET_PRIVATE_KEY para el HunterLoop")?);
     
     // 2. Configuración (Por defecto DEVNET para seguridad inicial)
     let hunter_mode = crate::wallet::get_env_or_secret("HUNTER_MODE").unwrap_or_else(|_| "devnet".to_string());
@@ -247,13 +248,15 @@ async fn run_monitor_mode() -> Result<()> {
         app_config.global_settings.auto_execute
     );
 
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")
+        .context("Fallo al obtener HELIUS_API_KEY. El bot requiere esta llave para la telemetría.")?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
-    let wallet_addr = crate::wallet::get_env_or_secret("WALLET_ADDRESS")?;
+    let wallet_addr = crate::wallet::get_env_or_secret("WALLET_ADDRESS")
+        .context("Fallo al obtener WALLET_ADDRESS. Requerido para monitorear balances.")?;
 
     // 1. Wallet Monitor
-    let wallet_monitor = Arc::new(WalletMonitor::new(rpc_url.clone(), &wallet_addr)?);
-    let sol_balance = wallet_monitor.get_sol_balance()?;
+    let wallet_monitor = Arc::new(WalletMonitor::new(rpc_url.clone(), &wallet_addr).context("No se pudo inicializar WalletMonitor")?);
+    let sol_balance = wallet_monitor.get_sol_balance().context("No se pudo obtener el balance inicial de SOL")?;
     println!("🏦 Balance Inicial: {:.4} SOL", sol_balance);
 
     // 2. DB Asíncrona (Connection Pool)
@@ -439,7 +442,7 @@ async fn run_monitor_mode() -> Result<()> {
 
     // 7. Hibernación
 
-    let hibernate_wallet = Arc::clone(&wallet_monitor);
+    let hibernate_wallet: Arc<WalletMonitor> = Arc::clone(&wallet_monitor);
     let hibernate_telegram = Arc::clone(&telegram);
     let hibernate_min_balance = app_config.global_settings.min_sol_balance;
 

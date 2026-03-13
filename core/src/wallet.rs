@@ -10,6 +10,8 @@ use std::env;
 use std::process::Command;
 use std::str::FromStr;
 
+const GCP_PROJECT_ID: &str = "project-828d4ae0-6385-40d2-aa6";
+
 pub struct WalletMonitor {
     rpc_url: String,
     pubkey: Pubkey,
@@ -56,10 +58,12 @@ pub fn get_env_or_secret(name: &str) -> Result<String> {
     // Mapeo especial para compatibilidad si es necesario
     let secret_name = match name {
         "WALLET_PRIVATE_KEY" => "CHASSIS_WALLET_KEY",
+        "WALLET_ADDRESS" => "WALLET_ADDRESS",
         _ => name,
     };
 
-    fetch_secret_from_gcp(secret_name).with_context(|| format!("No se pudo obtener {} de ENV ni SM", name))
+    fetch_secret_from_gcp(secret_name)
+        .with_context(|| format!("❌ Error crítico: No se pudo obtener el secreto '{}' ni de las variables de entorno ni de GCP Secret Manager. Asegúrate de que la variable esté configurada o que el bot tenga permisos suficientes.", name))
 }
 
 /// Carga un Keypair buscando primero en el entorno y luego en GCP Secret Manager si es necesario.
@@ -76,7 +80,7 @@ pub fn fetch_secret_from_gcp(secret_name: &str) -> Result<String> {
             "access",
             "latest",
             &format!("--secret={}", secret_name),
-            "--project=project-828d4ae0-6385-40d2-aa6",
+            &format!("--project={}", GCP_PROJECT_ID),
         ])
         .output()
         .context("Fallo al ejecutar el comando gcloud")?;

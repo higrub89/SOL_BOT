@@ -62,6 +62,7 @@ fetch_secret() {
 H_KEY=\$(fetch_secret HELIUS_API_KEY)
 J_KEY=\$(fetch_secret JUPITER_API_KEY)
 W_KEY=\$(fetch_secret WALLET_PRIVATE_KEY)
+W_ADDR=\$(fetch_secret WALLET_ADDRESS)
 T_TOKEN=\$(fetch_secret TELEGRAM_BOT_TOKEN)
 T_ID=\$(fetch_secret TELEGRAM_CHAT_ID)
 
@@ -69,6 +70,7 @@ cat <<ENV_EOF > \$ENV_FILE
 HELIUS_API_KEY=\$H_KEY
 JUPITER_API_KEY=\$J_KEY
 WALLET_PRIVATE_KEY=\$W_KEY
+WALLET_ADDRESS=\$W_ADDR
 TELEGRAM_BOT_TOKEN=\$T_TOKEN
 TELEGRAM_CHAT_ID=\$T_ID
 SOLANA_WS_URL=wss://bold-dry-friday.solana-mainnet.quiknode.pro/8717ec45daa16137b672fe894c3655061ab521bd/
