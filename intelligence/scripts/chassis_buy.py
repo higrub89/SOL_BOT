@@ -8,14 +8,19 @@ from solders.transaction import VersionedTransaction
 from solders.message import MessageV0
 
 def load_env():
-    env_path = "/home/ruben/Automatitation/bot_trading/core/the_chassis/.env"
     env_vars = {}
+    # Resolver .env relativo a la raíz del repo (intelligence/../.. -> repo root)
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env_path = os.path.join(base_dir, ".env")
     if os.path.exists(env_path):
         with open(env_path, "r") as f:
             for line in f:
-                if "=" in line:
-                    key, value = line.strip().split("=", 1)
-                    env_vars[key] = value
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
     return env_vars
 
 def buy_token(mint, amount_sol):

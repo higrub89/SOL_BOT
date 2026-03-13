@@ -314,11 +314,19 @@ mod tests {
         // 4. Inyectar un comando crítico simulado
         // is_emergency: true -> esto provocará 5 intentos
         let test_mint = "TokenFantasma111111111111111111111111111111".to_string();
+        let audit = crate::engine::commands::AuditMetadata {
+            signal_id: format!("TEST_SL_{}", Utc::now().timestamp()),
+            strategy_name: "TEST".to_string(),
+            rationale: "Unit test stoploss".to_string(),
+            timestamp: Utc::now().timestamp(),
+        };
+
         let cmd = ExecutionCommand::StopLoss {
             mint: test_mint.clone(),
             symbol: "GHOST".to_string(),
             amount_invested: 1.5,
-            is_emergency: true, 
+            is_emergency: true,
+            audit,
         };
 
         cmd_tx.send(cmd).await.expect("Fallo al inyectar comando en el bus");

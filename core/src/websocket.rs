@@ -10,9 +10,12 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use solana_sdk::signature::Keypair;
+use solana_sdk::pubkey::Pubkey;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::str::FromStr;
+use regex::Regex;
 use tokio::sync::RwLock;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -180,11 +183,18 @@ impl SolanaWebSocket {
 
     /// Extrae la dirección del mint de los logs de la instrucción
     fn extract_mint_from_logs(&self, logs: &[String]) -> Option<String> {
+        // Buscar patrones base58 plausibles y validar con Pubkey::from_str para evitar falsos positivos.
+        // Regex: caracteres base58 sin 0,O,I,l; longitud típica entre 32 y 44.
+        let re = match Regex::new(r"[1-9A-HJ-NP-Za-km-z]{32,44}") {
+            Ok(r) => r,
+            Err(_) => return None,
+        };
+
         for log in logs {
-            // Buscamos strings que parecen direcciones de Solana (.endswith("pump"))
-            for word in log.split_whitespace() {
-                if word.len() >= 32 && word.ends_with("pump") {
-                    return Some(word.to_string());
+            for mat in re.find_iter(log) {
+                let candidate = mat.as_str();
+                if Pubkey::from_str(candidate).is_ok() {
+                    return Some(candidate.to_string());
                 }
             }
         }

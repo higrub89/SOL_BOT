@@ -44,6 +44,7 @@ impl WalletMonitor {
 }
 
 /// Obtiene una variable de entorno o, si no existe, intenta recuperarla de GCP Secret Manager.
+/// Nota: NO hace panic en caso de fallo; devuelve cadena vacía y registra una advertencia.
 pub fn get_env_or_secret(name: &str) -> String {
     // 1. Intentar desde variable de entorno
     if let Ok(val) = env::var(name) {
@@ -62,8 +63,8 @@ pub fn get_env_or_secret(name: &str) -> String {
     match fetch_secret_from_gcp(secret_name) {
         Ok(secret) => secret,
         Err(e) => {
-            eprintln!("❌ Error crítico: No se pudo obtener {} de ENV ni SM: {}", name, e);
-            panic!("Fallo en configuración de seguridad: {}", name);
+            eprintln!("⚠️ No se pudo obtener {} de ENV ni SM: {}. Continuando con cadena vacía.", name, e);
+            String::new()
         }
     }
 }
