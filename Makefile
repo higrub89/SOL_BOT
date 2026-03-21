@@ -57,7 +57,7 @@ buy: build ## Compra rápida (Uso: make buy MINT=... SOL=...)
 
 backtest: ## Ejecuta el suite de backtesting de estrategias
 	@echo "📉 Corriendo Backtests..."
-	@$(CARGO) test --package intelligence --lib tests::backtest_simulation -- --nocapture
+	@$(CARGO) test --package intelligence_rs --lib tests::backtest_simulation -- --nocapture
 
 lint: ## Ejecuta el linter (Clippy) para asegurar calidad de código
 	@echo "💅 Pasando linter..."

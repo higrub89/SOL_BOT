@@ -46,11 +46,13 @@ impl JitoClient {
     pub fn get_random_tip_account() -> Result<Pubkey> {
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
-        let account_str = JITO_TIP_ACCOUNTS.choose(&mut rng)
+        let account_str = JITO_TIP_ACCOUNTS
+            .choose(&mut rng)
             .context("Lista de JITO_TIP_ACCOUNTS está vacía")?;
-        
-        Pubkey::from_str(account_str)
-            .map_err(|e| anyhow::anyhow!("Error parseando Jito Tip Account '{}': {}", account_str, e))
+
+        Pubkey::from_str(account_str).map_err(|e| {
+            anyhow::anyhow!("Error parseando Jito Tip Account '{}': {}", account_str, e)
+        })
     }
 
     /// Crea una instrucción de transferencia para la propina

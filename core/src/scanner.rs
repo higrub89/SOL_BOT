@@ -60,10 +60,7 @@ impl PriceScanner {
 
         if let Some(pair) = best_pair {
             // Extraer valores con validación estricta, pero permitir fallback a 0.0 para evaluar tokens colapsados
-            let price_usd_str = pair
-                .price_usd
-                .as_deref()
-                .unwrap_or("0.0");
+            let price_usd_str = pair.price_usd.as_deref().unwrap_or("0.0");
 
             let price_usd =
                 FinancialValidator::parse_price_safe(price_usd_str, "DexScreener price_usd")?;

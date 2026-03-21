@@ -53,8 +53,11 @@ pub fn get_env_or_secret(name: &str) -> Result<String> {
     }
 
     // 2. Intentar desde GCP
-    println!("🔐 {} no encontrado en ENV. Intentando recuperar desde GCP Secret Manager...", name);
-    
+    println!(
+        "🔐 {} no encontrado en ENV. Intentando recuperar desde GCP Secret Manager...",
+        name
+    );
+
     // Mapeo especial para compatibilidad si es necesario
     let secret_name = match name {
         "WALLET_PRIVATE_KEY" => "CHASSIS_WALLET_KEY",
@@ -101,13 +104,22 @@ fn parse_keypair(raw: &str) -> Result<Keypair> {
     }
 
     if trimmed.starts_with('[') {
-        let bytes: Vec<u8> = serde_json::from_str(trimmed)
-            .map_err(|e| anyhow!("Failed to parse JSON keypair: {} (Starts with: {})", e, &trimmed[..5.min(trimmed.len())]))?;
+        let bytes: Vec<u8> = serde_json::from_str(trimmed).map_err(|e| {
+            anyhow!(
+                "Failed to parse JSON keypair: {} (Starts with: {})",
+                e,
+                &trimmed[..5.min(trimmed.len())]
+            )
+        })?;
         Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Invalid JSON keypair: {}", e))
     } else {
-        let bytes = bs58::decode(trimmed)
-            .into_vec()
-            .map_err(|e| anyhow!("Failed to decode Base58 keypair: {} (Starts with: {})", e, &trimmed[..5.min(trimmed.len())]))?;
+        let bytes = bs58::decode(trimmed).into_vec().map_err(|e| {
+            anyhow!(
+                "Failed to decode Base58 keypair: {} (Starts with: {})",
+                e,
+                &trimmed[..5.min(trimmed.len())]
+            )
+        })?;
         Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Invalid Base58 keypair: {}", e))
     }
 }

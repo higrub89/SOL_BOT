@@ -1,13 +1,13 @@
+use crate::engine::commands::{AuditMetadata, CommandType, ExecutionCommand, ExecutionFeedback};
+use crate::executor_v2::TradeExecutor;
+use crate::jupiter::SwapResult;
+use crate::state_manager::{ExecutionAudit, PositionState, StateManager};
+use crate::telegram::TelegramNotifier;
+use chrono::Utc;
+use solana_sdk::signature::Keypair;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-use crate::engine::commands::{ExecutionCommand, ExecutionFeedback, CommandType, AuditMetadata};
-use crate::executor_v2::TradeExecutor;
-use crate::state_manager::{StateManager, ExecutionAudit, PositionState};
-use crate::telegram::TelegramNotifier;
-use solana_sdk::signature::Keypair;
-use chrono::Utc;
-use crate::jupiter::SwapResult;
 
 pub struct ExecutionRouter {
     executor: Arc<TradeExecutor>,
@@ -48,9 +48,27 @@ impl ExecutionRouter {
 
     async fn process_command(&self, command: ExecutionCommand) {
         match command {
-            ExecutionCommand::Buy { mint, symbol, amount_sol, slippage_bps, priority_fee, audit } => {
-                println!("🛍️ [RUTEO] Procesando COMPRA para {} ({} SOL)", symbol, amount_sol);
-                self.execute_buy_with_audit(&mint, &symbol, amount_sol, slippage_bps, priority_fee, audit).await;
+            ExecutionCommand::Buy {
+                mint,
+                symbol,
+                amount_sol,
+                slippage_bps,
+                priority_fee,
+                audit,
+            } => {
+                println!(
+                    "🛍️ [RUTEO] Procesando COMPRA para {} ({} SOL)",
+                    symbol, amount_sol
+                );
+                self.execute_buy_with_audit(
+                    &mint,
+                    &symbol,
+                    amount_sol,
+                    slippage_bps,
+                    priority_fee,
+                    audit,
+                )
+                .await;
             }
             ExecutionCommand::PanicAll => {
                 println!("💥 [RUTEO] PANIC ALL EJECUTADO");
@@ -62,21 +80,80 @@ impl ExecutionRouter {
                             rationale: "Manual Panic All Triggered".to_string(),
                             timestamp: Utc::now().timestamp(),
                         };
-                        self.execute_sell_with_audit(&pos.token_mint, &pos.symbol, pos.amount_sol, 100, true, "PANIC_ALL", CommandType::StopLoss, audit).await;
+                        self.execute_sell_with_audit(
+                            &pos.token_mint,
+                            &pos.symbol,
+                            pos.amount_sol,
+                            100,
+                            true,
+                            "PANIC_ALL",
+                            CommandType::StopLoss,
+                            audit,
+                        )
+                        .await;
                     }
                 }
             }
-            ExecutionCommand::StopLoss { mint, symbol, amount_invested, is_emergency, audit } => {
+            ExecutionCommand::StopLoss {
+                mint,
+                symbol,
+                amount_invested,
+                is_emergency,
+                audit,
+            } => {
                 println!("🚨 [RUTEO] Stop Loss para {}", symbol);
-                self.execute_sell_with_audit(&mint, &symbol, amount_invested, 100, is_emergency, "AUTO_SL", CommandType::StopLoss, audit).await;
+                self.execute_sell_with_audit(
+                    &mint,
+                    &symbol,
+                    amount_invested,
+                    100,
+                    is_emergency,
+                    "AUTO_SL",
+                    CommandType::StopLoss,
+                    audit,
+                )
+                .await;
             }
-            ExecutionCommand::TakeProfit1 { mint, symbol, sell_amount_pct, amount_invested, audit, .. } => {
+            ExecutionCommand::TakeProfit1 {
+                mint,
+                symbol,
+                sell_amount_pct,
+                amount_invested,
+                audit,
+                ..
+            } => {
                 println!("💰 [RUTEO] Take Profit 1 para {}", symbol);
-                self.execute_sell_with_audit(&mint, &symbol, amount_invested, sell_amount_pct, false, "AUTO_TP1", CommandType::TakeProfit1, audit).await;
+                self.execute_sell_with_audit(
+                    &mint,
+                    &symbol,
+                    amount_invested,
+                    sell_amount_pct,
+                    false,
+                    "AUTO_TP1",
+                    CommandType::TakeProfit1,
+                    audit,
+                )
+                .await;
             }
-            ExecutionCommand::TakeProfit2 { mint, symbol, sell_amount_pct, amount_invested, audit } => {
+            ExecutionCommand::TakeProfit2 {
+                mint,
+                symbol,
+                sell_amount_pct,
+                amount_invested,
+                audit,
+            } => {
                 println!("💰💰 [RUTEO] Take Profit 2 para {}", symbol);
-                self.execute_sell_with_audit(&mint, &symbol, amount_invested, sell_amount_pct, false, "AUTO_TP2", CommandType::TakeProfit2, audit).await;
+                self.execute_sell_with_audit(
+                    &mint,
+                    &symbol,
+                    amount_invested,
+                    sell_amount_pct,
+                    false,
+                    "AUTO_TP2",
+                    CommandType::TakeProfit2,
+                    audit,
+                )
+                .await;
             }
         }
     }
@@ -91,7 +168,7 @@ impl ExecutionRouter {
         audit: AuditMetadata,
     ) {
         let kp_ref = self.wallet_kp.as_deref();
-        
+
         // Simular ejecución (Integrar con Executor real en v2.1)
         let result = self.executor.execute_buy(mint, kp_ref, amount_sol).await;
 
@@ -117,7 +194,11 @@ impl ExecutionRouter {
         let _ = self.state_manager.record_audit(audit_record).await;
 
         if success {
-            println!("✅ COMPRA EJECUTADA: {} | Sig: {}", symbol, signature.as_deref().unwrap_or(""));
+            println!(
+                "✅ COMPRA EJECUTADA: {} | Sig: {}",
+                symbol,
+                signature.as_deref().unwrap_or("")
+            );
             // Crear posición en StateManager
             let pos = PositionState {
                 id: None,
@@ -143,8 +224,14 @@ impl ExecutionRouter {
                 updated_at: Utc::now().timestamp(),
             };
             let _ = self.state_manager.upsert_position(pos).await;
-            let _ = self.feedback_tx.send(ExecutionFeedback::Success { mint: mint.to_string(), command_type: CommandType::Buy }).await;
-            
+            let _ = self
+                .feedback_tx
+                .send(ExecutionFeedback::Success {
+                    mint: mint.to_string(),
+                    command_type: CommandType::Buy,
+                })
+                .await;
+
             // Notificación Telegram
             let msg = format!(
                 "🚀 <b>COMPRA EJECUTADA</b>\nToken: <code>{}</code>\nEstrategia: {}\nTx: <a href=\"https://solscan.io/tx/{}\">{}</a>",
@@ -155,15 +242,21 @@ impl ExecutionRouter {
         } else {
             let msg = format!(
                 "❌ <b>ERROR DE COMPRA</b>\nToken: <code>{}</code>\nError: <code>{}</code>",
-                mint, error_msg.as_ref().unwrap_or(&"Error desconocido".to_string())
+                mint,
+                error_msg
+                    .as_ref()
+                    .unwrap_or(&"Error desconocido".to_string())
             );
             let _ = self.telegram.send_message(&msg, true).await;
 
-            let _ = self.feedback_tx.send(ExecutionFeedback::Failure { 
-                mint: mint.to_string(), 
-                command_type: CommandType::Buy, 
-                reason: error_msg.unwrap_or("Unknown buy error".to_string()) 
-            }).await;
+            let _ = self
+                .feedback_tx
+                .send(ExecutionFeedback::Failure {
+                    mint: mint.to_string(),
+                    command_type: CommandType::Buy,
+                    reason: error_msg.unwrap_or("Unknown buy error".to_string()),
+                })
+                .await;
         }
     }
 
@@ -183,12 +276,15 @@ impl ExecutionRouter {
         let mut error_msg = None;
 
         for attempt in 1..=max_attempts {
-            let res = self.executor.execute_sell_with_retry(
-                mint.to_string(),
-                self.wallet_kp.as_deref(),
-                pct,
-                is_emergency,
-            ).await;
+            let res = self
+                .executor
+                .execute_sell_with_retry(
+                    mint.to_string(),
+                    self.wallet_kp.as_deref(),
+                    pct,
+                    is_emergency,
+                )
+                .await;
 
             match res {
                 Ok(r) => {
@@ -221,13 +317,17 @@ impl ExecutionRouter {
         let _ = self.state_manager.record_audit(audit_record).await;
 
         if let Some(res) = final_res {
-            self.post_execution_cleanup(symbol, mint, invested, pct, res, trade_type, cmd_type).await;
+            self.post_execution_cleanup(symbol, mint, invested, pct, res, trade_type, cmd_type)
+                .await;
         } else {
-            let _ = self.feedback_tx.send(ExecutionFeedback::Failure { 
-                mint: mint.to_string(), 
-                command_type: cmd_type, 
-                reason: error_msg.unwrap_or_default() 
-            }).await;
+            let _ = self
+                .feedback_tx
+                .send(ExecutionFeedback::Failure {
+                    mint: mint.to_string(),
+                    command_type: cmd_type,
+                    reason: error_msg.unwrap_or_default(),
+                })
+                .await;
         }
     }
 
@@ -245,7 +345,7 @@ impl ExecutionRouter {
         let invested_portion = invested * (pct as f64 / 100.0);
         let sol_received = res.output_amount;
         let pnl_sol = sol_received - invested_portion;
-        
+
         let trade = crate::state_manager::TradeRecord {
             id: None,
             signature: res.signature.clone(),
@@ -254,9 +354,17 @@ impl ExecutionRouter {
             trade_type: trade_type.to_string(),
             amount_sol: sol_received,
             tokens_amount: res.input_amount,
-            price: if res.input_amount > 0.0 { sol_received / res.input_amount } else { 0.0 },
+            price: if res.input_amount > 0.0 {
+                sol_received / res.input_amount
+            } else {
+                0.0
+            },
             pnl_sol: Some(pnl_sol),
-            pnl_percent: Some(if invested_portion > 0.0 { (pnl_sol / invested_portion) * 100.0 } else { 0.0 }),
+            pnl_percent: Some(if invested_portion > 0.0 {
+                (pnl_sol / invested_portion) * 100.0
+            } else {
+                0.0
+            }),
             route: res.route.clone(),
             price_impact_pct: res.price_impact_pct,
             fee_sol: res.fee_sol,
@@ -269,20 +377,26 @@ impl ExecutionRouter {
             let _ = self.state_manager.close_position(mint).await;
         }
 
-        let _ = self.feedback_tx.send(ExecutionFeedback::Success { mint: mint.to_string(), command_type: cmd_type }).await;
+        let _ = self
+            .feedback_tx
+            .send(ExecutionFeedback::Success {
+                mint: mint.to_string(),
+                command_type: cmd_type,
+            })
+            .await;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-    use solana_sdk::signature::Keypair;
     use crate::engine::commands::{CommandType, ExecutionCommand, ExecutionFeedback};
-    use crate::executor_v2::{TradeExecutor, ExecutorConfig};
+    use crate::executor_v2::{ExecutorConfig, TradeExecutor};
     use crate::state_manager::StateManager;
     use crate::telegram::TelegramNotifier;
+    use solana_sdk::signature::Keypair;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_actuator_feedback_loop_on_failure() {
@@ -294,10 +408,11 @@ mod tests {
 
         // 2. Mocking de Dependencias usando endpoints irreales locales para forzar Err inmediato
         let executor_config = ExecutorConfig::new("http://127.0.0.1:0".to_string(), true);
-        let executor = Arc::new(TradeExecutor::new(executor_config)); 
+        let executor = Arc::new(TradeExecutor::new(executor_config));
         let state_manager = Arc::new(StateManager::new("sqlite::memory:").await.unwrap());
-        let telegram = Arc::new(TelegramNotifier::new().expect("Failed to initialize mock/test telegram")); 
-        
+        let telegram =
+            Arc::new(TelegramNotifier::new().expect("Failed to initialize mock/test telegram"));
+
         let router = ExecutionRouter::new(
             executor,
             state_manager,
@@ -329,19 +444,33 @@ mod tests {
             audit,
         };
 
-        cmd_tx.send(cmd).await.expect("Fallo al inyectar comando en el bus");
+        cmd_tx
+            .send(cmd)
+            .await
+            .expect("Fallo al inyectar comando en el bus");
 
-        // 5. Escuchar la respuesta del ECU tras agotar backoff 
+        // 5. Escuchar la respuesta del ECU tras agotar backoff
         // 500ms + 1000ms + 2000ms + 4000ms = 7.5segs aprox
         // Backoff: 400ms + 800ms + 1600ms + 3200ms = 6s + ~5x Reqwest timeout.
         let timeout_duration = std::time::Duration::from_secs(90);
         let feedback_result = tokio::time::timeout(timeout_duration, feedback_rx.recv()).await;
 
         match feedback_result {
-            Ok(Some(ExecutionFeedback::Failure { mint, command_type, reason })) => {
+            Ok(Some(ExecutionFeedback::Failure {
+                mint,
+                command_type,
+                reason,
+            })) => {
                 assert_eq!(mint, test_mint, "El mint del feedback no coincide");
-                assert_eq!(command_type, CommandType::StopLoss, "El tipo de comando no coincide");
-                println!("✅ Test Pasado: Feedback de fallo recibido correctamente. Razón: {}", reason);
+                assert_eq!(
+                    command_type,
+                    CommandType::StopLoss,
+                    "El tipo de comando no coincide"
+                );
+                println!(
+                    "✅ Test Pasado: Feedback de fallo recibido correctamente. Razón: {}",
+                    reason
+                );
             }
             Ok(Some(ExecutionFeedback::Success { .. })) => {
                 panic!("❌ Test Fallido: Se esperaba un fallo, pero el actuador reportó éxito.");

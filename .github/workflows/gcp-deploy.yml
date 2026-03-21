@@ -24,6 +24,29 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
+      - name: ✅ Validate required secrets
+        shell: bash
+        env:
+          WIF_PROVIDER_NAME: ${{ secrets.WIF_PROVIDER_NAME }}
+          GCP_SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          if [ -z "${WIF_PROVIDER_NAME}" ]; then
+            echo "::error::Missing required secret: WIF_PROVIDER_NAME"
+            missing=1
+          fi
+          if [ -z "${GCP_SA_EMAIL}" ]; then
+            echo "::error::Missing required secret: GCP_SA_EMAIL"
+            missing=1
+          fi
+
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error::Secrets are unavailable in this run context. If this is a fork/Dependabot PR or environment mismatch, GitHub will not expose repository secrets."
+            exit 1
+          fi
+
       - name: 🔐 Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:

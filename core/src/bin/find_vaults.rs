@@ -43,7 +43,8 @@ fn main() -> Result<()> {
     let token_mint = &args[1];
 
     // Obtener RPC URL
-    let api_key = the_chassis::wallet::get_env_or_secret("HELIUS_API_KEY").expect("HELIUS_API_KEY must be set");
+    let api_key = the_chassis::wallet::get_env_or_secret("HELIUS_API_KEY")
+        .expect("HELIUS_API_KEY must be set");
 
     let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
 

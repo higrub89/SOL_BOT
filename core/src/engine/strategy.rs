@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use std::collections::{HashMap, HashSet};
+use crate::engine::commands::{AuditMetadata, CommandType, ExecutionCommand, ExecutionFeedback};
 use crate::price_feed::PriceUpdate;
-use crate::engine::commands::{ExecutionCommand, ExecutionFeedback, CommandType, AuditMetadata};
 use crate::state_manager::StateManager;
 use crate::trailing_sl::TrailingStopLoss;
 use chrono::Utc;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub struct StrategyEngine {
     state_manager: Arc<StateManager>,
@@ -73,7 +73,7 @@ impl StrategyEngine {
                             failed_execution_count += 1;
                         }
                         last_failure_time = now;
-                        
+
                         if failed_execution_count >= circuit_breaker_threshold && !is_circuit_breaker_tripped {
                             is_circuit_breaker_tripped = true;
                             eprintln!("⚠️ [CIRCUIT BREAKER] ¡TRIPPED! 3 fallas ejecución en < 60s. ¡COMPRAS/VENTAS PAUSADAS!");
@@ -98,113 +98,153 @@ impl StrategyEngine {
         }
     }
 
-    async fn process_price_tick(&mut self, tick: PriceUpdate, cmd_tx: &mpsc::Sender<ExecutionCommand>) {
+    async fn process_price_tick(
+        &mut self,
+        tick: PriceUpdate,
+        cmd_tx: &mpsc::Sender<ExecutionCommand>,
+    ) {
         let target = match self.state_manager.get_position(&tick.token_mint).await {
             Ok(Some(p)) if p.active => p,
             _ => return,
         };
 
-        let current_gain_percent = ((tick.price_native - target.entry_price) / target.entry_price) * 100.0;
-        
-        let tsl = self.trailing_monitors.entry(target.symbol.clone()).or_insert_with(|| {
-            let mut t_sl = TrailingStopLoss::new(
-                target.entry_price,
-                target.stop_loss_percent,
-                target.trailing_distance_percent,
-                target.trailing_activation_threshold,
-            );
-            if let Some(peak) = target.trailing_highest_price {
-                t_sl.peak_price = t_sl.peak_price.max(peak);
-            }
-            if let Some(curr_sl) = target.trailing_current_sl {
-                t_sl.current_sl_percent = curr_sl;
-                t_sl.enabled = true;
-            }
-            t_sl
-        });
+        let current_gain_percent =
+            ((tick.price_native - target.entry_price) / target.entry_price) * 100.0;
+
+        let tsl = self
+            .trailing_monitors
+            .entry(target.symbol.clone())
+            .or_insert_with(|| {
+                let mut t_sl = TrailingStopLoss::new(
+                    target.entry_price,
+                    target.stop_loss_percent,
+                    target.trailing_distance_percent,
+                    target.trailing_activation_threshold,
+                );
+                if let Some(peak) = target.trailing_highest_price {
+                    t_sl.peak_price = t_sl.peak_price.max(peak);
+                }
+                if let Some(curr_sl) = target.trailing_current_sl {
+                    t_sl.current_sl_percent = curr_sl;
+                    t_sl.enabled = true;
+                }
+                t_sl
+            });
 
         let mut tsl_changed = false;
         if target.trailing_enabled {
             tsl_changed = tsl.update(tick.price_native);
         }
-        
+
         let effective_sl_percent = tsl.current_sl_percent.max(target.stop_loss_percent);
 
         if tsl_changed {
-             let state_mgr_clone = Arc::clone(&self.state_manager);
-             let trailing_current_sl = tsl.current_sl_percent;
-             let trailing_highest_price = tsl.peak_price;
-             let mint_clone = target.token_mint.clone();
-             
-             tokio::spawn(async move {
-                  let _ = state_mgr_clone.update_trailing_sl(&mint_clone, trailing_highest_price, trailing_current_sl).await;
-             });
+            let state_mgr_clone = Arc::clone(&self.state_manager);
+            let trailing_current_sl = tsl.current_sl_percent;
+            let trailing_highest_price = tsl.peak_price;
+            let mint_clone = target.token_mint.clone();
+
+            tokio::spawn(async move {
+                let _ = state_mgr_clone
+                    .update_trailing_sl(&mint_clone, trailing_highest_price, trailing_current_sl)
+                    .await;
+            });
         }
 
         // --- TAKE PROFIT 1 ---
         let tp_target = target.tp_percent.unwrap_or(100.0);
-        if !target.tp_triggered && current_gain_percent >= tp_target && !self.tp1_attempted.contains(&target.token_mint) {
+        if !target.tp_triggered
+            && current_gain_percent >= tp_target
+            && !self.tp1_attempted.contains(&target.token_mint)
+        {
             self.tp1_attempted.insert(target.token_mint.clone());
             let audit = AuditMetadata {
                 signal_id: format!("TP1_{}_{}", target.symbol, Utc::now().timestamp()),
                 strategy_name: "TrendFollowing_v2".to_string(),
-                rationale: format!("Gain {:.2}% reached TP1 threshold {:.2}%", current_gain_percent, tp_target),
+                rationale: format!(
+                    "Gain {:.2}% reached TP1 threshold {:.2}%",
+                    current_gain_percent, tp_target
+                ),
                 timestamp: Utc::now().timestamp(),
             };
-            let _ = cmd_tx.send(ExecutionCommand::TakeProfit1 {
-                mint: target.token_mint.clone(),
-                symbol: target.symbol.clone(),
-                sell_amount_pct: target.tp_amount_percent.unwrap_or(50.0) as u8,
-                entry_price: target.entry_price,
-                amount_invested: target.amount_sol,
-                audit,
-            }).await;
+            let _ = cmd_tx
+                .send(ExecutionCommand::TakeProfit1 {
+                    mint: target.token_mint.clone(),
+                    symbol: target.symbol.clone(),
+                    sell_amount_pct: target.tp_amount_percent.unwrap_or(50.0) as u8,
+                    entry_price: target.entry_price,
+                    amount_invested: target.amount_sol,
+                    audit,
+                })
+                .await;
         }
 
         // --- TAKE PROFIT 2 ---
         if let Some(tp2_target) = target.tp2_percent {
-            if !target.tp2_triggered && current_gain_percent >= tp2_target && !self.tp2_attempted.contains(&target.token_mint) {
+            if !target.tp2_triggered
+                && current_gain_percent >= tp2_target
+                && !self.tp2_attempted.contains(&target.token_mint)
+            {
                 self.tp2_attempted.insert(target.token_mint.clone());
                 let audit = AuditMetadata {
                     signal_id: format!("TP2_{}_{}", target.symbol, Utc::now().timestamp()),
                     strategy_name: "TrendFollowing_v2".to_string(),
-                    rationale: format!("Gain {:.2}% reached TP2 threshold {:.2}%", current_gain_percent, tp2_target),
+                    rationale: format!(
+                        "Gain {:.2}% reached TP2 threshold {:.2}%",
+                        current_gain_percent, tp2_target
+                    ),
                     timestamp: Utc::now().timestamp(),
                 };
-                let _ = cmd_tx.send(ExecutionCommand::TakeProfit2 {
-                    mint: target.token_mint.clone(),
-                    symbol: target.symbol.clone(),
-                    sell_amount_pct: target.tp2_amount_percent.unwrap_or(100.0) as u8,
-                    amount_invested: target.amount_sol,
-                    audit,
-                }).await;
+                let _ = cmd_tx
+                    .send(ExecutionCommand::TakeProfit2 {
+                        mint: target.token_mint.clone(),
+                        symbol: target.symbol.clone(),
+                        sell_amount_pct: target.tp2_amount_percent.unwrap_or(100.0) as u8,
+                        amount_invested: target.amount_sol,
+                        audit,
+                    })
+                    .await;
             }
         }
 
         // --- STOP LOSS ---
-        if current_gain_percent <= effective_sl_percent && !self.sell_attempted.contains(&target.token_mint) {
+        if current_gain_percent <= effective_sl_percent
+            && !self.sell_attempted.contains(&target.token_mint)
+        {
             self.sell_attempted.insert(target.token_mint.clone());
             let audit = AuditMetadata {
                 signal_id: format!("SL_{}_{}", target.symbol, Utc::now().timestamp()),
                 strategy_name: "TrendFollowing_v2".to_string(),
-                rationale: format!("Gain {:.2}% hit SL threshold {:.2}%", current_gain_percent, effective_sl_percent),
+                rationale: format!(
+                    "Gain {:.2}% hit SL threshold {:.2}%",
+                    current_gain_percent, effective_sl_percent
+                ),
                 timestamp: Utc::now().timestamp(),
             };
-            let _ = cmd_tx.send(ExecutionCommand::StopLoss {
-                mint: target.token_mint.clone(),
-                symbol: target.symbol.clone(),
-                amount_invested: target.amount_sol,
-                is_emergency: true,
-                audit,
-            }).await;
+            let _ = cmd_tx
+                .send(ExecutionCommand::StopLoss {
+                    mint: target.token_mint.clone(),
+                    symbol: target.symbol.clone(),
+                    amount_invested: target.amount_sol,
+                    is_emergency: true,
+                    audit,
+                })
+                .await;
         }
     }
 
     async fn process_feedback(&mut self, feedback: ExecutionFeedback) {
         match feedback {
-            ExecutionFeedback::Failure { mint, command_type, reason } => {
-                println!("⚠️ [ECU] Fallo actuador {}: {}. Liberando bloqueos.", mint, reason);
-                
+            ExecutionFeedback::Failure {
+                mint,
+                command_type,
+                reason,
+            } => {
+                println!(
+                    "⚠️ [ECU] Fallo actuador {}: {}. Liberando bloqueos.",
+                    mint, reason
+                );
+
                 match command_type {
                     CommandType::Buy => {
                         println!("❌ Fallo en COMPRA para {}. Abortando secuencia.", mint);

@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
-use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::{accept_async, tungstenite::Message};
-use serde::{Serialize, Deserialize};
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::state_manager::StateManager;
-use crate::wallet::WalletMonitor;
 use crate::price_feed::PriceCache;
+use crate::state_manager::StateManager;
 use crate::telegram::commands::HIBERNATION_MODE;
+use crate::wallet::WalletMonitor;
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 #[derive(Deserialize)]
 struct UiCommand {
@@ -48,8 +48,19 @@ pub struct TelemetryServer {
 }
 
 impl TelemetryServer {
-    pub fn new(state_manager: Arc<StateManager>, price_cache: PriceCache, wallet_monitor: Arc<WalletMonitor>, cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>) -> Self {
-        Self { state_manager, price_cache, wallet_monitor, cached_balance: Arc::new(std::sync::RwLock::new(0.0)), cmd_tx }
+    pub fn new(
+        state_manager: Arc<StateManager>,
+        price_cache: PriceCache,
+        wallet_monitor: Arc<WalletMonitor>,
+        cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>,
+    ) -> Self {
+        Self {
+            state_manager,
+            price_cache,
+            wallet_monitor,
+            cached_balance: Arc::new(std::sync::RwLock::new(0.0)),
+            cmd_tx,
+        }
     }
 
     pub async fn run(self: Arc<Self>, addr: &str) -> anyhow::Result<()> {
@@ -110,7 +121,11 @@ impl TelemetryServer {
         Ok(())
     }
 
-    async fn handle_connection(cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>, stream: TcpStream, mut rx: tokio::sync::broadcast::Receiver<TelemetryTick>) -> anyhow::Result<()> {
+    async fn handle_connection(
+        cmd_tx: tokio::sync::mpsc::Sender<crate::engine::commands::ExecutionCommand>,
+        stream: TcpStream,
+        mut rx: tokio::sync::broadcast::Receiver<TelemetryTick>,
+    ) -> anyhow::Result<()> {
         let mut ws_stream = accept_async(stream).await?;
         println!("✅ [TELEMETRY] UI conectada");
 
@@ -184,7 +199,8 @@ impl TelemetryServer {
 
         for pos in active_positions {
             // Obtener precio actual del caché si existe, sino usar el de la DB
-            let current_price = cache.get(&pos.token_mint)
+            let current_price = cache
+                .get(&pos.token_mint)
                 .map(|p| p.price_native)
                 .unwrap_or(pos.current_price);
 
@@ -197,7 +213,11 @@ impl TelemetryServer {
             // Cálculo aproximado de PnL en SOL
             // NOTA: Para un cálculo de PnL 100% exacto que incluya fees y slippage del DEX,
             // lo ideal a futuro es guardar `token_amount` real obtenido en la DB, en vez de retroceder.
-            let tokens_held = if pos.entry_price > 0.0 { pos.amount_sol / pos.entry_price } else { 0.0 };
+            let tokens_held = if pos.entry_price > 0.0 {
+                pos.amount_sol / pos.entry_price
+            } else {
+                0.0
+            };
             let pnl_sol = (current_price - pos.entry_price) * tokens_held;
             total_pnl_sol += pnl_sol;
 
@@ -212,7 +232,11 @@ impl TelemetryServer {
         }
 
         let is_hibernating = HIBERNATION_MODE.load(Ordering::Relaxed);
-        let status = if is_hibernating { "HIBERNATING" } else { "RUNNING" };
+        let status = if is_hibernating {
+            "HIBERNATING"
+        } else {
+            "RUNNING"
+        };
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -220,14 +244,22 @@ impl TelemetryServer {
             .as_secs();
 
         // Leer el último balance trackeado manejando un posible thread panic poison
-        let wallet_balance = *self.cached_balance.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let wallet_balance = *self
+            .cached_balance
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         // Obtener el precio actual de SOL
-        let sol_price = cache.get("So11111111111111111111111111111111111111112")
+        let sol_price = cache
+            .get("So11111111111111111111111111111111111111112")
             .map(|p| p.price_native)
             .unwrap_or(0.0);
 
-        let recent_trades = self.state_manager.get_trade_history(15).await.unwrap_or_default();
+        let recent_trades = self
+            .state_manager
+            .get_trade_history(15)
+            .await
+            .unwrap_or_default();
 
         Ok(TelemetryTick {
             t: now,

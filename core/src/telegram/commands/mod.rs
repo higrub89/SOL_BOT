@@ -17,12 +17,11 @@ use std::time::Instant;
 /// Flag global de hibernación — cuando true, el bot no ejecuta trades
 pub static HIBERNATION_MODE: AtomicBool = AtomicBool::new(false);
 
-
-pub mod system;
 pub mod buy;
+pub mod dashboard;
 pub mod monitor;
 pub mod sell;
-pub mod dashboard;
+pub mod system;
 
 pub struct CommandHandler {
     pub(crate) bot_token: String,
@@ -39,8 +38,12 @@ impl Default for CommandHandler {
 
 impl CommandHandler {
     pub fn new() -> Result<Self> {
-        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN").ok().unwrap_or_default();
-        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID").ok().unwrap_or_default();
+        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN")
+            .ok()
+            .unwrap_or_default();
+        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID")
+            .ok()
+            .unwrap_or_default();
 
         let enabled = !bot_token.is_empty() && !chat_id.is_empty();
 
@@ -163,10 +166,10 @@ impl CommandHandler {
                         }
                     }
 
-                        // Persistir el offset después de procesar cada lote
-                        let _ = state_manager.set_telegram_offset(next_offset).await;
+                    // Persistir el offset después de procesar cada lote
+                    let _ = state_manager.set_telegram_offset(next_offset).await;
 
-                        if should_reboot {
+                    if should_reboot {
                         println!("🔄 REBOOT: Acknowledging messages and exiting...");
                         // One last call with the latest offset to acknowledge all messages processed
                         let _ = self.get_updates(next_offset).await;
@@ -246,7 +249,8 @@ impl CommandHandler {
             }
 
             "/status" => {
-                self.cmd_status(Arc::clone(&state_manager), Arc::clone(&price_cache)).await?;
+                self.cmd_status(Arc::clone(&state_manager), Arc::clone(&price_cache))
+                    .await?;
             }
 
             "/settings" => {
@@ -279,7 +283,8 @@ impl CommandHandler {
                             "<code>──────────────────────────</code>"
                         ),
                         gas
-                    )).await?;
+                    ))
+                    .await?;
                 }
             }
 
@@ -304,7 +309,8 @@ impl CommandHandler {
             }
 
             "/positions" => {
-                self.cmd_positions(Arc::clone(&state_manager), Arc::clone(&price_cache)).await?;
+                self.cmd_positions(Arc::clone(&state_manager), Arc::clone(&price_cache))
+                    .await?;
             }
 
             "/history" => {
@@ -344,10 +350,9 @@ impl CommandHandler {
                     "<code>  TRADING    ARMED</code>\n",
                     "<code>  PROTOCOLS  ALL ACTIVE</code>\n\n",
                     "<code>──────────────────────────</code>"
-                )).await?;
+                ))
+                .await?;
             }
-
-
 
             cmd if cmd.starts_with("/buy ") => {
                 self.cmd_buy(cmd, executor, state_manager, feed_tx).await?;
@@ -376,7 +381,8 @@ impl CommandHandler {
                     "<code>  Restarting process...</code>\n",
                     "<code>  Reconnect in ~10s</code>\n\n",
                     "<code>──────────────────────────</code>"
-                )).await?;
+                ))
+                .await?;
                 is_reboot = true;
             }
 
@@ -398,27 +404,31 @@ impl CommandHandler {
         Ok(is_reboot)
     }
 
-        async fn cmd_ping(&self, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
+    async fn cmd_ping(&self, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
         crate::telegram::commands::system::cmd_ping(self, wallet_monitor).await
-    }    async fn cmd_rbuy(
+    }
+    async fn cmd_rbuy(
         &self,
         command: &str,
         executor: Arc<TradeExecutor>,
         state_manager: Arc<StateManager>,
         feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
     ) -> Result<()> {
-        crate::telegram::commands::buy::cmd_rbuy(self, command, executor, state_manager, feed_tx).await
-    }    async fn cmd_buy(
+        crate::telegram::commands::buy::cmd_rbuy(self, command, executor, state_manager, feed_tx)
+            .await
+    }
+    async fn cmd_buy(
         &self,
         command: &str,
         executor: Arc<TradeExecutor>,
         state_manager: Arc<StateManager>,
         feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
     ) -> Result<()> {
-        crate::telegram::commands::buy::cmd_buy(self, command, executor, state_manager, feed_tx).await
+        crate::telegram::commands::buy::cmd_buy(self, command, executor, state_manager, feed_tx)
+            .await
     }
 
-        async fn cmd_buy_with_params(
+    async fn cmd_buy_with_params(
         &self,
         mint: &str,
         amount: f64,
@@ -427,22 +437,31 @@ impl CommandHandler {
         state_manager: Arc<StateManager>,
         feed_tx: tokio::sync::mpsc::Sender<crate::price_feed::FeedCommand>,
     ) -> Result<()> {
-        crate::telegram::commands::buy::cmd_buy_with_params(self, mint, amount, slippage_bps, executor, state_manager, feed_tx).await
+        crate::telegram::commands::buy::cmd_buy_with_params(
+            self,
+            mint,
+            amount,
+            slippage_bps,
+            executor,
+            state_manager,
+            feed_tx,
+        )
+        .await
     }
 
-        async fn cmd_track(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_track(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::monitor::cmd_track(self, command, state_manager).await
     }
 
-        async fn cmd_untrack(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_untrack(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::monitor::cmd_untrack(self, command, state_manager).await
     }
 
-        async fn cmd_update(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_update(&self, command: &str, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::monitor::cmd_update(self, command, state_manager).await
     }
 
-        async fn cmd_panic(
+    async fn cmd_panic(
         &self,
         command: &str,
         executor: Arc<TradeExecutor>,
@@ -451,7 +470,7 @@ impl CommandHandler {
         crate::telegram::commands::sell::cmd_panic(self, command, executor, state_manager).await
     }
 
-        async fn cmd_panic_all(
+    async fn cmd_panic_all(
         &self,
         executor: Arc<TradeExecutor>,
         state_manager: Arc<StateManager>,
@@ -459,15 +478,19 @@ impl CommandHandler {
         crate::telegram::commands::sell::cmd_panic_all(self, executor, state_manager).await
     }
 
-        async fn cmd_status(&self, state_manager: Arc<StateManager>, price_cache: crate::price_feed::PriceCache) -> Result<()> {
+    async fn cmd_status(
+        &self,
+        state_manager: Arc<StateManager>,
+        price_cache: crate::price_feed::PriceCache,
+    ) -> Result<()> {
         crate::telegram::commands::dashboard::cmd_status(self, state_manager, price_cache).await
     }
 
-        async fn cmd_balance(&self, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
+    async fn cmd_balance(&self, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
         crate::telegram::commands::dashboard::cmd_balance(self, wallet_monitor).await
     }
 
-        async fn cmd_targets(
+    async fn cmd_targets(
         &self,
         config: Arc<AppConfig>,
         state_manager: Arc<StateManager>,
@@ -475,11 +498,11 @@ impl CommandHandler {
         crate::telegram::commands::dashboard::cmd_targets(self, config, state_manager).await
     }
 
-        async fn cmd_fees(&self, state_manager: Arc<StateManager>) -> Result<()> {
+    async fn cmd_fees(&self, state_manager: Arc<StateManager>) -> Result<()> {
         crate::telegram::commands::dashboard::cmd_fees(self, state_manager).await
     }
 
-        /// Obtiene actualizaciones de Telegram
+    /// Obtiene actualizaciones de Telegram
     async fn get_updates(&self, offset: i64) -> Result<Vec<serde_json::Value>> {
         let mut url = format!("https://api.telegram.org/bot{}/getUpdates", self.bot_token);
 
@@ -545,7 +568,11 @@ impl CommandHandler {
     }
 
     /// Comando /positions - Muestra posiciones activas con Titanium Interface
-    async fn cmd_positions(&self, state_manager: Arc<StateManager>, price_cache: crate::price_feed::PriceCache) -> Result<()> {
+    async fn cmd_positions(
+        &self,
+        state_manager: Arc<StateManager>,
+        price_cache: crate::price_feed::PriceCache,
+    ) -> Result<()> {
         match state_manager.get_active_positions().await {
             Ok(positions) => {
                 if positions.is_empty() {
@@ -554,18 +581,18 @@ impl CommandHandler {
                         "<code>──────────────────────────</code>\n\n",
                         "<code>  NO ACTIVE ALLOCATIONS</code>\n\n",
                         "<code>──────────────────────────</code>"
-                    )).await?;
+                    ))
+                    .await?;
                     return Ok(());
                 }
 
-                self.send_message(
-                    &format!(
-                        "<b>THE CHASSIS</b>  <code>ACTIVE LEDGER</code>\n\
+                self.send_message(&format!(
+                    "<b>THE CHASSIS</b>  <code>ACTIVE LEDGER</code>\n\
                         <code>──────────────────────────</code>\n\
                         <code>  {} TRACKED INSTRUMENTS</code>",
-                        positions.len()
-                    )
-                ).await?;
+                    positions.len()
+                ))
+                .await?;
 
                 for mut pos in positions {
                     {
@@ -578,9 +605,15 @@ impl CommandHandler {
                     }
                     let dd = if pos.entry_price > 0.0 {
                         ((pos.current_price - pos.entry_price) / pos.entry_price) * 100.0
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
 
-                    let tokens_held = if pos.entry_price > 0.0 { pos.amount_sol / pos.entry_price } else { 0.0 };
+                    let tokens_held = if pos.entry_price > 0.0 {
+                        pos.amount_sol / pos.entry_price
+                    } else {
+                        0.0
+                    };
                     let current_value_sol = tokens_held * pos.current_price;
                     let pnl = current_value_sol - pos.amount_sol;
 
@@ -596,7 +629,7 @@ impl CommandHandler {
                     let bar = luxury_progress_bar(pct);
 
                     let pos_text = format!(
-"<b>{sym}</b>  <code>{dir} {sign}{dd:.2}%</code>\n\
+                        "<b>{sym}</b>  <code>{dir} {sign}{dd:.2}%</code>\n\
 <code>──────────────────────────</code>\n\
 <code>  ENTRY   {entry:.9}</code>\n\
 <code>  MARKET  {price:.9}</code>\n\
@@ -604,17 +637,17 @@ impl CommandHandler {
 <code>  EXPOSURE GRID</code>\n\
 <code>  [ SL {sl:.0}% ] {bar} [ TP {tp:.0}% ]</code>\n\
 <code>──────────────────────────</code>",
-                        sym   = pos.symbol,
-                        dir   = dir,
-                        sign  = sign,
-                        dd    = dd,
+                        sym = pos.symbol,
+                        dir = dir,
+                        sign = sign,
+                        dd = dd,
                         entry = pos.entry_price,
                         price = pos.current_price,
                         psign = psign,
-                        pnl   = pnl,
-                        bar   = bar,
-                        sl    = sl_safe,
-                        tp    = tp_safe,
+                        pnl = pnl,
+                        bar = bar,
+                        sl = sl_safe,
+                        tp = tp_safe,
                     );
 
                     let markup = serde_json::json!({
@@ -641,7 +674,11 @@ impl CommandHandler {
                         { "text": "⬢ PANIC ALL", "callback_data": "/panic_all" }
                     ]]
                 });
-                self.send_message_with_markup("<code>──────────────────────────</code>", Some(footer)).await?;
+                self.send_message_with_markup(
+                    "<code>──────────────────────────</code>",
+                    Some(footer),
+                )
+                .await?;
             }
             Err(e) => {
                 self.send_message(&format!("<b>DB FAULT</b>\n<code>{}</code>", e))

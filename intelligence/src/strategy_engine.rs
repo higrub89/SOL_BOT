@@ -1,5 +1,5 @@
 //! # Strategy Engine
-//! 
+//!
 //! El cerebro modular del bot. Define la interfaz estándar para todas las estrategias de trading.
 //! Permite backtesting seguro y ejecución en tiempo real con la misma lógica.
 
@@ -55,13 +55,13 @@ pub struct MarketData {
 pub trait Strategy: Debug + Send + Sync {
     /// Nombre de la estrategia (para logs y reportes)
     fn name(&self) -> &str;
-    
+
     /// Inicializa la estrategia (carga modelos, configura indicadores)
     fn initialize(&self) -> Result<()>;
-    
+
     /// Procesa una actualización de precio y devuelve una decisión
     fn on_price_update(&self, data: &MarketData) -> Result<TradeAction>;
-    
+
     /// Opcional: Procesa eventos arbitrarios (noticias, tweets)
     fn on_event(&self, _event_type: &str, _payload: &str) -> Result<TradeAction> {
         Ok(TradeAction::Hold)
@@ -95,18 +95,21 @@ impl Strategy for SimpleMomentumStrategy {
     }
 
     fn initialize(&self) -> Result<()> {
-        println!("🚀 Estrategia SimpleMomentum inicializada para {}", self.symbol);
+        println!(
+            "🚀 Estrategia SimpleMomentum inicializada para {}",
+            self.symbol
+        );
         Ok(())
     }
 
     fn on_price_update(&self, data: &MarketData) -> Result<TradeAction> {
         let current_price = data.price;
-        
+
         let mut last_price_guard = self.last_price.write().unwrap();
-        
+
         let action = if let Some(last) = *last_price_guard {
             let change_pct = (current_price - last) / last * 100.0;
-            
+
             if change_pct > self.momentum_threshold {
                 TradeAction::Buy {
                     confidence: 0.8,
@@ -124,7 +127,7 @@ impl Strategy for SimpleMomentumStrategy {
         } else {
             TradeAction::Hold
         };
-        
+
         *last_price_guard = Some(current_price);
         Ok(action)
     }

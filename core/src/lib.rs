@@ -53,8 +53,8 @@ use executor_v2::{ExecutorConfig, TradeExecutor};
 
 use price_feed::{MonitoredToken, PriceFeed, PriceFeedConfig};
 use state_manager::StateManager;
-use telegram::TelegramNotifier;
 use telegram::commands::CommandHandler;
+use telegram::TelegramNotifier;
 
 use wallet::{load_keypair_secure, WalletMonitor};
 
@@ -198,23 +198,28 @@ async fn handle_scan_mode() -> Result<()> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║         📡 NETWORK SCANNER - Pump.fun Telemetry          ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
-    
-    use websocket::{SolanaWebSocket, WebSocketConfig};
+
     use auto_buyer::AutoBuyer;
-    use wallet::load_keypair_secure;
     use std::sync::Arc;
+    use wallet::load_keypair_secure;
+    use websocket::{SolanaWebSocket, WebSocketConfig};
 
     let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
-    
+
     // 1. Cargar dependencias para el HunterLoop
-    let buyer = Arc::new(AutoBuyer::new(rpc_url.clone()).context("No se pudo inicializar AutoBuyer")?);
-    let wallet = Arc::new(load_keypair_secure("WALLET_PRIVATE_KEY").context("Fallo crítico cargando WALLET_PRIVATE_KEY para el HunterLoop")?);
-    
+    let buyer =
+        Arc::new(AutoBuyer::new(rpc_url.clone()).context("No se pudo inicializar AutoBuyer")?);
+    let wallet = Arc::new(
+        load_keypair_secure("WALLET_PRIVATE_KEY")
+            .context("Fallo crítico cargando WALLET_PRIVATE_KEY para el HunterLoop")?,
+    );
+
     // 2. Configuración (Por defecto DEVNET para seguridad inicial)
-    let hunter_mode = crate::wallet::get_env_or_secret("HUNTER_MODE").unwrap_or_else(|_| "devnet".to_string());
+    let hunter_mode =
+        crate::wallet::get_env_or_secret("HUNTER_MODE").unwrap_or_else(|_| "devnet".to_string());
     let devnet_mode = hunter_mode == "devnet";
-    
+
     if devnet_mode {
         println!("🧪 MODO HUNTER: DEVNET (Simulación activa)");
     } else {
@@ -223,7 +228,7 @@ async fn handle_scan_mode() -> Result<()> {
 
     let config = WebSocketConfig::from_env()?;
     let scanner = SolanaWebSocket::new(config, buyer, wallet, devnet_mode);
-    
+
     scanner.listen_to_pump_events().await?;
     Ok(())
 }
@@ -248,15 +253,21 @@ async fn run_monitor_mode() -> Result<()> {
         app_config.global_settings.auto_execute
     );
 
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")
-        .context("Fallo al obtener HELIUS_API_KEY. El bot requiere esta llave para la telemetría.")?;
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY").context(
+        "Fallo al obtener HELIUS_API_KEY. El bot requiere esta llave para la telemetría.",
+    )?;
     let rpc_url = format!("{}{}", HELIUS_RPC, api_key);
     let wallet_addr = crate::wallet::get_env_or_secret("WALLET_ADDRESS")
         .context("Fallo al obtener WALLET_ADDRESS. Requerido para monitorear balances.")?;
 
     // 1. Wallet Monitor
-    let wallet_monitor = Arc::new(WalletMonitor::new(rpc_url.clone(), &wallet_addr).context("No se pudo inicializar WalletMonitor")?);
-    let sol_balance = wallet_monitor.get_sol_balance().context("No se pudo obtener el balance inicial de SOL")?;
+    let wallet_monitor = Arc::new(
+        WalletMonitor::new(rpc_url.clone(), &wallet_addr)
+            .context("No se pudo inicializar WalletMonitor")?,
+    );
+    let sol_balance = wallet_monitor
+        .get_sol_balance()
+        .context("No se pudo obtener el balance inicial de SOL")?;
     println!("🏦 Balance Inicial: {:.4} SOL", sol_balance);
 
     // 2. DB Asíncrona (Connection Pool)
@@ -275,17 +286,23 @@ async fn run_monitor_mode() -> Result<()> {
     // =========================================================================
     if let Ok(db_positions) = state_manager.get_active_positions().await {
         let rpc_for_check = solana_client::rpc_client::RpcClient::new(rpc_url.clone());
-        let wallet_pubkey = solana_sdk::pubkey::Pubkey::from_str(&wallet_addr)
-            .expect("WALLET_ADDRESS inválida");
+        let wallet_pubkey =
+            solana_sdk::pubkey::Pubkey::from_str(&wallet_addr).expect("WALLET_ADDRESS inválida");
 
         for target in &db_positions {
             // Verificar si realmente tenemos tokens de esta posición
             let mint_pubkey = match solana_sdk::pubkey::Pubkey::from_str(&target.token_mint) {
                 Ok(pk) => pk,
                 Err(_) => {
-                    println!("   ⚠️ Mint inválido en DB: {}, cerrando...", target.token_mint);
+                    println!(
+                        "   ⚠️ Mint inválido en DB: {}, cerrando...",
+                        target.token_mint
+                    );
                     if let Err(e) = state_manager.close_position(&target.token_mint).await {
-                        eprintln!("   ❌ DB ERROR cerrando mint inválido {}: {}", target.token_mint, e);
+                        eprintln!(
+                            "   ❌ DB ERROR cerrando mint inválido {}: {}",
+                            target.token_mint, e
+                        );
                     }
                     continue;
                 }
@@ -297,12 +314,10 @@ async fn run_monitor_mode() -> Result<()> {
             );
 
             let has_balance = match rpc_for_check.get_account(&ata) {
-                Ok(account_data) => {
-                    match TokenAccount::unpack(&account_data.data) {
-                        Ok(token_account) => token_account.amount > 0,
-                        Err(_) => false,
-                    }
-                }
+                Ok(account_data) => match TokenAccount::unpack(&account_data.data) {
+                    Ok(token_account) => token_account.amount > 0,
+                    Err(_) => false,
+                },
                 Err(_) => false,
             };
 
@@ -312,7 +327,10 @@ async fn run_monitor_mode() -> Result<()> {
                     target.symbol, &target.token_mint[..8]
                 );
                 if let Err(e) = state_manager.close_position(&target.token_mint).await {
-                    eprintln!("   ❌ DB ERROR cerrando ghost position {}: {}", target.token_mint, e);
+                    eprintln!(
+                        "   ❌ DB ERROR cerrando ghost position {}: {}",
+                        target.token_mint, e
+                    );
                 }
 
                 // Registrar como trade de limpieza
@@ -333,7 +351,10 @@ async fn run_monitor_mode() -> Result<()> {
                     timestamp: chrono::Utc::now().timestamp(),
                 };
                 if let Err(e) = state_manager.record_trade(trade).await {
-                    eprintln!("   ❌ DB ERROR registrando ghost purge para {}: {}", target.token_mint, e);
+                    eprintln!(
+                        "   ❌ DB ERROR registrando ghost purge para {}: {}",
+                        target.token_mint, e
+                    );
                 }
                 continue;
             }
@@ -369,7 +390,7 @@ async fn run_monitor_mode() -> Result<()> {
     // 5. PriceFeed (Telemetría de alta velocidad)
     let feed_config = PriceFeedConfig::from_env();
     let mut monitored_tokens: Vec<MonitoredToken> = Vec::new();
-    
+
     // Trackear el precio de SOL por defecto siempre
     monitored_tokens.push(MonitoredToken {
         mint: "So11111111111111111111111111111111111111112".to_string(),
@@ -379,7 +400,7 @@ async fn run_monitor_mode() -> Result<()> {
         pc_vault: None,
         token_decimals: 9, // SOL usa 9 decimales
     });
-    
+
     if let Ok(db_positions) = state_manager.get_active_positions().await {
         for pos in db_positions {
             monitored_tokens.push(MonitoredToken {
@@ -417,7 +438,8 @@ async fn run_monitor_mode() -> Result<()> {
     });
 
     // 7. Telegram y Comandos
-    let telegram = Arc::new(TelegramNotifier::new().expect("TelegramNotifier initialization failed"));
+    let telegram =
+        Arc::new(TelegramNotifier::new().expect("TelegramNotifier initialization failed"));
     let command_handler = Arc::new(CommandHandler::new()?);
 
     let cmd_handler_clone = Arc::clone(&command_handler);
@@ -480,7 +502,6 @@ async fn run_monitor_mode() -> Result<()> {
         }
     });
 
-
     // ============================================================================
     // LOOP PRINCIPAL HFT (Arquitectura Desacoplada)
     // ============================================================================
@@ -492,13 +513,19 @@ async fn run_monitor_mode() -> Result<()> {
         engine.run_loop(price_rx, engine_cmd_tx, feedback_rx).await;
     });
 
-    let router = crate::engine::router::ExecutionRouter::new(Arc::clone(&executor), Arc::clone(&state_manager), Arc::clone(&telegram), wallet_keypair, feedback_tx);
+    let router = crate::engine::router::ExecutionRouter::new(
+        Arc::clone(&executor),
+        Arc::clone(&state_manager),
+        Arc::clone(&telegram),
+        wallet_keypair,
+        feedback_tx,
+    );
     let router_handle = tokio::spawn(async move {
         Arc::new(router).run_dashboard(cmd_rx).await;
     });
 
     println!("✅ The Chassis está en marcha. Pulsa Ctrl+C para detener.\n");
-    
+
     // Mantener el proceso vivo hasta que se reciba una señal de interrupción
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {

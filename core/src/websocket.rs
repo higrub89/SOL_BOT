@@ -7,15 +7,15 @@
 use crate::auto_buyer::{AutoBuyConfig, AutoBuyer};
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use solana_sdk::signature::Keypair;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Keypair;
 use std::collections::{HashSet, VecDeque};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::str::FromStr;
-use regex::Regex;
 use tokio::sync::RwLock;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -33,7 +33,8 @@ pub struct WebSocketConfig {
 impl WebSocketConfig {
     pub fn from_env() -> Result<Self> {
         let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")?;
-        let ws_url = std::env::var("SOLANA_WS_URL").unwrap_or_else(|_| format!("wss://mainnet.helius-rpc.com/?api-key={}", api_key));
+        let ws_url = std::env::var("SOLANA_WS_URL")
+            .unwrap_or_else(|_| format!("wss://mainnet.helius-rpc.com/?api-key={}", api_key));
         Ok(Self { rpc_url: ws_url })
     }
 }
@@ -173,7 +174,8 @@ impl SolanaWebSocket {
                         // NOTA: En logs complejos, el mint suele aparecer después de la instrucción.
                         // Como fallback/mejora, buscamos el patrón típico de Pump.fun.
                         if let Some(mint) = self.extract_mint_from_logs(logs) {
-                            self.process_candidate_token(mint, is_creation, slot, sig).await;
+                            self.process_candidate_token(mint, is_creation, slot, sig)
+                                .await;
                         }
                     }
                 }
@@ -194,10 +196,11 @@ impl SolanaWebSocket {
                 let candidate = mat.as_str();
                 if Pubkey::from_str(candidate).is_ok() {
                     // Excluir IDs de programas comunes para evitar falsos positivos
-                    if candidate == "11111111111111111111111111111111" || 
-                       candidate == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" ||
-                       candidate == "ATokenGPvbdPwn1i2CcDEvccS8S87pL97LSCGP6ADX" ||
-                       candidate == "ComputeBudget111111111111111111111111111111" {
+                    if candidate == "11111111111111111111111111111111"
+                        || candidate == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+                        || candidate == "ATokenGPvbdPwn1i2CcDEvccS8S87pL97LSCGP6ADX"
+                        || candidate == "ComputeBudget111111111111111111111111111111"
+                    {
                         continue;
                     }
                     candidates.push(candidate.to_string());
@@ -228,15 +231,18 @@ impl SolanaWebSocket {
         {
             let mut timestamps = self.last_tokens_timestamps.write().await;
             let now = Instant::now();
-            
+
             // Limpiar timestamps antiguos (> 60s)
             timestamps.retain(|&t| now.duration_since(t) < Duration::from_secs(60));
-            
+
             if timestamps.len() >= 10 {
-                println!("⚠️ [HunterLoop] Rate limit alcanzado. Omitiendo mint: {}", mint);
+                println!(
+                    "⚠️ [HunterLoop] Rate limit alcanzado. Omitiendo mint: {}",
+                    mint
+                );
                 return;
             }
-            
+
             timestamps.push(now);
         }
 
@@ -257,7 +263,11 @@ impl SolanaWebSocket {
             }
         }
 
-        let event_type = if is_new { "✨ CREACIÓN" } else { "🏁 GRADUACIÓN" };
+        let event_type = if is_new {
+            "✨ CREACIÓN"
+        } else {
+            "🏁 GRADUACIÓN"
+        };
         println!("{} detectada!", event_type);
         println!("   Mint: {}", mint);
         println!("   Slot: {} | Sig: {}...", slot, &sig[..16]);
@@ -272,8 +282,8 @@ impl SolanaWebSocket {
             let config = AutoBuyConfig {
                 token_mint: mint_clone,
                 symbol: None,
-                amount_sol: 0.02, // Configuración base para HunterLoop
-                slippage_bps: 500,  // 5% Slippage en Pump.fun es estándar por volatilidad
+                amount_sol: 0.02,  // Configuración base para HunterLoop
+                slippage_bps: 500, // 5% Slippage en Pump.fun es estándar por volatilidad
                 add_to_monitoring: true,
                 stop_loss_percent: -50.0,
                 trailing_enabled: true,
@@ -328,8 +338,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_mint_from_logs_valid_pump() {
-        let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
-        let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
+        let ws_config = WebSocketConfig {
+            rpc_url: "dummy".to_string(),
+        };
+        let auto_buyer = Arc::new(
+            AutoBuyer::new("http://localhost:8899".to_string())
+                .expect("Failed to create AutoBuyer"),
+        );
         let wallet = Arc::new(Keypair::new());
         let ws = SolanaWebSocket::new(ws_config, auto_buyer, wallet, false);
 
@@ -340,13 +355,21 @@ mod tests {
         ];
         let mint = ws.extract_mint_from_logs(&logs);
         assert!(mint.is_some());
-        assert_eq!(mint.unwrap(), "DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m");
+        assert_eq!(
+            mint.unwrap(),
+            "DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m"
+        );
     }
 
     #[tokio::test]
     async fn test_extract_mint_from_logs_invalid() {
-        let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
-        let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
+        let ws_config = WebSocketConfig {
+            rpc_url: "dummy".to_string(),
+        };
+        let auto_buyer = Arc::new(
+            AutoBuyer::new("http://localhost:8899".to_string())
+                .expect("Failed to create AutoBuyer"),
+        );
         let wallet = Arc::new(Keypair::new());
         let ws = SolanaWebSocket::new(ws_config, auto_buyer, wallet, false);
 
@@ -363,8 +386,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_mint_from_logs_multiple_candidates() {
-        let ws_config = WebSocketConfig { rpc_url: "dummy".to_string() };
-        let auto_buyer = Arc::new(AutoBuyer::new("http://localhost:8899".to_string()).expect("Failed to create AutoBuyer"));
+        let ws_config = WebSocketConfig {
+            rpc_url: "dummy".to_string(),
+        };
+        let auto_buyer = Arc::new(
+            AutoBuyer::new("http://localhost:8899".to_string())
+                .expect("Failed to create AutoBuyer"),
+        );
         let wallet = Arc::new(Keypair::new());
         let ws = SolanaWebSocket::new(ws_config, auto_buyer, wallet, false);
 
@@ -375,6 +403,9 @@ mod tests {
         ];
         let mint = ws.extract_mint_from_logs(&logs);
         assert!(mint.is_some());
-        assert_eq!(mint.unwrap(), "DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m");
+        assert_eq!(
+            mint.unwrap(),
+            "DezXAZ8z7PnrnAnqR7pUXsh8uRdiJ5XiS59AnrM2nQ9m"
+        );
     }
 }

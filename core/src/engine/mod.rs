@@ -4,12 +4,12 @@
 //! Sigue el patrón "Safety-Critical Pipeline".
 
 pub mod actuators;
+pub mod commands;
 pub mod filters;
 pub mod momentum;
-pub mod types;
-pub mod commands;
 pub mod router;
 pub mod strategy;
+pub mod types;
 
 // Re-exportar tipos para uso externo (AutoBuyer)
 pub use self::actuators::{AdaptiveSlippageCalculator, DynamicTipCalculator};
@@ -19,14 +19,19 @@ use self::filters::{
     AuthorityFilter, CircuitBreaker, MomentumFilter, TokenCooldown, WashTradingFilter,
 };
 
-use intelligence_rs::strategy_engine::{MarketData, Strategy, TradeAction, SellReason};
 use chrono::Utc;
+use intelligence_rs::strategy_engine::{MarketData, SellReason, Strategy, TradeAction};
 
 /// Decisión final del Engine unificando Estrategia, Filtros y Actuadores
 #[derive(Debug)]
 pub enum EngineDecision {
     /// La estrategia dio señal de compra y pasó todos los filtros
-    ExecuteBuy(ExecutionParams, f64 /* confidence */, Option<f64> /* target */, f64 /* sl */),
+    ExecuteBuy(
+        ExecutionParams,
+        f64,         /* confidence */
+        Option<f64>, /* target */
+        f64,         /* sl */
+    ),
     /// La estrategia dio señal de venta
     ExecuteSell(SellReason, u8),
     /// Rechazado por los filtros de seguridad
@@ -131,10 +136,15 @@ impl DecisionEngine {
         // 3. Procesar la acción propuesta
         match final_action {
             TradeAction::Hold => EngineDecision::Hold,
-            TradeAction::Sell { reason, amount_percent } => {
-                EngineDecision::ExecuteSell(reason, amount_percent)
-            }
-            TradeAction::Buy { confidence, target_price, stop_loss } => {
+            TradeAction::Sell {
+                reason,
+                amount_percent,
+            } => EngineDecision::ExecuteSell(reason, amount_percent),
+            TradeAction::Buy {
+                confidence,
+                target_price,
+                stop_loss,
+            } => {
                 // 4. Pasar por el túnel de seguridad (Filtros)
                 for filter in &self.filters {
                     if let FilterResult::Rejected(reason) = filter.check(ctx) {
@@ -143,7 +153,8 @@ impl DecisionEngine {
                 }
 
                 // 5. Calcular Actuadores On-Chain
-                let maturity = crate::engine::types::MaturityStage::from_age_minutes(ctx.age_minutes);
+                let maturity =
+                    crate::engine::types::MaturityStage::from_age_minutes(ctx.age_minutes);
                 let priority_fee = self
                     .tip_calculator
                     .calculate_tip(ctx.momentum_slope, maturity);

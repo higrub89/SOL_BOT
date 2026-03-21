@@ -107,7 +107,9 @@ impl TradeExecutor {
         const DEFAULT: u64 = 100_000; // 100k micro-lamports
         const MAX_FEE: u64 = 2_000_000; // 2M micro-lamports cap
 
-        let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY").ok().unwrap_or_default();
+        let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")
+            .ok()
+            .unwrap_or_default();
 
         let url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
         let body = serde_json::json!({
@@ -122,7 +124,8 @@ impl TradeExecutor {
 
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(2))
-            .build() {
+            .build()
+        {
             Ok(c) => c,
             Err(_) => return DEFAULT,
         };
@@ -141,9 +144,15 @@ impl TradeExecutor {
                     println!("⛽ [DynFee] Helius: {}µL → Cap: {}µL", fee, capped);
                     capped
                 }
-                Err(_) => { eprintln!("⚠️ [DynFee] Parse error → fallback"); DEFAULT }
+                Err(_) => {
+                    eprintln!("⚠️ [DynFee] Parse error → fallback");
+                    DEFAULT
+                }
             },
-            Err(_) => { eprintln!("⚠️ [DynFee] Timeout → fallback"); DEFAULT }
+            Err(_) => {
+                eprintln!("⚠️ [DynFee] Timeout → fallback");
+                DEFAULT
+            }
         }
     }
 
@@ -337,10 +346,7 @@ impl TradeExecutor {
         // ⚡ FAST PATH: Raydium Direct Sell (Prioridad Absoluta en Emergencias)
         // Latencia: ~50-150ms vs ~300-500ms de Jupiter
         if let Some(raydium) = &self.raydium {
-            let min_sol_out = raydium.calculate_min_amount_out(
-                amount_to_sell,
-                active_slippage,
-            );
+            let min_sol_out = raydium.calculate_min_amount_out(amount_to_sell, active_slippage);
 
             println!("⚡ [FAST PATH] Intentando venta directa en Raydium...");
             match raydium
@@ -429,7 +435,7 @@ impl TradeExecutor {
                 "🛡️  Preparando Jito Bundle con Tip ({} SOL)...",
                 active_jito_tip as f64 / 1_000_000_000.0
             );
- 
+
             let tip_ix = match JitoClient::create_tip_instruction(&user_pubkey, active_jito_tip) {
                 Ok(ix) => ix,
                 Err(e) => {
@@ -559,13 +565,14 @@ impl TradeExecutor {
                 priority_fee_lamports as f64 / 1_000_000_000.0
             );
 
-            let tip_ix = match JitoClient::create_tip_instruction(&user_pubkey, priority_fee_lamports) {
-                Ok(ix) => ix,
-                Err(e) => {
-                    eprintln!("⚠️ Error creando instrucción Jito: {}. Saltando bundle.", e);
-                    anyhow::bail!("Jito Ix Error: {}", e);
-                }
-            };
+            let tip_ix =
+                match JitoClient::create_tip_instruction(&user_pubkey, priority_fee_lamports) {
+                    Ok(ix) => ix,
+                    Err(e) => {
+                        eprintln!("⚠️ Error creando instrucción Jito: {}. Saltando bundle.", e);
+                        anyhow::bail!("Jito Ix Error: {}", e);
+                    }
+                };
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = solana_sdk::transaction::Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
@@ -672,50 +679,50 @@ impl TradeExecutor {
                 //   2. Jupiter HTTP como fallback
                 //   3. DEGEN mode (1 lamport) como último recurso
                 // ═══════════════════════════════════════════════════════════════
-                let (estimated_out, price_impact_pct, oracle_label) =
-                    match raydium.get_quote_native(&pool_info.amm_id, amount_in, true) {
-                        Ok((native_out, native_impact)) => {
-                            println!(
-                                "✅ [NATIVE ORACLE] Estimado: {} tokens raw | Impact: {:.2}%",
-                                native_out, native_impact
-                            );
-                            (native_out, native_impact, "Native AMM")
-                        }
-                        Err(native_err) => {
-                            eprintln!(
-                                "⚠️ [NATIVE ORACLE FAIL] {}. Fallback a Jupiter HTTP...",
-                                native_err
-                            );
-                            // Fallback: Jupiter HTTP (el camino viejo)
-                            match self
-                                .jupiter
-                                .get_quote(SOL_MINT, &token_mint, amount_in, 500)
-                                .await
-                            {
-                                Ok(q) => {
-                                    let jup_out = FinancialValidator::parse_amount_safe(
-                                        &q.out_amount,
-                                        "Jup Estimate",
-                                    )
-                                    .unwrap_or(0);
-                                    let jup_impact =
-                                        q.price_impact_pct.parse::<f64>().unwrap_or(0.0);
-                                    println!(
-                                        "✅ [JUP ORACLE FALLBACK] Estimado: {} | Impact: {:.2}%",
-                                        jup_out, jup_impact
-                                    );
-                                    (jup_out, jup_impact, "Jupiter (fallback)")
-                                }
-                                Err(jup_err) => {
-                                    eprintln!(
-                                        "⚠️ [ORACLE FAIL TOTAL] Jupiter también falló: {}. DEGEN mode.",
-                                        jup_err
-                                    );
-                                    (0u64, 0.0f64, "DEGEN")
-                                }
+                let (estimated_out, price_impact_pct, oracle_label) = match raydium
+                    .get_quote_native(&pool_info.amm_id, amount_in, true)
+                {
+                    Ok((native_out, native_impact)) => {
+                        println!(
+                            "✅ [NATIVE ORACLE] Estimado: {} tokens raw | Impact: {:.2}%",
+                            native_out, native_impact
+                        );
+                        (native_out, native_impact, "Native AMM")
+                    }
+                    Err(native_err) => {
+                        eprintln!(
+                            "⚠️ [NATIVE ORACLE FAIL] {}. Fallback a Jupiter HTTP...",
+                            native_err
+                        );
+                        // Fallback: Jupiter HTTP (el camino viejo)
+                        match self
+                            .jupiter
+                            .get_quote(SOL_MINT, &token_mint, amount_in, 500)
+                            .await
+                        {
+                            Ok(q) => {
+                                let jup_out = FinancialValidator::parse_amount_safe(
+                                    &q.out_amount,
+                                    "Jup Estimate",
+                                )
+                                .unwrap_or(0);
+                                let jup_impact = q.price_impact_pct.parse::<f64>().unwrap_or(0.0);
+                                println!(
+                                    "✅ [JUP ORACLE FALLBACK] Estimado: {} | Impact: {:.2}%",
+                                    jup_out, jup_impact
+                                );
+                                (jup_out, jup_impact, "Jupiter (fallback)")
+                            }
+                            Err(jup_err) => {
+                                eprintln!(
+                                    "⚠️ [ORACLE FAIL TOTAL] Jupiter también falló: {}. DEGEN mode.",
+                                    jup_err
+                                );
+                                (0u64, 0.0f64, "DEGEN")
                             }
                         }
-                    };
+                    }
+                };
 
                 let min_out = if estimated_out > 0 {
                     raydium.calculate_min_amount_out(estimated_out, self.config.slippage_bps)
@@ -772,7 +779,6 @@ impl TradeExecutor {
                 }
             }
         }
-
 
         // 2. FALLBACK/STANDARD: JUPITER AGGREGATOR
         println!("🔄 [STANDARD PATH] Ruteando vía Jupiter Aggregator...");
@@ -889,7 +895,8 @@ impl TradeExecutor {
                 .collect::<Vec<_>>()
                 .join(" → "),
             price_impact_pct: price_impact,
-            fee_sol: Self::lamports_to_sol(jito_tip_lamports) + Self::microlamports_to_sol(dynamic_priority_fee),
+            fee_sol: Self::lamports_to_sol(jito_tip_lamports)
+                + Self::microlamports_to_sol(dynamic_priority_fee),
         };
 
         Ok(result)
@@ -1141,7 +1148,8 @@ impl TradeExecutor {
         // 7. Results
         let mut final_results = Vec::new();
         // Fee por transacción en el bundle: split del jito_tip entre todas las TXs
-        let fee_per_tx = Self::lamports_to_sol(jito_tip_lamports) / (sell_infos.len() as f64).max(1.0);
+        let fee_per_tx =
+            Self::lamports_to_sol(jito_tip_lamports) / (sell_infos.len() as f64).max(1.0);
         for (_mint, quote, sig) in sell_infos {
             let sol_received =
                 FinancialValidator::parse_price_safe(&quote.out_amount, "Jup")? / 1_000_000_000.0;
@@ -1269,15 +1277,17 @@ impl TradeExecutor {
         let keypair = wallet_keypair.context("Wallet keypair required for Degen Mode")?;
         const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
         let sol_mint_pubkey = Pubkey::from_str(SOL_MINT).context("Could not parse SOL MINT")?;
-        let token_mint_pubkey = Pubkey::from_str(&valid_mint).context("Invalid token mint string")?;
+        let token_mint_pubkey =
+            Pubkey::from_str(&valid_mint).context("Invalid token mint string")?;
         let user_pubkey = keypair.pubkey();
-        
+
         let amount_in_lamports = (amount_sol * 1_000_000_000.0) as u64;
 
         // --- SECURITY LIMIT 1: Balance Buffer ---
         let main_balance = self.rpc_client.get_balance(&user_pubkey).unwrap_or(0);
-        if main_balance < amount_in_lamports + 15_000_000 { // 0.015 SOL buffer (Ajustado para permitir pruebas con pocos fondos)
-             anyhow::bail!("❌ Insufficient SOL balance to maintain safety buffer (min 0.015 SOL required after trade)");
+        if main_balance < amount_in_lamports + 15_000_000 {
+            // 0.015 SOL buffer (Ajustado para permitir pruebas con pocos fondos)
+            anyhow::bail!("❌ Insufficient SOL balance to maintain safety buffer (min 0.015 SOL required after trade)");
         }
 
         // --- SECURITY LIMIT 2: Liquidity Guard ---
@@ -1285,7 +1295,7 @@ impl TradeExecutor {
         println!("🛡️  Checking Liquidity Protection...");
         if let Ok(price_data) = scanner.get_token_price(&valid_mint).await {
             if price_data.liquidity_usd < 500.0 && price_data.liquidity_usd > 0.0 {
-                 anyhow::bail!("❌ LIQUIDITY BREACH: Pool has only ${:.2} liquidity. Assault aborted for your safety.", price_data.liquidity_usd);
+                anyhow::bail!("❌ LIQUIDITY BREACH: Pool has only ${:.2} liquidity. Assault aborted for your safety.", price_data.liquidity_usd);
             }
             println!("   ✅ Liquidity verified: ${:.2}", price_data.liquidity_usd);
         }
@@ -1309,17 +1319,25 @@ impl TradeExecutor {
         println!("🔍 Preparando transacción optimizada (Ata + Wrap + Priority)...");
         let pool_info = raydium.find_pool(SOL_MINT, &valid_mint).await?;
         let pool_keys = pool_info.to_pubkeys()?;
-        
+
         // Cuentas ATA
-        let user_wsol_ata = spl_associated_token_account::get_associated_token_address(&user_pubkey, &sol_mint_pubkey);
-        let user_token_ata = spl_associated_token_account::get_associated_token_address(&user_pubkey, &token_mint_pubkey);
-        
+        let user_wsol_ata = spl_associated_token_account::get_associated_token_address(
+            &user_pubkey,
+            &sol_mint_pubkey,
+        );
+        let user_token_ata = spl_associated_token_account::get_associated_token_address(
+            &user_pubkey,
+            &token_mint_pubkey,
+        );
+
         let mut instructions = Vec::new();
 
         // 3.1. Priority Fee Dinámico y Compute Limit
         let dynamic_fee = self.get_dynamic_priority_fee().await;
         instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(500_000));
-        instructions.push(ComputeBudgetInstruction::set_compute_unit_price(dynamic_fee));
+        instructions.push(ComputeBudgetInstruction::set_compute_unit_price(
+            dynamic_fee,
+        ));
 
         // 3.2. Crear ATA de Destino si no existe
         if self.rpc_client.get_account(&user_token_ata).is_err() {
@@ -1330,7 +1348,7 @@ impl TradeExecutor {
                     &user_pubkey,
                     &token_mint_pubkey,
                     &spl_token::id(),
-                )
+                ),
             );
         }
 
@@ -1342,16 +1360,25 @@ impl TradeExecutor {
                     &user_pubkey,
                     &sol_mint_pubkey,
                     &spl_token::id(),
-                )
+                ),
             );
         }
-        
-        instructions.push(system_instruction::transfer(&user_pubkey, &user_wsol_ata, amount_in_lamports));
-        instructions.push(spl_token::instruction::sync_native(&spl_token::id(), &user_wsol_ata)?);
+
+        instructions.push(system_instruction::transfer(
+            &user_pubkey,
+            &user_wsol_ata,
+            amount_in_lamports,
+        ));
+        instructions.push(spl_token::instruction::sync_native(
+            &spl_token::id(),
+            &user_wsol_ata,
+        )?);
 
         // 3.4. Raydium Swap Instruction with Native Oracle Quote
         println!("🔮 Calculando quote nativo para protección de slippage...");
-        let (expected_out, _) = raydium.get_quote_native(&pool_info.amm_id, amount_in_lamports, true).unwrap_or((0, 0.0));
+        let (expected_out, _) = raydium
+            .get_quote_native(&pool_info.amm_id, amount_in_lamports, true)
+            .unwrap_or((0, 0.0));
         let min_amount_out = if expected_out > 0 {
             let mo = raydium.calculate_min_amount_out(expected_out, slippage_bps);
             println!("   Estimado: {} tokens (Min: {})", expected_out, mo);
@@ -1372,16 +1399,22 @@ impl TradeExecutor {
         instructions.push(swap_ix);
 
         // 3.5. Close WSOL account for refund
-        instructions.push(spl_token::instruction::close_account(&spl_token::id(), &user_wsol_ata, &user_pubkey, &user_pubkey, &[])?);
+        instructions.push(spl_token::instruction::close_account(
+            &spl_token::id(),
+            &user_wsol_ata,
+            &user_pubkey,
+            &user_pubkey,
+            &[],
+        )?);
 
         // 4. Construir Transacciones para Jito Bundle
         use solana_sdk::transaction::VersionedTransaction;
-        
+
         // El tip de Jito suele ser 0.001 SOL (1_000_000 lamports) a 0.0001 dependiendo del hambre
-        let jito_tip_lamports = 100_000; 
+        let jito_tip_lamports = 100_000;
 
         let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
-        
+
         // Paquete A: Toda la operativa de ATA, Envoltorio WSOL, Swapeo y Cierre WSOL
         let swap_tx = Transaction::new_signed_with_payer(
             &instructions,
@@ -1391,11 +1424,13 @@ impl TradeExecutor {
         );
         let versioned_swap = VersionedTransaction::from(swap_tx);
 
-        // Paquete B: La Propina de Jito 
+        // Paquete B: La Propina de Jito
         let mut bundle_sent = false;
         let mut final_signature = versioned_swap.signatures[0].to_string();
 
-        if let Ok(tip_ix) = crate::jito::JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports) {
+        if let Ok(tip_ix) =
+            crate::jito::JitoClient::create_tip_instruction(&user_pubkey, jito_tip_lamports)
+        {
             let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_pubkey));
             let mut tip_tx = Transaction::new_unsigned(tip_msg);
             tip_tx.sign(&[keypair], recent_blockhash);
@@ -1404,10 +1439,13 @@ impl TradeExecutor {
             // Armar Bundle Encriptado
             let bundle = vec![versioned_swap.clone(), versioned_tip];
             let jito_client = crate::jito::JitoClient::new();
-            
+
             println!("📡 Enviando Raydium Assault (JITO BUNDLE)...");
             if let Ok(bundle_id) = jito_client.send_bundle(bundle).await {
-                println!("✅ Swap ejecutado privadamente [JITO BUNDLE ID: {}]: {}", bundle_id, final_signature);
+                println!(
+                    "✅ Swap ejecutado privadamente [JITO BUNDLE ID: {}]: {}",
+                    bundle_id, final_signature
+                );
                 bundle_sent = true;
             } else {
                 println!("⚠️  Fallo envío Jito. Usando túnel RPC de emergencia...");

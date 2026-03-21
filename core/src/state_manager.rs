@@ -7,9 +7,9 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use deadpool_sqlite::{Config, Pool, Runtime};
 use rusqlite::params;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use rusqlite::Connection;
 
 // ============================================================================
 // DATA STRUCTURES
@@ -774,7 +774,8 @@ impl StateManager {
         let conn = self.pool.get().await?;
 
         conn.interact(|conn: &mut Connection| -> Result<i64> {
-            let mut stmt = conn.prepare("SELECT value FROM metadata WHERE key = 'telegram_offset'")?;
+            let mut stmt =
+                conn.prepare("SELECT value FROM metadata WHERE key = 'telegram_offset'")?;
             let mut rows = stmt.query([])?;
 
             if let Some(row) = rows.next()? {

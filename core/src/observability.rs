@@ -72,13 +72,13 @@ impl ObservabilityConfig {
         if std::path::Path::new("/logs").exists() {
             return "/logs".to_string();
         }
-        
+
         if let Ok(current) = std::env::current_dir() {
             if current.ends_with("core") {
                 return "../logs".to_string();
             }
         }
-        
+
         "logs".to_string()
     }
 }

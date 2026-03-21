@@ -1,18 +1,23 @@
-use anyhow::Result;
-use std::sync::Arc;
 use crate::wallet::WalletMonitor;
+use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Comando /ping — Diagnostic & Latency (Titanium Interface)
-pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<WalletMonitor>) -> Result<()> {
+pub async fn cmd_ping(
+    handler: &super::CommandHandler,
+    wallet_monitor: Arc<WalletMonitor>,
+) -> Result<()> {
     let uptime = handler.start_time.elapsed();
-    let hours   = uptime.as_secs() / 3600;
+    let hours = uptime.as_secs() / 3600;
     let minutes = (uptime.as_secs() % 3600) / 60;
-    let secs    = uptime.as_secs() % 60;
+    let secs = uptime.as_secs() % 60;
 
     // ── RPC Latency Check ─────────────────────────────
-    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY").ok().unwrap_or_default();
+    let api_key = crate::wallet::get_env_or_secret("HELIUS_API_KEY")
+        .ok()
+        .unwrap_or_default();
     let (rpc_line, rpc_latency_ms) = {
         let rpc_url = format!("https://mainnet.helius-rpc.com/?api-key={}", api_key);
         let t0 = Instant::now();
@@ -40,7 +45,13 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
     // ── Wallet Balance ─────────────────────────────────
     let wallet_line = match wallet_monitor.get_sol_balance() {
         Ok(bal) => {
-            let dot = if bal > 0.05 { "⬢" } else if bal > 0.01 { "⬥" } else { "⏷" };
+            let dot = if bal > 0.05 {
+                "⬢"
+            } else if bal > 0.01 {
+                "⬥"
+            } else {
+                "⏷"
+            };
             format!("{}  {:.6} SOL", dot, bal)
         }
         Err(e) => format!("⏷  VAULT ERROR  ·  {}", e),
@@ -54,7 +65,7 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
     };
 
     let msg = format!(
-"<b>THE CHASSIS</b>  <code>DIAGNOSTIC</code>
+        "<b>THE CHASSIS</b>  <code>DIAGNOSTIC</code>
 <code>──────────────────────────</code>
 
 <b>UPTIME</b>
@@ -72,10 +83,12 @@ pub async fn cmd_ping(handler: &super::CommandHandler, wallet_monitor: Arc<Walle
 
 <code>──────────────────────────</code>
 <i>The Chassis · Institutional Execution Layer</i>",
-        h = hours, m = minutes, s = secs,
-        rpc    = rpc_line,
-        grade  = grade,
-        desc   = grade_desc,
+        h = hours,
+        m = minutes,
+        s = secs,
+        rpc = rpc_line,
+        grade = grade,
+        desc = grade_desc,
         wallet = wallet_line,
         engine = engine_state,
     );

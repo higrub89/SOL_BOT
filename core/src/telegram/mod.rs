@@ -25,8 +25,12 @@ impl TelegramNotifier {
     /// Crea un nuevo notificador de Telegram
     pub fn new() -> Result<Self> {
         // Usamos el fetcher seguro que cae a Secret Manager
-        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN").ok().unwrap_or_default();
-        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID").ok().unwrap_or_default();
+        let bot_token = crate::wallet::get_env_or_secret("TELEGRAM_BOT_TOKEN")
+            .ok()
+            .unwrap_or_default();
+        let chat_id = crate::wallet::get_env_or_secret("TELEGRAM_CHAT_ID")
+            .ok()
+            .unwrap_or_default();
 
         let enabled = !bot_token.is_empty() && !chat_id.is_empty();
 
@@ -157,7 +161,11 @@ impl TelegramNotifier {
             icon,
             status,
             feed_name,
-            if is_connected { "🟢 Online" } else { "🔴 Offline" },
+            if is_connected {
+                "🟢 Online"
+            } else {
+                "🔴 Offline"
+            },
             details,
             chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
         );

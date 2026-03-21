@@ -1,4 +1,4 @@
-use crate::strategy_engine::{Strategy, MarketData, TradeAction};
+use crate::strategy_engine::{MarketData, Strategy, TradeAction};
 use anyhow::Result;
 use std::time::Instant;
 
@@ -32,12 +32,20 @@ impl MarketSimulator {
     }
 
     /// Ejecuta una estrategia sobre un dataset histórico
-    pub fn run<S: Strategy>(&self, strategy: &mut S, data: &[MarketData]) -> Result<BacktestResult> {
+    pub fn run<S: Strategy>(
+        &self,
+        strategy: &mut S,
+        data: &[MarketData],
+    ) -> Result<BacktestResult> {
         let start_time = Instant::now();
-        println!("🧪 Iniciando backtesting para '{}' con {} puntos de datos...", strategy.name(), data.len());
-        
+        println!(
+            "🧪 Iniciando backtesting para '{}' con {} puntos de datos...",
+            strategy.name(),
+            data.len()
+        );
+
         strategy.initialize()?;
-        
+
         let mut balance = self.initial_balance;
         let mut position: Option<(f64, f64)> = None; // (amount, entry_price)
         let mut trades = 0;
@@ -48,31 +56,31 @@ impl MarketSimulator {
 
         for tick in data {
             let action = strategy.on_price_update(tick)?;
-            
+
             match action {
                 TradeAction::Buy { confidence: _, .. } => {
                     if position.is_none() && balance > 0.01 {
                         // Simular compra con slippage de taker
                         let execution_price = tick.price * (1.0 + self.slippage_taker);
                         let amount = (balance - self.fee_per_trade) / execution_price;
-                        
+
                         fees_paid += self.fee_per_trade;
                         balance -= amount * execution_price + self.fee_per_trade;
                         position = Some((amount, execution_price));
-                        
+
                         println!("   🟢 BUY @ {:.6} (Amt: {:.4})", execution_price, amount);
                     }
-                },
+                }
                 TradeAction::Sell { amount_percent, .. } => {
                     if let Some((amount, entry)) = position {
                         // Simular venta
                         let execution_price = tick.price * (1.0 - self.slippage_taker);
                         let sell_amount = amount * (amount_percent as f64 / 100.0);
-                        
+
                         let revenue = sell_amount * execution_price - self.fee_per_trade;
                         balance += revenue;
                         fees_paid += self.fee_per_trade;
-                        
+
                         // Check Win
                         trades += 1;
                         if execution_price > entry {
@@ -89,9 +97,13 @@ impl MarketSimulator {
                         }
 
                         position = None; // Asumimos venta total por simplicidad
-                        println!("   🔴 SELL @ {:.6} (P/L: {:.2}%)", execution_price, (execution_price/entry - 1.0)*100.0);
+                        println!(
+                            "   🔴 SELL @ {:.6} (P/L: {:.2}%)",
+                            execution_price,
+                            (execution_price / entry - 1.0) * 100.0
+                        );
                     }
-                },
+                }
                 TradeAction::Hold => {}
             }
         }
@@ -110,7 +122,11 @@ impl MarketSimulator {
         Ok(BacktestResult {
             strategy_name: strategy.name().to_string(),
             total_trades: trades,
-            win_rate: if trades > 0 { (wins as f64 / trades as f64) * 100.0 } else { 0.0 },
+            win_rate: if trades > 0 {
+                (wins as f64 / trades as f64) * 100.0
+            } else {
+                0.0
+            },
             final_balance: balance,
             max_drawdown,
             total_fees_paid: fees_paid,

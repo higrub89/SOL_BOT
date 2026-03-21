@@ -267,7 +267,10 @@ impl RaydiumClient {
         };
 
         println!("📡 Consultando RPC (Dual Filter)...");
-        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, config.clone()) {
+        if let Ok(accounts) = self
+            .rpc_client
+            .get_program_accounts_with_config(&self.program_id, config.clone())
+        {
             if !accounts.is_empty() {
                 println!("✅ Pool encontrado con filtro dual!");
                 return self.parse_pool_account(&accounts[0].0, &accounts[0].1, false);
@@ -292,7 +295,10 @@ impl RaydiumClient {
         };
 
         println!("📡 Consultando RPC (Dual Filter Reversed)...");
-        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, config_rev) {
+        if let Ok(accounts) = self
+            .rpc_client
+            .get_program_accounts_with_config(&self.program_id, config_rev)
+        {
             if !accounts.is_empty() {
                 println!("✅ Pool encontrado con filtro dual invertido!");
                 return self.parse_pool_account(&accounts[0].0, &accounts[0].1, true);
@@ -303,23 +309,41 @@ impl RaydiumClient {
         // Útil cuando el RPC no ha indexado ambos campos pero sí uno.
         // Buscamos pools que tengan el base_mint y filtramos localmente el quote_mint.
         println!("⚠️  Filtro dual falló. Iniciando búsqueda exhaustiva por mint único...");
-        
-        let target_mint = if base_mint == "So11111111111111111111111111111111111111112" { quote_mint } else { base_mint };
+
+        let target_mint = if base_mint == "So11111111111111111111111111111111111111112" {
+            quote_mint
+        } else {
+            base_mint
+        };
         let target_pubkey = Pubkey::from_str(target_mint)?;
-        
+
         // Buscar como base
         let f_base = vec![
             RpcFilterType::DataSize(752),
-            RpcFilterType::Memcmp(Memcmp::new(400, MemcmpEncodedBytes::Base58(target_pubkey.to_string()))),
+            RpcFilterType::Memcmp(Memcmp::new(
+                400,
+                MemcmpEncodedBytes::Base58(target_pubkey.to_string()),
+            )),
         ];
-        let c_base = RpcProgramAccountsConfig { filters: Some(f_base), ..config.clone() };
-        
-        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, c_base) {
+        let c_base = RpcProgramAccountsConfig {
+            filters: Some(f_base),
+            ..config.clone()
+        };
+
+        if let Ok(accounts) = self
+            .rpc_client
+            .get_program_accounts_with_config(&self.program_id, c_base)
+        {
             for (pk, acc) in accounts {
                 let data = &acc.data;
-                let pc_mint_on_chain = Pubkey::new_from_array(data[432..464].try_into().unwrap()).to_string();
-                let other_mint = if target_mint == base_mint { quote_mint } else { base_mint };
-                
+                let pc_mint_on_chain =
+                    Pubkey::new_from_array(data[432..464].try_into().unwrap()).to_string();
+                let other_mint = if target_mint == base_mint {
+                    quote_mint
+                } else {
+                    base_mint
+                };
+
                 if pc_mint_on_chain == other_mint {
                     println!("✅ Pool encontrado vía Single Mint Filter (Base)!");
                     let reversed = target_mint != base_mint;
@@ -331,16 +355,30 @@ impl RaydiumClient {
         // Buscar como quote
         let f_quote = vec![
             RpcFilterType::DataSize(752),
-            RpcFilterType::Memcmp(Memcmp::new(432, MemcmpEncodedBytes::Base58(target_pubkey.to_string()))),
+            RpcFilterType::Memcmp(Memcmp::new(
+                432,
+                MemcmpEncodedBytes::Base58(target_pubkey.to_string()),
+            )),
         ];
-        let c_quote = RpcProgramAccountsConfig { filters: Some(f_quote), ..config.clone() };
-        
-        if let Ok(accounts) = self.rpc_client.get_program_accounts_with_config(&self.program_id, c_quote) {
+        let c_quote = RpcProgramAccountsConfig {
+            filters: Some(f_quote),
+            ..config.clone()
+        };
+
+        if let Ok(accounts) = self
+            .rpc_client
+            .get_program_accounts_with_config(&self.program_id, c_quote)
+        {
             for (pk, acc) in accounts {
                 let data = &acc.data;
-                let coin_mint_on_chain = Pubkey::new_from_array(data[400..432].try_into().unwrap()).to_string();
-                let other_mint = if target_mint == base_mint { quote_mint } else { base_mint };
-                
+                let coin_mint_on_chain =
+                    Pubkey::new_from_array(data[400..432].try_into().unwrap()).to_string();
+                let other_mint = if target_mint == base_mint {
+                    quote_mint
+                } else {
+                    base_mint
+                };
+
                 if coin_mint_on_chain == other_mint {
                     println!("✅ Pool encontrado vía Single Mint Filter (Quote)!");
                     let reversed = target_mint == base_mint; // Si el target es base pero está en quote slot -> reversed
@@ -604,7 +642,7 @@ impl RaydiumClient {
         user_keypair: &Keypair,
     ) -> Result<String> {
         use solana_sdk::transaction::VersionedTransaction;
-        
+
         println!("🚀 Iniciando swap [RAYDIUM+JITO] PROTEGIDO...");
         println!("   {} → {}", base_mint, quote_mint);
         println!("   Amount In: {}", amount_in);
@@ -640,7 +678,7 @@ impl RaydiumClient {
         )?;
 
         let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
-        
+
         // TX 1: El swap normal
         let swap_tx = Transaction::new_signed_with_payer(
             &[swap_ix],
@@ -654,8 +692,9 @@ impl RaydiumClient {
         let tip_ix = crate::jito::JitoClient::create_tip_instruction(
             &user_keypair.pubkey(),
             jito_tip_lamports,
-        ).map_err(|e| anyhow::anyhow!("Error creando Jito tip ix: {}", e))?;
-        
+        )
+        .map_err(|e| anyhow::anyhow!("Error creando Jito tip ix: {}", e))?;
+
         let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_keypair.pubkey()));
         let mut tip_tx = Transaction::new_unsigned(tip_msg);
         tip_tx.sign(&[user_keypair], recent_blockhash);
@@ -669,15 +708,30 @@ impl RaydiumClient {
         match jito_client.send_bundle(bundle).await {
             Ok(bundle_id) => {
                 let sig = versioned_swap.signatures[0].to_string();
-                println!("✅ [RAYDIUM+JITO] Swap Entregado. Bundle ID: {}, Tx: {}", bundle_id, sig);
+                println!(
+                    "✅ [RAYDIUM+JITO] Swap Entregado. Bundle ID: {}, Tx: {}",
+                    bundle_id, sig
+                );
                 Ok(sig)
             }
             Err(e) => {
                 eprintln!("⚠️ Error Jito Bundle (Bypassing a RPC Standar): {}", e);
                 // Fallback de emergencia, mismo flujo pero sin Jito (usa RPC default):
                 let fallback_blockhash = self.rpc_client.get_latest_blockhash()?;
-                let fallback_ix = self.build_swap_instruction(&pool_keys, user_source, user_dest, user_keypair.pubkey(), amount_in, min_amount_out)?;
-                let fallback_tx = Transaction::new_signed_with_payer(&[fallback_ix], Some(&user_keypair.pubkey()), &[user_keypair], fallback_blockhash);
+                let fallback_ix = self.build_swap_instruction(
+                    &pool_keys,
+                    user_source,
+                    user_dest,
+                    user_keypair.pubkey(),
+                    amount_in,
+                    min_amount_out,
+                )?;
+                let fallback_tx = Transaction::new_signed_with_payer(
+                    &[fallback_ix],
+                    Some(&user_keypair.pubkey()),
+                    &[user_keypair],
+                    fallback_blockhash,
+                );
                 let fallback_sig = self.rpc_client.send_and_confirm_transaction(&fallback_tx)?;
                 println!("✅ [FALLBACK RPC] Swap ejecutado: {}", fallback_sig);
                 Ok(fallback_sig.to_string())
@@ -767,9 +821,7 @@ impl RaydiumClient {
         );
 
         println!("📡 [RAYDIUM SELL] Enviando transacción directa...");
-        let signature = self
-            .rpc_client
-            .send_and_confirm_transaction(&transaction)?;
+        let signature = self.rpc_client.send_and_confirm_transaction(&transaction)?;
 
         println!("✅ [RAYDIUM SELL] Ejecutado: {}", signature);
         println!("🔗 https://solscan.io/tx/{}", signature);
@@ -839,13 +891,15 @@ impl RaydiumClient {
         ) {
             Ok(ix) => ix,
             Err(e) => {
-                eprintln!("⚠️ Error creando instrucción Jito: {}. Fallback a standard...", e);
+                eprintln!(
+                    "⚠️ Error creando instrucción Jito: {}. Fallback a standard...",
+                    e
+                );
                 // En este caso, como hay un fallback abajo, podemos reintentar o fallar esta parte
                 anyhow::bail!("Jito Ix Error: {}", e);
             }
         };
-        let tip_msg =
-            solana_sdk::message::Message::new(&[tip_ix], Some(&user_keypair.pubkey()));
+        let tip_msg = solana_sdk::message::Message::new(&[tip_ix], Some(&user_keypair.pubkey()));
         let mut tip_tx = Transaction::new_unsigned(tip_msg);
         tip_tx.sign(&[user_keypair], recent_blockhash);
         let versioned_tip = VersionedTransaction::from(tip_tx);
@@ -857,7 +911,10 @@ impl RaydiumClient {
         match jito_client.send_bundle(bundle).await {
             Ok(bundle_id) => {
                 let sig = versioned_swap.signatures[0].to_string();
-                println!("✅ [RAYDIUM+JITO] Bundle enviado. ID: {}, Tx: {}", bundle_id, sig);
+                println!(
+                    "✅ [RAYDIUM+JITO] Bundle enviado. ID: {}, Tx: {}",
+                    bundle_id, sig
+                );
                 Ok(sig)
             }
             Err(e) => {
@@ -922,10 +979,9 @@ impl RaydiumClient {
             .map_err(|e| anyhow::anyhow!("AMM ID inválido '{}': {}", amm_id, e))?;
 
         // 1 sola llamada RPC — obtener el state account del pool
-        let account = self
-            .rpc_client
-            .get_account(&amm_pubkey)
-            .map_err(|e| anyhow::anyhow!("[NativeOracle] RPC fallo para {}: {}", &amm_id[..8], e))?;
+        let account = self.rpc_client.get_account(&amm_pubkey).map_err(|e| {
+            anyhow::anyhow!("[NativeOracle] RPC fallo para {}: {}", &amm_id[..8], e)
+        })?;
 
         // Parsear los bytes del AMM state
         let pool_state = RaydiumPoolState::from_account_data(&account.data)
@@ -964,7 +1020,6 @@ impl RaydiumClient {
 // ============================================================================
 
 pub struct RaydiumExecutor;
-
 
 #[cfg(test)]
 mod tests {

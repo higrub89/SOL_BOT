@@ -135,11 +135,13 @@ pub async fn ws_price_loop(
 
                 // Notificar reconexión por Telegram (solo si es una reconexión, no la primera)
                 if reconnection_count > 0 {
-                    let _ = notifier.send_connectivity_alert(
-                        "WebSocket RPC",
-                        true,
-                        &format!("<b>Reconexión #{}</b> exitosa.", reconnection_count),
-                    ).await;
+                    let _ = notifier
+                        .send_connectivity_alert(
+                            "WebSocket RPC",
+                            true,
+                            &format!("<b>Reconexión #{}</b> exitosa.", reconnection_count),
+                        )
+                        .await;
                 }
 
                 let (mut write, mut read) = ws_stream.split();
@@ -394,26 +396,30 @@ pub async fn ws_price_loop(
                     "⚠️  [WebSocket] Conexión cerrada (recibidos {} updates)",
                     update_count
                 );
-                let _ = notifier.send_connectivity_alert(
-                    "WebSocket RPC",
-                    false,
-                    &format!(
-                        "Conexión cerrada.\n\
+                let _ = notifier
+                    .send_connectivity_alert(
+                        "WebSocket RPC",
+                        false,
+                        &format!(
+                            "Conexión cerrada.\n\
                          <b>Updates recibidos:</b> {}\n\
                          Reconectando con backoff...",
-                        update_count
-                    ),
-                ).await;
+                            update_count
+                        ),
+                    )
+                    .await;
                 // Limpiar suscripciones
                 sub_to_vault.write().await.clear();
             }
             Err(e) => {
                 eprintln!("❌ [WebSocket] Error de conexión: {}", e);
-                let _ = notifier.send_connectivity_alert(
-                    "WebSocket RPC",
-                    false,
-                    &format!("Error de conexión: <code>{}</code>", e),
-                ).await;
+                let _ = notifier
+                    .send_connectivity_alert(
+                        "WebSocket RPC",
+                        false,
+                        &format!("Error de conexión: <code>{}</code>", e),
+                    )
+                    .await;
             }
         }
 
