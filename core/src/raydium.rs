@@ -350,13 +350,10 @@ impl RaydiumClient {
                             base_mint
                         };
 
-                        match pc_mint_on_chain == other_mint {
-                            true => {
-                                println!("✅ Pool encontrado vía Single Mint Filter (Base)!");
-                                let reversed = target_mint != base_mint;
-                                return self.parse_pool_account(&pk, &acc, reversed);
-                            }
-                            false => {}
+                        if pc_mint_on_chain == other_mint {
+                            println!("✅ Pool encontrado vía Single Mint Filter (Base)!");
+                            let reversed = target_mint != base_mint;
+                            return self.parse_pool_account(&pk, &acc, reversed);
                         }
                     }
                 }
@@ -391,13 +388,10 @@ impl RaydiumClient {
                             base_mint
                         };
 
-                        match coin_mint_on_chain == other_mint {
-                            true => {
-                                println!("✅ Pool encontrado vía Single Mint Filter (Quote)!");
-                                let reversed = target_mint == base_mint; // Si el target es base pero está en quote slot -> reversed
-                                return self.parse_pool_account(&pk, &acc, reversed);
-                            }
-                            false => {}
+                        if coin_mint_on_chain == other_mint {
+                            println!("✅ Pool encontrado vía Single Mint Filter (Quote)!");
+                            let reversed = target_mint == base_mint; // Si el target es base pero está en quote slot -> reversed
+                            return self.parse_pool_account(&pk, &acc, reversed);
                         }
                     }
                 }

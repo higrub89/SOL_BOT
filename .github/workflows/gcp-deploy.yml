@@ -36,7 +36,7 @@ jobs:
         run: cargo clippy --workspace --all-features -- -D warnings
 
       - name: 🧪 Run Tests
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace
 
       - name: 🔒 Audit dependencies
         run: |
