@@ -75,4 +75,6 @@ name = "the_chassis_app"
 path = "src/bin/main.rs"
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = { version = "0.12", features = ["prost"] }
+prost-build = { version = "0.13" }
+protobuf-src = "2.1"
