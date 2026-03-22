@@ -1,0 +1,5 @@
+# This directory contains encrypted keypairs.
+# NOTHING in this directory should ever be committed.
+*
+!.gitignore
+!README.md

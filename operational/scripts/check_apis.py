@@ -135,7 +135,7 @@ def check_jito():
 def main():
     print(f"{YELLOW}=== SOL_BOT API HEALTH CHECK ==={RESET}\n")
     
-    env = load_env(".env")
+    env = load_env(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
     
     helius_key = env.get("HELIUS_API_KEY")
     jupiter_key = env.get("JUPITER_API_KEY")

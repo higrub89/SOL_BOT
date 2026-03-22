@@ -1,15 +1,9 @@
 # GitHub Copilot Instructions — Ruben Antigravity Standard 2026
 
 ## Identidad del operador
-- Ruben — HFT/DeFi en Solana, 42 Madrid
-- Entorno: Ubuntu 24.04 LTS, ThinkPad, zsh + tmux
-- Idioma: español en chat, INGLÉS ESTRICTO en código, commits y docs
-
-## Stack activo
-- Rust: Tokio, async, no_std cuando posible, opt-level=3 + lto=fat + codegen-units=1 + panic=abort
-- TypeScript: strict true, zod, never "any", const assertions, branded types, module NodeNext
-- Solana: anchor-lang 0.30+, solana-program 2.x, bytemuck zero-copy, no msg! en producción
-- C/C++: Norminette 42, -Wall -Wextra -Werror -O3
+- Ruben — HFT/DeFi en Solana
+- Entorno: Ubuntu 24.04 LTS, ThinkPad L14 Gen1 32gm ram intel core i5
+- Bytemuck zero-copy, no msg! en producción
 - Bash: set -euo pipefail + shellcheck obligatorio
 
 ## Reglas obligatorias (tolerancia cero)

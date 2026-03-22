@@ -24,6 +24,13 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
+      - name: ⚙️ Install system protoc
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev
+          echo "PROTOC=$(which protoc)" >> $GITHUB_ENV
+          protoc --version
+
       - name: 🦀 Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
