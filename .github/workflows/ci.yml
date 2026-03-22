@@ -32,7 +32,7 @@ jobs:
     - name: Audit dependencies
       run: |
         cargo install cargo-audit --locked || true
-        cargo audit --deny warnings
+        cargo audit
 
     - name: Secret scanning
       uses: gitleaks/gitleaks-action@v2

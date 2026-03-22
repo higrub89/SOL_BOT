@@ -1,0 +1,17 @@
+# Advisories sin fix disponible — subdependencias del ecosistema Solana/teloxide
+# Revisar periódicamente: https://rustsec.org
+[advisories]
+ignore = [
+    # === Vulnerabilities (transitive, no direct fix) ===
+    "RUSTSEC-2024-0344", # curve25519-dalek timing variability — via solana-sdk
+    "RUSTSEC-2022-0093", # ed25519-dalek double pubkey oracle — via solana-sdk
+    "RUSTSEC-2026-0049", # rustls-webpki CRL matching — via tonic/solana
+
+    # === Warnings: unmaintained crates ===
+    "RUSTSEC-2024-0388", # derivative — via ark-ff/solana-bn254
+    "RUSTSEC-2024-0436", # paste — via ark-ff/solana-bn254
+    "RUSTSEC-2024-0370", # proc-macro-error — via teloxide
+    "RUSTSEC-2025-0134", # rustls-pemfile — via tonic/teloxide
+    "RUSTSEC-2025-0119", # number_prefix — via indicatif/solana-client
+    "RUSTSEC-2021-0145", # atty unsound — transitive dep
+]
