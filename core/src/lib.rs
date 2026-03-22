@@ -27,6 +27,7 @@ pub mod jupiter;
 pub mod liquidity_monitor;
 pub mod price_feed;
 pub mod raydium;
+pub mod raydium_geyser;
 pub mod raydium_hft;
 pub mod scanner;
 pub mod state_manager;
@@ -500,6 +501,18 @@ async fn run_monitor_mode() -> Result<()> {
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+    });
+
+    // 8. Raydium HFT Geyser Firehose (O(1) Live Tracking)
+    let geyser_rpc = rpc_url.replace("https://", "wss://");
+    let raydium_geyser = Arc::new(crate::raydium_geyser::RaydiumGeyser::new(
+        geyser_rpc,
+        Some(Arc::clone(&price_cache))
+    ));
+    tokio::spawn(async move {
+        if let Err(e) = raydium_geyser.listen().await {
+            eprintln!("⚠️ [HFT Geyser] Error en Firehose: {}", e);
         }
     });
 
