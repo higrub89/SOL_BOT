@@ -112,7 +112,7 @@ const HELIUS_RPC: &str = "https://mainnet.helius-rpc.com/?api-key=";
 
 /// Entry point de la librería
 pub async fn run() -> Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     let cli = Cli::parse();
 
     match cli.command {

@@ -349,7 +349,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requiere conexión a internet
+    #[cfg_attr(not(feature = "e2e-network"), ignore)]
+    #[cfg_attr(feature = "e2e-network", allow(unused))]
     async fn test_get_quote() {
         let client = JupiterClient::new();
 

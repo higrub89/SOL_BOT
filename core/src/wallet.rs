@@ -111,7 +111,7 @@ fn parse_keypair(raw: &str) -> Result<Keypair> {
                 &trimmed[..5.min(trimmed.len())]
             )
         })?;
-        Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Invalid JSON keypair: {}", e))
+        Keypair::try_from(bytes.as_slice()).map_err(|e| anyhow!("Invalid JSON keypair: {}", e))
     } else {
         let bytes = bs58::decode(trimmed).into_vec().map_err(|e| {
             anyhow!(
@@ -120,6 +120,6 @@ fn parse_keypair(raw: &str) -> Result<Keypair> {
                 &trimmed[..5.min(trimmed.len())]
             )
         })?;
-        Keypair::from_bytes(&bytes).map_err(|e| anyhow!("Invalid Base58 keypair: {}", e))
+        Keypair::try_from(bytes.as_slice()).map_err(|e| anyhow!("Invalid Base58 keypair: {}", e))
     }
 }

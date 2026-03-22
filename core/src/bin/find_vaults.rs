@@ -25,7 +25,7 @@ const RAYDIUM_AMM_V4: &str = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
 const WSOL_MINT: &str = "So11111111111111111111111111111111111111112";
 
 fn main() -> Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {

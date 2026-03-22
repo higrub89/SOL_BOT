@@ -17,7 +17,17 @@ pub struct TelegramNotifier {
 
 impl Default for TelegramNotifier {
     fn default() -> Self {
-        Self::new().expect("Failed to initialize TelegramNotifier default")
+        match Self::new() {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("TelegramNotifier disabled: {}", e);
+                TelegramNotifier {
+                    bot_token: String::new(),
+                    chat_id: String::new(),
+                    enabled: false,
+                }
+            }
+        }
     }
 }
 

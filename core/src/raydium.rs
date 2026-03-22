@@ -202,17 +202,22 @@ impl RaydiumClient {
                 "✅ Pool detectado en DexScreener: {}",
                 price_data.pair_address
             );
+
             if let Ok(amm_id) = Pubkey::from_str(&price_data.pair_address) {
                 if let Ok(account) = self.rpc_client.get_account(&amm_id) {
                     // Determinar si es reversed basado en los mints del account data
                     let data = &account.data;
-                    if data.len() >= 432 + 32 {
-                        let coin_mint_on_chain =
-                            Pubkey::new_from_array(data[400..432].try_into().unwrap()).to_string();
-                        let is_reversed = coin_mint_on_chain != base_mint;
 
-                        if let Ok(pool) = self.parse_pool_account(&amm_id, &account, is_reversed) {
-                            return Ok(pool);
+                    if data.len() >= 432 + 32 {
+                        if let Ok(arr) = data[400..432].try_into() {
+                            let coin_mint_on_chain = Pubkey::new_from_array(arr).to_string();
+                            let is_reversed = coin_mint_on_chain != base_mint;
+
+                            if let Ok(pool) =
+                                self.parse_pool_account(&amm_id, &account, is_reversed)
+                            {
+                                return Ok(pool);
+                            }
                         }
                     }
                 }
@@ -336,18 +341,24 @@ impl RaydiumClient {
         {
             for (pk, acc) in accounts {
                 let data = &acc.data;
-                let pc_mint_on_chain =
-                    Pubkey::new_from_array(data[432..464].try_into().unwrap()).to_string();
-                let other_mint = if target_mint == base_mint {
-                    quote_mint
-                } else {
-                    base_mint
-                };
+                if data.len() >= 464 {
+                    if let Ok(arr) = data[432..464].try_into() {
+                        let pc_mint_on_chain = Pubkey::new_from_array(arr).to_string();
+                        let other_mint = if target_mint == base_mint {
+                            quote_mint
+                        } else {
+                            base_mint
+                        };
 
-                if pc_mint_on_chain == other_mint {
-                    println!("✅ Pool encontrado vía Single Mint Filter (Base)!");
-                    let reversed = target_mint != base_mint;
-                    return self.parse_pool_account(&pk, &acc, reversed);
+                        match pc_mint_on_chain == other_mint {
+                            true => {
+                                println!("✅ Pool encontrado vía Single Mint Filter (Base)!");
+                                let reversed = target_mint != base_mint;
+                                return self.parse_pool_account(&pk, &acc, reversed);
+                            }
+                            false => {}
+                        }
+                    }
                 }
             }
         }
@@ -371,18 +382,24 @@ impl RaydiumClient {
         {
             for (pk, acc) in accounts {
                 let data = &acc.data;
-                let coin_mint_on_chain =
-                    Pubkey::new_from_array(data[400..432].try_into().unwrap()).to_string();
-                let other_mint = if target_mint == base_mint {
-                    quote_mint
-                } else {
-                    base_mint
-                };
+                if data.len() >= 432 {
+                    if let Ok(arr) = data[400..432].try_into() {
+                        let coin_mint_on_chain = Pubkey::new_from_array(arr).to_string();
+                        let other_mint = if target_mint == base_mint {
+                            quote_mint
+                        } else {
+                            base_mint
+                        };
 
-                if coin_mint_on_chain == other_mint {
-                    println!("✅ Pool encontrado vía Single Mint Filter (Quote)!");
-                    let reversed = target_mint == base_mint; // Si el target es base pero está en quote slot -> reversed
-                    return self.parse_pool_account(&pk, &acc, reversed);
+                        match coin_mint_on_chain == other_mint {
+                            true => {
+                                println!("✅ Pool encontrado vía Single Mint Filter (Quote)!");
+                                let reversed = target_mint == base_mint; // Si el target es base pero está en quote slot -> reversed
+                                return self.parse_pool_account(&pk, &acc, reversed);
+                            }
+                            false => {}
+                        }
+                    }
                 }
             }
         }
@@ -414,7 +431,9 @@ impl RaydiumClient {
                 anyhow::bail!("Offset fuera de rango");
             }
             Ok(Pubkey::new_from_array(
-                data[offset..offset + 32].try_into().unwrap(),
+                data[offset..offset + 32]
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Slice to array conversion failed"))?,
             ))
         }
 
@@ -1026,7 +1045,8 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore]
+    #[cfg_attr(not(feature = "e2e-network"), ignore)]
+    #[cfg_attr(feature = "e2e-network", allow(unused))]
     fn test_pool_cache_loading() {
         let client = RaydiumClient::new("https://api.mainnet-beta.solana.com".to_string());
         assert!(client.is_ok());
@@ -1036,7 +1056,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[cfg_attr(not(feature = "e2e-network"), ignore)]
+    #[cfg_attr(feature = "e2e-network", allow(unused))]
     async fn test_find_sol_usdc_pool() {
         let client = RaydiumClient::new("https://api.mainnet-beta.solana.com".to_string()).unwrap();
 

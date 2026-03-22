@@ -1,6 +1,8 @@
 use anyhow::Result;
 
 /// 🏎️ Configuración de Prioridad de Competición
+/// Requiere CAP_SYS_NICE capability en Linux para funcionar.
+/// Si falla, el proceso continúa con prioridad normal.
 fn set_hft_priority() {
     #[cfg(target_os = "linux")]
     unsafe {
@@ -9,7 +11,7 @@ fn set_hft_priority() {
         if result == 0 {
             println!("🏎️  CHASSIS: Prioridad SCHED_FIFO (99) activada con éxito.");
         } else {
-            eprintln!("⚠️  CHASSIS: No se pudo activar SCHED_FIFO. Comprobar CAP_SYS_NICE.");
+            eprintln!("⚠️  CHASSIS: No se pudo activar SCHED_FIFO ({}). Continuando con prioridad normal.", std::io::Error::last_os_error());
         }
     }
 }

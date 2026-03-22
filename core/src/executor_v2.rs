@@ -13,9 +13,9 @@ use solana_sdk::{
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
-    system_instruction,
     transaction::{Transaction, VersionedTransaction},
 };
+use solana_system_interface::instruction as system_instruction;
 use spl_associated_token_account;
 use spl_token::state::Account as TokenAccount;
 use std::str::FromStr;
@@ -417,7 +417,7 @@ impl TradeExecutor {
             .context("Error decodificando transacción base64")?;
 
         let mut transaction: VersionedTransaction =
-            bincode::deserialize(&tx_bytes).context("Error deserializando transacción")?;
+            postcard::from_bytes(&tx_bytes).context("Error deserializando transacción")?;
 
         let recent_blockhash = self
             .rpc_client
@@ -549,7 +549,7 @@ impl TradeExecutor {
             .decode(&swap_response.swap_transaction)
             .context("Error decoding tx")?;
 
-        let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+        let mut transaction: VersionedTransaction = postcard::from_bytes(&tx_bytes)?;
 
         let recent_blockhash = self
             .rpc_client
@@ -825,7 +825,7 @@ impl TradeExecutor {
             .context("Error decodificando transacción base64")?;
 
         let mut transaction: VersionedTransaction =
-            bincode::deserialize(&tx_bytes).context("Error deserializando transacción")?;
+            postcard::from_bytes(&tx_bytes).context("Error deserializando transacción")?;
 
         let recent_blockhash = self
             .rpc_client
@@ -1106,7 +1106,7 @@ impl TradeExecutor {
 
             // 4. Decode & Sign
             let tx_bytes = general_purpose::STANDARD.decode(&swap_response.swap_transaction)?;
-            let mut transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+            let mut transaction: VersionedTransaction = postcard::from_bytes(&tx_bytes)?;
 
             let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
             transaction.message.set_recent_blockhash(recent_blockhash);
@@ -1521,7 +1521,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[cfg_attr(not(feature = "e2e-network"), ignore)]
+    #[cfg_attr(feature = "e2e-network", allow(unused))]
     async fn test_simulate_sell() {
         let config = ExecutorConfig::new("https://api.mainnet-beta.solana.com".to_string(), true);
         let executor = TradeExecutor::new(config);

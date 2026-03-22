@@ -5,7 +5,8 @@
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use solana_sdk::{pubkey::Pubkey, system_instruction, transaction::VersionedTransaction};
+use solana_sdk::{pubkey::Pubkey, transaction::VersionedTransaction};
+use solana_system_interface::instruction as system_instruction;
 use std::str::FromStr;
 // use base64::{Engine as _, engine::general_purpose};
 
@@ -74,7 +75,7 @@ impl JitoClient {
         let encoded_txs: Vec<String> = transactions
             .iter()
             .map(|tx| {
-                let bytes = bincode::serialize(tx).unwrap();
+                let bytes = postcard::to_allocvec(tx).unwrap();
                 bs58::encode(bytes).into_string()
             })
             .collect();

@@ -2,19 +2,25 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeRequest {
     #[prost(map = "string, message", tag = "1")]
-    pub accounts:
-        ::std::collections::HashMap<::prost::alloc::string::String, SubscribeRequestFilterAccounts>,
+    pub accounts: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        SubscribeRequestFilterAccounts,
+    >,
     #[prost(map = "string, message", tag = "2")]
-    pub slots:
-        ::std::collections::HashMap<::prost::alloc::string::String, SubscribeRequestFilterSlots>,
+    pub slots: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        SubscribeRequestFilterSlots,
+    >,
     #[prost(map = "string, message", tag = "3")]
     pub transactions: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         SubscribeRequestFilterTransactions,
     >,
     #[prost(map = "string, message", tag = "4")]
-    pub blocks:
-        ::std::collections::HashMap<::prost::alloc::string::String, SubscribeRequestFilterBlocks>,
+    pub blocks: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        SubscribeRequestFilterBlocks,
+    >,
     #[prost(map = "string, message", tag = "5")]
     pub blocks_meta: ::std::collections::HashMap<
         ::prost::alloc::string::String,
@@ -45,10 +51,7 @@ pub struct SubscribeRequestFilterAccounts {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeRequestFilterAccountsFilter {
-    #[prost(
-        oneof = "subscribe_request_filter_accounts_filter::Filter",
-        tags = "1, 2"
-    )]
+    #[prost(oneof = "subscribe_request_filter_accounts_filter::Filter", tags = "1, 2")]
     pub filter: ::core::option::Option<subscribe_request_filter_accounts_filter::Filter>,
 }
 /// Nested message and enum types in `SubscribeRequestFilterAccountsFilter`.
@@ -71,7 +74,9 @@ pub struct SubscribeRequestFilterAccountsFilterMemcmp {
         oneof = "subscribe_request_filter_accounts_filter_memcmp::Bytes",
         tags = "2, 3"
     )]
-    pub bytes: ::core::option::Option<subscribe_request_filter_accounts_filter_memcmp::Bytes>,
+    pub bytes: ::core::option::Option<
+        subscribe_request_filter_accounts_filter_memcmp::Bytes,
+    >,
 }
 /// Nested message and enum types in `SubscribeRequestFilterAccountsFilterMemcmp`.
 pub mod subscribe_request_filter_accounts_filter_memcmp {
@@ -264,8 +269,8 @@ impl CommitmentLevel {
 /// Generated client implementations.
 pub mod geyser_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct GeyserClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -309,8 +314,9 @@ pub mod geyser_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             GeyserClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -332,30 +338,36 @@ pub mod geyser_client {
         pub async fn subscribe(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::SubscribeRequest>,
-        ) -> Result<tonic::Response<tonic::codec::Streaming<super::SubscribeUpdate>>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> Result<
+            tonic::Response<tonic::codec::Streaming<super::SubscribeUpdate>>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/geyser.Geyser/Subscribe");
-            self.inner
-                .streaming(request.into_streaming_request(), path, codec)
-                .await
+            self.inner.streaming(request.into_streaming_request(), path, codec).await
         }
         pub async fn ping(
             &mut self,
             request: impl tonic::IntoRequest<super::PingRequest>,
         ) -> Result<tonic::Response<super::PingResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/geyser.Geyser/Ping");
             self.inner.unary(request.into_request(), path, codec).await
@@ -370,7 +382,9 @@ pub mod geyser_server {
     #[async_trait]
     pub trait Geyser: Send + Sync + 'static {
         /// Server streaming response type for the Subscribe method.
-        type SubscribeStream: futures_core::Stream<Item = Result<super::SubscribeUpdate, tonic::Status>>
+        type SubscribeStream: futures_core::Stream<
+                Item = Result<super::SubscribeUpdate, tonic::Status>,
+            >
             + Send
             + 'static;
         async fn subscribe(
@@ -401,7 +415,10 @@ pub mod geyser_server {
                 send_compression_encodings: Default::default(),
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -429,7 +446,10 @@ pub mod geyser_server {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -438,14 +458,21 @@ pub mod geyser_server {
                 "/geyser.Geyser/Subscribe" => {
                     #[allow(non_camel_case_types)]
                     struct SubscribeSvc<T: Geyser>(pub Arc<T>);
-                    impl<T: Geyser> tonic::server::StreamingService<super::SubscribeRequest> for SubscribeSvc<T> {
+                    impl<
+                        T: Geyser,
+                    > tonic::server::StreamingService<super::SubscribeRequest>
+                    for SubscribeSvc<T> {
                         type Response = super::SubscribeUpdate;
                         type ResponseStream = T::SubscribeStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<tonic::Streaming<super::SubscribeRequest>>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::SubscribeRequest>,
+                            >,
                         ) -> Self::Future {
                             let inner = self.0.clone();
                             let fut = async move { (*inner).subscribe(request).await };
@@ -459,10 +486,11 @@ pub mod geyser_server {
                         let inner = inner.0;
                         let method = SubscribeSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
@@ -471,9 +499,13 @@ pub mod geyser_server {
                 "/geyser.Geyser/Ping" => {
                     #[allow(non_camel_case_types)]
                     struct PingSvc<T: Geyser>(pub Arc<T>);
-                    impl<T: Geyser> tonic::server::UnaryService<super::PingRequest> for PingSvc<T> {
+                    impl<T: Geyser> tonic::server::UnaryService<super::PingRequest>
+                    for PingSvc<T> {
                         type Response = super::PingResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::PingRequest>,
@@ -490,23 +522,28 @@ pub mod geyser_server {
                         let inner = inner.0;
                         let method = PingSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }

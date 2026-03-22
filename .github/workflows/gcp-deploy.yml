@@ -24,6 +24,25 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: 💅 Check Format
+        run: cargo fmt --all -- --check
+
+      - name: 🔍 Run Clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
+
+      - name: 🧪 Run Tests
+        run: cargo test --workspace --all-features
+
+      - name: 🔒 Audit dependencies
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo audit --deny warnings
+
       - name: ✅ Validate required secrets
         shell: bash
         env:

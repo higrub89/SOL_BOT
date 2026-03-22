@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::codegen::InterceptedService;
 use tonic::metadata::MetadataValue;
 use tonic::service::Interceptor;
 use tonic::transport::Channel;
@@ -79,11 +80,7 @@ impl GeyserClient {
     /// Conecta al servidor gRPC con autenticación
     pub async fn connect(
         &self,
-    ) -> Result<
-        ProtoClient<
-            tonic::service::interceptor::InterceptedService<Channel, GeyserAuthInterceptor>,
-        >,
-    > {
+    ) -> Result<ProtoClient<InterceptedService<Channel, GeyserAuthInterceptor>>> {
         // println!("🔌 Conectando a Yellowstone Geyser (gRPC)...");
         // println!("   Endpoint: {}", self.config.endpoint);
 

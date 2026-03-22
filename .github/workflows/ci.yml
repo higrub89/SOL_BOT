@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Run Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Run tests
+      run: cargo test --workspace --all-features
+
+    - name: Audit dependencies
+      run: |
+        cargo install cargo-audit --locked || true
+        cargo audit --deny warnings
+
+    - name: Secret scanning
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

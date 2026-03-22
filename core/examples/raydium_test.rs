@@ -2,7 +2,7 @@
 //!
 //! Uso: cargo run --example raydium_test
 
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use std::env;
 use the_chassis::raydium::RaydiumClient;
 

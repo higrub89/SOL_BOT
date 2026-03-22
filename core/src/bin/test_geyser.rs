@@ -1,5 +1,5 @@
 use anyhow::Result;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use the_chassis::geyser::{GeyserClient, GeyserConfig};
 use tokio::signal;
 
