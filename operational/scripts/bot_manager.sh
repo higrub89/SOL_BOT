@@ -5,9 +5,9 @@
 # ═══════════════════════════════════════════════════════════════
 
 BOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BINARY="$BOT_DIR/target/release/the_chassis_app"
-LOG="$BOT_DIR/logs/bot.log"
-PID_FILE="$BOT_DIR/bot.pid"
+BINARY="$(dirname "$(dirname "$BOT_DIR")")/target/release/the_chassis_app"
+LOG="$(dirname "$(dirname "$BOT_DIR")")/logs/bot.log"
+PID_FILE="$(dirname "$(dirname "$BOT_DIR")")/bot.pid"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'

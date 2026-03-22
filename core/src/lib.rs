@@ -27,6 +27,7 @@ pub mod jupiter;
 pub mod liquidity_monitor;
 pub mod price_feed;
 pub mod raydium;
+pub mod raydium_hft;
 pub mod scanner;
 pub mod state_manager;
 pub mod telegram; // El módulo telegram ahora incluye commands internamente

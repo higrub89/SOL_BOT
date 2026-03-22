@@ -25,15 +25,15 @@ services:
         hard: 65535
 
     env_file:
-      - .env
+      - ../../.env
     environment:
       - RUST_LOG=info
       - TZ=UTC
     volumes:
-      - ./logs:/app/logs
-      - ./settings.json:/app/settings.json
-      - ./trading_state.db:/app/trading_state.db
-      - ./pools_cache.json:/app/pools_cache.json
+      - ../../logs:/app/logs
+      - ../../operational/data/settings.json:/app/settings.json
+      - ../../operational/data/trading_state.db:/app/trading_state.db
+      - ../../operational/data/pools_cache.json:/app/pools_cache.json
 
     # ⚠️ REVISIÓN DE DEPLOY
     # He eliminado los límites de CPU estrictos para evitar el throttling del kernel.

@@ -1,0 +1,87 @@
+// signal.proto — The Chassis Signal Contract
+// Python intelligence layer → Rust execution engine
+//
+// Regenerate bindings:
+//   make proto
+//
+// Rust:  core/src/generated/  (via prost + build.rs)
+// Python: intelligence/src/signal_pb2.py (via grpcio-tools)
+
+syntax = "proto3";
+
+package signal;
+
+// ─── Enums ─────────────────────────────────────────────────
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  LONG  = 1;
+  SHORT = 2;
+  EXIT  = 3;   // Close existing position
+}
+
+enum SignalStatus {
+  STATUS_UNSPECIFIED = 0;
+  PENDING   = 1;   // Generated, not yet consumed
+  EXECUTING = 2;   // Engine is acting on it
+  FILLED    = 3;   // Order confirmed on-chain
+  REJECTED  = 4;   // Engine rejected (risk/balance)
+  EXPIRED   = 5;   // TTL exceeded before execution
+}
+
+enum SignalSource {
+  SOURCE_UNSPECIFIED = 0;
+  ML_MODEL    = 1;   // intelligence/ model output
+  RULE_BASED  = 2;   // Deterministic strategy
+  MANUAL      = 3;   // Operator override via Telegram
+}
+
+// ─── Core Messages ─────────────────────────────────────────
+
+// Signal: primary message from Python → Rust
+message Signal {
+  // Identity
+  string  signal_id     = 1;   // UUID v4, set by Python
+  string  model_version = 2;   // e.g. "v1.3.2" for audit trail
+
+  // Market
+  string  pair          = 3;   // e.g. "SOL/USDC"
+  string  base_mint     = 4;   // Solana mint address of base token
+  string  quote_mint    = 5;   // Solana mint address of quote token
+
+  // Signal content
+  Direction    direction   = 6;
+  SignalSource source      = 7;
+  double       confidence  = 8;   // 0.0–1.0; reject if < threshold
+  double       entry_price = 9;   // Suggested entry (informational)
+  double       size_usd    = 10;  // Suggested position size in USD
+
+  // Risk parameters (optional; engine may override)
+  double stop_loss_pct   = 11;   // e.g. 0.02 = 2%
+  double take_profit_pct = 12;   // e.g. 0.04 = 4%
+
+  // Time
+  uint64 timestamp_ms    = 13;   // Unix epoch ms (Python time.time()*1000)
+  uint32 ttl_ms          = 14;   // Signal expires after N ms (default: 5000)
+
+  // Metadata
+  map<string, string> tags = 15; // Arbitrary key-value for debugging
+}
+
+// Acknowledgement: Rust engine → Python (optional feedback loop)
+message SignalAck {
+  string        signal_id  = 1;
+  SignalStatus  status     = 2;
+  string        tx_sig     = 3;   // Solana tx signature if filled
+  uint64        slot       = 4;   // Slot at execution
+  uint64        ack_ts_ms  = 5;   // Engine timestamp
+  string        reject_reason = 6; // Populated if status == REJECTED
+}
+
+// Heartbeat: Python → Rust, proves the signal process is alive
+message Heartbeat {
+  string  process_id   = 1;
+  string  model_version = 2;
+  uint64  timestamp_ms = 3;
+  uint32  signals_sent = 4;   // Counter since process start
+}
