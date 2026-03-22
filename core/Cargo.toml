@@ -14,7 +14,7 @@ solana-account-decoder = "2.3.13"
 solana-program = "2.3.0"
 solana-system-interface = "1.0.0"
 # Pinning alineado con Solana 2.3.x
-spl-token = { version = "6.0.0", default-features = false, features = ["no-entrypoint"] }
+spl-token = { version = "9.0.0", default-features = false, features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "6.0.0", default-features = false, features = ["no-entrypoint"] }
 spl-memo = { version = "6.0.0", default-features = false, features = ["no-entrypoint"] }
 libc = "0.2"
