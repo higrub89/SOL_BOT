@@ -60,7 +60,7 @@ rand = "0.8"
 teloxide = { version = "0.12", features = ["macros"] } # 📱 Telegram notifications
 clap = { version = "4.0", features = ["derive"] } # 🚀 CLI Argument handling
 bytemuck = "1.25.0"
-rusqlite = { version = "0.31.0", features = ["bundled"] }
+rusqlite = { version = "0.39.0", features = ["bundled"] }
 deadpool-sqlite = "0.8.0"
 intelligence_rs = { path = "../intelligence" }
 lazy_static = "1.5.0"
