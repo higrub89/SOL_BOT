@@ -27,6 +27,11 @@ jobs:
       run: cargo clippy --all-targets --all-features -- -D warnings
 
     - name: Run tests
+      env:
+        HELIUS_API_KEY: "mock_for_ci"
+        JUPITER_API_KEY: "mock_for_ci"
+        WALLET_PRIVATE_KEY: "mock_for_ci"
+        GEYSER_ENDPOINT: "mock_for_ci"
       run: cargo test --workspace
 
     - name: Audit dependencies

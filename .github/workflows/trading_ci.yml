@@ -35,6 +35,11 @@ jobs:
         cargo audit
 
     - name: ExecutionRouter Benchmarks (Latency Regression)
+      env:
+        HELIUS_API_KEY: "mock_for_ci"
+        JUPITER_API_KEY: "mock_for_ci"
+        WALLET_PRIVATE_KEY: "mock_for_ci"
+        GEYSER_ENDPOINT: "mock_for_ci"
       run: |
         echo "Running latency simulations..."
         # Mocks a cargo bench, measuring cycle counts
