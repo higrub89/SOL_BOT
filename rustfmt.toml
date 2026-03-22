@@ -1,0 +1,5 @@
+# rustfmt configuration for The Chassis workspace
+# Excludes auto-generated protobuf/tonic files from formatting checks
+
+# Standard edition
+edition = "2021"
