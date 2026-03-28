@@ -5,12 +5,12 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use dashmap::DashMap;
 use deadpool_sqlite::{Config, Pool, Runtime};
 use rusqlite::params;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use dashmap::DashMap;
 
 // ============================================================================
 // DATA STRUCTURES
@@ -239,43 +239,48 @@ impl StateManager {
     /// Pre-carga posiciones de DB a RAM
     async fn preload_active_positions(&self) -> Result<()> {
         let conn = self.pool.get().await?;
-        let positions = conn.interact(|conn| -> Result<Vec<PositionState>> {
-            let mut stmt = conn.prepare(
-                "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
+        let positions = conn
+            .interact(|conn| -> Result<Vec<PositionState>> {
+                let mut stmt = conn.prepare(
+                    "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
                         stop_loss_percent, trailing_enabled, trailing_distance_percent,
                         trailing_activation_threshold, trailing_highest_price,
                         trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
                         tp2_percent, tp2_amount_percent, tp2_triggered,
                         active, created_at, updated_at
                  FROM positions WHERE active = 1",
-            )?;
-            let pos = stmt.query_map([], |row| {
-                Ok(PositionState {
-                    id: Some(row.get(0)?),
-                    token_mint: row.get(1)?,
-                    symbol: row.get(2)?,
-                    entry_price: row.get(3)?,
-                    amount_sol: row.get(4)?,
-                    current_price: row.get(5)?,
-                    stop_loss_percent: row.get(6)?,
-                    trailing_enabled: row.get::<_, i32>(7)? != 0,
-                    trailing_distance_percent: row.get(8)?,
-                    trailing_activation_threshold: row.get(9)?,
-                    trailing_highest_price: row.get(10)?,
-                    trailing_current_sl: row.get(11)?,
-                    tp_percent: row.get(12).ok(),
-                    tp_amount_percent: row.get(13).ok(),
-                    tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                    tp2_percent: row.get(15).ok(),
-                    tp2_amount_percent: row.get(16).ok(),
-                    tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
-                    active: row.get::<_, i32>(18)? != 0,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                })
-            })?.collect::<std::result::Result<Vec<_>, _>>()?;
-            Ok(pos)
-        }).await.map_err(|e| anyhow::anyhow!("DB error: {}", e))??;
+                )?;
+                let pos = stmt
+                    .query_map([], |row| {
+                        Ok(PositionState {
+                            id: Some(row.get(0)?),
+                            token_mint: row.get(1)?,
+                            symbol: row.get(2)?,
+                            entry_price: row.get(3)?,
+                            amount_sol: row.get(4)?,
+                            current_price: row.get(5)?,
+                            stop_loss_percent: row.get(6)?,
+                            trailing_enabled: row.get::<_, i32>(7)? != 0,
+                            trailing_distance_percent: row.get(8)?,
+                            trailing_activation_threshold: row.get(9)?,
+                            trailing_highest_price: row.get(10)?,
+                            trailing_current_sl: row.get(11)?,
+                            tp_percent: row.get(12).ok(),
+                            tp_amount_percent: row.get(13).ok(),
+                            tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                            tp2_percent: row.get(15).ok(),
+                            tp2_amount_percent: row.get(16).ok(),
+                            tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                            active: row.get::<_, i32>(18)? != 0,
+                            created_at: row.get(19)?,
+                            updated_at: row.get(20)?,
+                        })
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok(pos)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("DB error: {}", e))??;
 
         for p in positions {
             self.active_positions.insert(p.token_mint.clone(), p);
@@ -329,12 +334,13 @@ impl StateManager {
     /// Guarda o actualiza una posición
     pub async fn upsert_position(&self, position: PositionState) -> Result<()> {
         // RAM (O(1))
-        self.active_positions.insert(position.token_mint.clone(), position.clone());
+        self.active_positions
+            .insert(position.token_mint.clone(), position.clone());
 
         // Background Disk Write
         let pool = self.pool.clone();
         let now = Utc::now().timestamp();
-        
+
         tokio::spawn(async move {
             if let Ok(conn) = pool.get().await {
                 let _ = conn.interact(move |conn| -> Result<()> {
@@ -396,12 +402,13 @@ impl StateManager {
     /// Obtiene todas las posiciones activas
     pub async fn get_active_positions(&self) -> Result<Vec<PositionState>> {
         // RAM (O(1))
-        let mut pos: Vec<PositionState> = self.active_positions
+        let mut pos: Vec<PositionState> = self
+            .active_positions
             .iter()
             .map(|entry| entry.value().clone())
             .filter(|p| p.active)
             .collect();
-        
+
         pos.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(pos)
     }

@@ -99,7 +99,11 @@ impl JitoClient {
 
         loop {
             let endpoint = JITO_ENDPOINTS[current_endpoint_idx % JITO_ENDPOINTS.len()];
-            println!("📡 Enviando Jito Bundle ({} txs) a {}...", transactions.len(), endpoint);
+            println!(
+                "📡 Enviando Jito Bundle ({} txs) a {}...",
+                transactions.len(),
+                endpoint
+            );
 
             let res = self
                 .client
@@ -113,11 +117,14 @@ impl JitoClient {
                 Ok(response) => {
                     if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                         if max_retries > 0 {
-                            eprintln!("⚠️ [Jito] 429 Too Many Requests -> Rotando y reintentando en {:?}", delay);
+                            eprintln!(
+                                "⚠️ [Jito] 429 Too Many Requests -> Rotando y reintentando en {:?}",
+                                delay
+                            );
                             max_retries -= 1;
                             current_endpoint_idx += 1;
                             tokio::time::sleep(delay).await;
-                            delay = delay * 2; // Exp backoff
+                            delay *= 2; // Exp backoff
                             continue;
                         } else {
                             anyhow::bail!("Jito Error: 429 Too Many Requests (Exhausted retries)");
@@ -125,8 +132,8 @@ impl JitoClient {
                     }
 
                     let response_text = response.text().await?;
-                    let response_json: serde_json::Value =
-                        serde_json::from_str(&response_text).context("Error parseando respuesta Jito")?;
+                    let response_json: serde_json::Value = serde_json::from_str(&response_text)
+                        .context("Error parseando respuesta Jito")?;
 
                     if let Some(result) = response_json.get("result") {
                         let bundle_id = result.as_str().unwrap_or("unknown").to_string();
@@ -137,13 +144,13 @@ impl JitoClient {
                             .get("message")
                             .and_then(|m| m.as_str())
                             .unwrap_or("Unknown error");
-                        
+
                         if msg.contains("Rate limit") && max_retries > 0 {
                             eprintln!("⚠️ [Jito] Rate limit body -> Rotando");
                             max_retries -= 1;
                             current_endpoint_idx += 1;
                             tokio::time::sleep(delay).await;
-                            delay = delay * 2;
+                            delay *= 2;
                             continue;
                         }
 
@@ -158,7 +165,7 @@ impl JitoClient {
                         max_retries -= 1;
                         current_endpoint_idx += 1;
                         tokio::time::sleep(delay).await;
-                        delay = delay * 2;
+                        delay *= 2;
                         continue;
                     } else {
                         anyhow::bail!("Error fatal conectando a Jito: {}", e);

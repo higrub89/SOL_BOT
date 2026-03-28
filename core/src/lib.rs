@@ -416,14 +416,17 @@ async fn run_monitor_mode() -> Result<()> {
         }
     }
 
-    let (price_rx, price_cache, feed_tx, mut arb_rx) = PriceFeed::start(feed_config, monitored_tokens);
+    let (price_rx, price_cache, feed_tx, mut arb_rx) =
+        PriceFeed::start(feed_config, monitored_tokens);
     let price_rx = price_rx;
 
     // Background task for reacting to ArbitrageSignals
     tokio::spawn(async move {
         while let Ok(sig) = arb_rx.recv().await {
-            println!("🚨 [ARBITRAJE DETECTADO] {} | Delta: {:.2}% | Geyser: ${:.8} | Dex: ${:.8}", 
-                     sig.symbol, sig.delta_percent, sig.price_geyser, sig.price_fallback);
+            println!(
+                "🚨 [ARBITRAJE DETECTADO] {} | Delta: {:.2}% | Geyser: ${:.8} | Dex: ${:.8}",
+                sig.symbol, sig.delta_percent, sig.price_geyser, sig.price_fallback
+            );
         }
     });
 
