@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     pkg-config \
     make \
+    cmake \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=planner /app/recipe.json recipe.json
