@@ -93,7 +93,7 @@ jobs:
       - name: 🏗️ Build and Push Image
         run: |
           IMAGE_URL="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
-          docker build -t $IMAGE_URL .
+          docker build -f operational/deploy/Dockerfile -t $IMAGE_URL .
           docker push $IMAGE_URL
 
       - name: 🔄 Reset GCE Instance (Triggers Startup Script)
