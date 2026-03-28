@@ -10,6 +10,7 @@ use rusqlite::params;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use dashmap::DashMap;
 
 // ============================================================================
 // DATA STRUCTURES
@@ -101,6 +102,7 @@ pub struct ConfigSnapshot {
 
 pub struct StateManager {
     pool: Arc<Pool>,
+    active_positions: Arc<DashMap<String, PositionState>>,
 }
 
 impl StateManager {
@@ -113,6 +115,7 @@ impl StateManager {
 
         let manager = Self {
             pool: Arc::new(pool),
+            active_positions: Arc::new(DashMap::new()),
         };
 
         // Enable WAL mode
@@ -126,6 +129,7 @@ impl StateManager {
 
         manager.initialize_schema().await?;
         manager.run_migrations().await?;
+        manager.preload_active_positions().await?;
 
         println!("✅ State Manager inicializado: {}", db_path);
 
@@ -232,6 +236,53 @@ impl StateManager {
         Ok(())
     }
 
+    /// Pre-carga posiciones de DB a RAM
+    async fn preload_active_positions(&self) -> Result<()> {
+        let conn = self.pool.get().await?;
+        let positions = conn.interact(|conn| -> Result<Vec<PositionState>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
+                        stop_loss_percent, trailing_enabled, trailing_distance_percent,
+                        trailing_activation_threshold, trailing_highest_price,
+                        trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                        tp2_percent, tp2_amount_percent, tp2_triggered,
+                        active, created_at, updated_at
+                 FROM positions WHERE active = 1",
+            )?;
+            let pos = stmt.query_map([], |row| {
+                Ok(PositionState {
+                    id: Some(row.get(0)?),
+                    token_mint: row.get(1)?,
+                    symbol: row.get(2)?,
+                    entry_price: row.get(3)?,
+                    amount_sol: row.get(4)?,
+                    current_price: row.get(5)?,
+                    stop_loss_percent: row.get(6)?,
+                    trailing_enabled: row.get::<_, i32>(7)? != 0,
+                    trailing_distance_percent: row.get(8)?,
+                    trailing_activation_threshold: row.get(9)?,
+                    trailing_highest_price: row.get(10)?,
+                    trailing_current_sl: row.get(11)?,
+                    tp_percent: row.get(12).ok(),
+                    tp_amount_percent: row.get(13).ok(),
+                    tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                    tp2_percent: row.get(15).ok(),
+                    tp2_amount_percent: row.get(16).ok(),
+                    tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
+                    active: row.get::<_, i32>(18)? != 0,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
+                })
+            })?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(pos)
+        }).await.map_err(|e| anyhow::anyhow!("DB error: {}", e))??;
+
+        for p in positions {
+            self.active_positions.insert(p.token_mint.clone(), p);
+        }
+        Ok(())
+    }
+
     /// Ejecuta migraciones de esquema para actualizar DBs existentes
     async fn run_migrations(&self) -> Result<()> {
         let conn = self.pool.get().await?;
@@ -277,262 +328,214 @@ impl StateManager {
 
     /// Guarda o actualiza una posición
     pub async fn upsert_position(&self, position: PositionState) -> Result<()> {
-        let conn = self.pool.get().await?;
+        // RAM (O(1))
+        self.active_positions.insert(position.token_mint.clone(), position.clone());
 
+        // Background Disk Write
+        let pool = self.pool.clone();
         let now = Utc::now().timestamp();
-
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "INSERT INTO positions (
-                    token_mint, symbol, entry_price, amount_sol, current_price,
-                    stop_loss_percent, trailing_enabled, trailing_distance_percent,
-                    trailing_activation_threshold, trailing_highest_price,
-                    trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
-                    tp2_percent, tp2_amount_percent, tp2_triggered,
-                    active, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
-                ON CONFLICT(token_mint) DO UPDATE SET
-                    entry_price = excluded.entry_price,
-                    amount_sol = excluded.amount_sol,
-                    current_price = excluded.current_price,
-                    stop_loss_percent = excluded.stop_loss_percent,
-                    trailing_highest_price = excluded.trailing_highest_price,
-                    trailing_current_sl = excluded.trailing_current_sl,
-                    tp_percent = excluded.tp_percent,
-                    tp_amount_percent = excluded.tp_amount_percent,
-                    tp_triggered = excluded.tp_triggered,
-                    tp2_percent = excluded.tp2_percent,
-                    tp2_amount_percent = excluded.tp2_amount_percent,
-                    tp2_triggered = excluded.tp2_triggered,
-                    active = excluded.active,
-                    updated_at = excluded.updated_at",
-                params![
-                    position.token_mint,
-                    position.symbol,
-                    position.entry_price,
-                    position.amount_sol,
-                    position.current_price,
-                    position.stop_loss_percent,
-                    position.trailing_enabled as i32,
-                    position.trailing_distance_percent,
-                    position.trailing_activation_threshold,
-                    position.trailing_highest_price,
-                    position.trailing_current_sl,
-                    position.tp_percent,
-                    position.tp_amount_percent,
-                    position.tp_triggered as i32,
-                    position.tp2_percent,
-                    position.tp2_amount_percent,
-                    position.tp2_triggered as i32,
-                    position.active as i32,
-                    position.created_at,
-                    now,
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute(
+                        "INSERT INTO positions (
+                            token_mint, symbol, entry_price, amount_sol, current_price,
+                            stop_loss_percent, trailing_enabled, trailing_distance_percent,
+                            trailing_activation_threshold, trailing_highest_price,
+                            trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                            tp2_percent, tp2_amount_percent, tp2_triggered,
+                            active, created_at, updated_at
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                        ON CONFLICT(token_mint) DO UPDATE SET
+                            entry_price = excluded.entry_price,
+                            amount_sol = excluded.amount_sol,
+                            current_price = excluded.current_price,
+                            stop_loss_percent = excluded.stop_loss_percent,
+                            trailing_highest_price = excluded.trailing_highest_price,
+                            trailing_current_sl = excluded.trailing_current_sl,
+                            tp_percent = excluded.tp_percent,
+                            tp_amount_percent = excluded.tp_amount_percent,
+                            tp_triggered = excluded.tp_triggered,
+                            tp2_percent = excluded.tp2_percent,
+                            tp2_amount_percent = excluded.tp2_amount_percent,
+                            tp2_triggered = excluded.tp2_triggered,
+                            active = excluded.active,
+                            updated_at = excluded.updated_at",
+                        params![
+                            position.token_mint,
+                            position.symbol,
+                            position.entry_price,
+                            position.amount_sol,
+                            position.current_price,
+                            position.stop_loss_percent,
+                            position.trailing_enabled as i32,
+                            position.trailing_distance_percent,
+                            position.trailing_activation_threshold,
+                            position.trailing_highest_price,
+                            position.trailing_current_sl,
+                            position.tp_percent,
+                            position.tp_amount_percent,
+                            position.tp_triggered as i32,
+                            position.tp2_percent,
+                            position.tp2_amount_percent,
+                            position.tp2_triggered as i32,
+                            position.active as i32,
+                            position.created_at,
+                            now,
+                        ],
+                    )?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }
 
     /// Obtiene todas las posiciones activas
     pub async fn get_active_positions(&self) -> Result<Vec<PositionState>> {
-        let conn = self.pool.get().await?;
-
-        conn.interact(|conn| -> Result<Vec<PositionState>> {
-            let mut stmt = conn.prepare(
-                "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
-                        stop_loss_percent, trailing_enabled, trailing_distance_percent,
-                        trailing_activation_threshold, trailing_highest_price,
-                        trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
-                        tp2_percent, tp2_amount_percent, tp2_triggered,
-                        active, created_at, updated_at
-                 FROM positions
-                 WHERE active = 1
-                 ORDER BY created_at DESC",
-            )?;
-
-            let positions = stmt
-                .query_map([], |row| {
-                    Ok(PositionState {
-                        id: Some(row.get(0)?),
-                        token_mint: row.get(1)?,
-                        symbol: row.get(2)?,
-                        entry_price: row.get(3)?,
-                        amount_sol: row.get(4)?,
-                        current_price: row.get(5)?,
-                        stop_loss_percent: row.get(6)?,
-                        trailing_enabled: row.get::<_, i32>(7)? != 0,
-                        trailing_distance_percent: row.get(8)?,
-                        trailing_activation_threshold: row.get(9)?,
-                        trailing_highest_price: row.get(10)?,
-                        trailing_current_sl: row.get(11)?,
-                        tp_percent: row.get(12).ok(),
-                        tp_amount_percent: row.get(13).ok(),
-                        tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                        tp2_percent: row.get(15).ok(),
-                        tp2_amount_percent: row.get(16).ok(),
-                        tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
-                        active: row.get::<_, i32>(18)? != 0,
-                        created_at: row.get(19)?,
-                        updated_at: row.get(20)?,
-                    })
-                })?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-
-            Ok(positions)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
+        // RAM (O(1))
+        let mut pos: Vec<PositionState> = self.active_positions
+            .iter()
+            .map(|entry| entry.value().clone())
+            .filter(|p| p.active)
+            .collect();
+        
+        pos.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(pos)
     }
 
     /// Obtiene una posición específica por mint
     pub async fn get_position(&self, token_mint: &str) -> Result<Option<PositionState>> {
-        let conn = self.pool.get().await?;
-        let tm = token_mint.to_string();
-
-        conn.interact(move |conn| -> Result<Option<PositionState>> {
-            let mut stmt = conn.prepare(
-                "SELECT id, token_mint, symbol, entry_price, amount_sol, current_price,
-                        stop_loss_percent, trailing_enabled, trailing_distance_percent,
-                        trailing_activation_threshold, trailing_highest_price,
-                        trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
-                        tp2_percent, tp2_amount_percent, tp2_triggered,
-                        active, created_at, updated_at
-                 FROM positions
-                 WHERE token_mint = ?1",
-            )?;
-
-            let mut rows = stmt.query(params![tm])?;
-
-            if let Some(row) = rows.next()? {
-                Ok(Some(PositionState {
-                    id: Some(row.get(0)?),
-                    token_mint: row.get(1)?,
-                    symbol: row.get(2)?,
-                    entry_price: row.get(3)?,
-                    amount_sol: row.get(4)?,
-                    current_price: row.get(5)?,
-                    stop_loss_percent: row.get(6)?,
-                    trailing_enabled: row.get::<_, i32>(7)? != 0,
-                    trailing_distance_percent: row.get(8)?,
-                    trailing_activation_threshold: row.get(9)?,
-                    trailing_highest_price: row.get(10)?,
-                    trailing_current_sl: row.get(11)?,
-                    tp_percent: row.get(12).ok(),
-                    tp_amount_percent: row.get(13).ok(),
-                    tp_triggered: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                    tp2_percent: row.get(15).ok(),
-                    tp2_amount_percent: row.get(16).ok(),
-                    tp2_triggered: row.get::<_, i32>(17).unwrap_or(0) != 0,
-                    active: row.get::<_, i32>(18)? != 0,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                }))
-            } else {
-                Ok(None)
-            }
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))?
+        // RAM (O(1))
+        if let Some(pos) = self.active_positions.get(token_mint) {
+            Ok(Some(pos.clone()))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Marca el TP como disparado
     pub async fn mark_tp_triggered(&self, token_mint: &str) -> Result<()> {
-        let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
+        let now = Utc::now().timestamp();
+        // RAM (O(1))
+        if let Some(mut p) = self.active_positions.get_mut(&tm) {
+            p.tp_triggered = true;
+            p.updated_at = now;
+        }
 
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
-                params![Utc::now().timestamp(), tm],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute("UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }
 
     /// Marca el Take Profit 2 (Moonbag) como ejecutado
     pub async fn mark_tp2_triggered(&self, token_mint: &str) -> Result<()> {
-        let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
+        let now = Utc::now().timestamp();
+        if let Some(mut p) = self.active_positions.get_mut(&tm) {
+            p.tp2_triggered = true;
+            p.updated_at = now;
+        }
 
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2",
-                params![Utc::now().timestamp(), tm],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute("UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }
 
+    /// Actualiza el monto invertido (útil para TP parciales)
     /// Actualiza el monto invertido (útil para TP parciales)
     pub async fn update_amount_invested(
         &self,
         token_mint: &str,
         new_amount_sol: f64,
     ) -> Result<()> {
-        let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
+        let now = Utc::now().timestamp();
+        if let Some(mut p) = self.active_positions.get_mut(&tm) {
+            p.amount_sol = new_amount_sol;
+            p.updated_at = now;
+        }
 
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3",
-                params![new_amount_sol, Utc::now().timestamp(), tm],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute("UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3", params![new_amount_sol, now, tm])?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }
 
     /// Marca una posición como inactiva (cerrada)
+    /// Marca una posición como inactiva (cerrada)
     pub async fn close_position(&self, token_mint: &str) -> Result<()> {
-        let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
+        let now = Utc::now().timestamp();
+        if let Some(mut p) = self.active_positions.get_mut(&tm) {
+            p.active = false;
+            p.updated_at = now;
+        }
+        // Cleanup from cache eventually, but keeping it as active=false in map is fine, or we can remove it. Let's keep it to mirror DB.
 
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2",
-                params![Utc::now().timestamp(), tm],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute("UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }
 
     /// Actualiza el precio actual de una posición
+    /// Actualiza el precio actual de una posición
     pub async fn update_position_price(&self, token_mint: &str, current_price: f64) -> Result<()> {
-        let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
+        let now = Utc::now().timestamp();
+        if let Some(mut p) = self.active_positions.get_mut(&tm) {
+            p.current_price = current_price;
+            p.updated_at = now;
+        }
 
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3",
-                params![current_price, Utc::now().timestamp(), tm],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute("UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3", params![current_price, now, tm])?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }
 
+    /// Actualiza el estado del Trailing Stop Loss
     /// Actualiza el estado del Trailing Stop Loss
     pub async fn update_trailing_sl(
         &self,
@@ -540,22 +543,23 @@ impl StateManager {
         highest_price: f64,
         current_sl: f64,
     ) -> Result<()> {
-        let conn = self.pool.get().await?;
         let tm = token_mint.to_string();
+        let now = Utc::now().timestamp();
+        if let Some(mut p) = self.active_positions.get_mut(&tm) {
+            p.trailing_highest_price = Some(highest_price);
+            p.trailing_current_sl = Some(current_sl);
+            p.updated_at = now;
+        }
 
-        conn.interact(move |conn| -> Result<()> {
-            conn.execute(
-                "UPDATE positions 
-                 SET trailing_highest_price = ?1, 
-                     trailing_current_sl = ?2,
-                     updated_at = ?3
-                 WHERE token_mint = ?4",
-                params![highest_price, current_sl, Utc::now().timestamp(), tm],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Database interact error: {}", e))??;
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            if let Ok(conn) = pool.get().await {
+                let _ = conn.interact(move |conn| -> Result<()> {
+                    conn.execute("UPDATE positions SET trailing_highest_price = ?1, trailing_current_sl = ?2, updated_at = ?3 WHERE token_mint = ?4", params![highest_price, current_sl, now, tm])?;
+                    Ok(())
+                }).await;
+            }
+        });
 
         Ok(())
     }

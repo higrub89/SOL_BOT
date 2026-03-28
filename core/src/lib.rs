@@ -416,8 +416,17 @@ async fn run_monitor_mode() -> Result<()> {
         }
     }
 
-    let (price_rx, price_cache, feed_tx) = PriceFeed::start(feed_config, monitored_tokens);
+    let (price_rx, price_cache, feed_tx, mut arb_rx) = PriceFeed::start(feed_config, monitored_tokens);
     let price_rx = price_rx;
+
+    // Background task for reacting to ArbitrageSignals
+    tokio::spawn(async move {
+        while let Ok(sig) = arb_rx.recv().await {
+            println!("🚨 [ARBITRAJE DETECTADO] {} | Delta: {:.2}% | Geyser: ${:.8} | Dex: ${:.8}", 
+                     sig.symbol, sig.delta_percent, sig.price_geyser, sig.price_fallback);
+        }
+    });
+
     let _buyer = Arc::new(crate::auto_buyer::AutoBuyer::new_with_cache(
         rpc_url.clone(),
         Some(Arc::clone(&price_cache)),
@@ -508,7 +517,7 @@ async fn run_monitor_mode() -> Result<()> {
     let geyser_rpc = rpc_url.replace("https://", "wss://");
     let raydium_geyser = Arc::new(crate::raydium_geyser::RaydiumGeyser::new(
         geyser_rpc,
-        Some(Arc::clone(&price_cache))
+        Some(Arc::clone(&price_cache)),
     ));
     tokio::spawn(async move {
         if let Err(e) = raydium_geyser.listen().await {

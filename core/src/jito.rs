@@ -22,9 +22,13 @@ const JITO_TIP_ACCOUNTS: [&str; 8] = [
     "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
 ];
 
-// Block Engine URL (Amsterdam es central para EU/US overlap, o usar NY)
-const JITO_BLOCK_ENGINE_URL: &str =
-    "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles";
+// Endpoints oficiales del Block Engine de Jito para rotación/resiliencia
+const JITO_ENDPOINTS: [&str; 4] = [
+    "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://frankfurt.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://tokyo.mainnet.block-engine.jito.wtf/api/v1/bundles",
+];
 
 pub struct JitoClient {
     client: reqwest::Client,
@@ -72,13 +76,12 @@ impl JitoClient {
         }
 
         // Serializar transacciones a base58 (Jito espera base58 en JSON-RPC)
-        let encoded_txs: Vec<String> = transactions
-            .iter()
-            .map(|tx| {
-                let bytes = postcard::to_allocvec(tx).unwrap();
-                bs58::encode(bytes).into_string()
-            })
-            .collect();
+        let mut encoded_txs = Vec::with_capacity(transactions.len());
+        for tx in &transactions {
+            let bytes = postcard::to_allocvec(tx)
+                .context("Error serializando transacción con postcard para Jito")?;
+            encoded_txs.push(bs58::encode(bytes).into_string());
+        }
 
         // Construir request JSON-RPC
         let request = json!({
@@ -90,36 +93,78 @@ impl JitoClient {
             ]
         });
 
-        println!("📡 Enviando Jito Bundle ({} txs)...", transactions.len());
+        let mut max_retries = 3;
+        let mut current_endpoint_idx = 0;
+        let mut delay = std::time::Duration::from_millis(150);
 
-        let response = self
-            .client
-            .post(JITO_BLOCK_ENGINE_URL)
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .context("Error conectando con Jito Block Engine")?;
+        loop {
+            let endpoint = JITO_ENDPOINTS[current_endpoint_idx % JITO_ENDPOINTS.len()];
+            println!("📡 Enviando Jito Bundle ({} txs) a {}...", transactions.len(), endpoint);
 
-        let response_text = response.text().await?;
+            let res = self
+                .client
+                .post(endpoint)
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await;
 
-        // Parsear respuesta
-        let response_json: serde_json::Value =
-            serde_json::from_str(&response_text).context("Error parseando respuesta Jito")?;
+            match res {
+                Ok(response) => {
+                    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                        if max_retries > 0 {
+                            eprintln!("⚠️ [Jito] 429 Too Many Requests -> Rotando y reintentando en {:?}", delay);
+                            max_retries -= 1;
+                            current_endpoint_idx += 1;
+                            tokio::time::sleep(delay).await;
+                            delay = delay * 2; // Exp backoff
+                            continue;
+                        } else {
+                            anyhow::bail!("Jito Error: 429 Too Many Requests (Exhausted retries)");
+                        }
+                    }
 
-        if let Some(result) = response_json.get("result") {
-            // El result suele ser el Bundle ID (UUID)
-            let bundle_id = result.as_str().unwrap_or("unknown").to_string();
-            println!("✅ Jito Bundle Enviado. ID: {}", bundle_id);
-            Ok(bundle_id)
-        } else if let Some(error) = response_json.get("error") {
-            let msg = error
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("Unknown error");
-            anyhow::bail!("Jito Error: {}", msg);
-        } else {
-            anyhow::bail!("Respuesta Jito inesperada: {}", response_text);
+                    let response_text = response.text().await?;
+                    let response_json: serde_json::Value =
+                        serde_json::from_str(&response_text).context("Error parseando respuesta Jito")?;
+
+                    if let Some(result) = response_json.get("result") {
+                        let bundle_id = result.as_str().unwrap_or("unknown").to_string();
+                        println!("✅ Jito Bundle Enviado. ID: {}", bundle_id);
+                        return Ok(bundle_id);
+                    } else if let Some(error) = response_json.get("error") {
+                        let msg = error
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Unknown error");
+                        
+                        if msg.contains("Rate limit") && max_retries > 0 {
+                            eprintln!("⚠️ [Jito] Rate limit body -> Rotando");
+                            max_retries -= 1;
+                            current_endpoint_idx += 1;
+                            tokio::time::sleep(delay).await;
+                            delay = delay * 2;
+                            continue;
+                        }
+
+                        anyhow::bail!("Jito Error: {}", msg);
+                    } else {
+                        anyhow::bail!("Respuesta Jito inesperada: {}", response_text);
+                    }
+                }
+                Err(e) => {
+                    if max_retries > 0 {
+                        eprintln!("⚠️ [Jito] Network error -> Rotando: {}", e);
+                        max_retries -= 1;
+                        current_endpoint_idx += 1;
+                        tokio::time::sleep(delay).await;
+                        delay = delay * 2;
+                        continue;
+                    } else {
+                        anyhow::bail!("Error fatal conectando a Jito: {}", e);
+                    }
+                }
+            }
         }
     }
 }

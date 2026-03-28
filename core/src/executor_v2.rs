@@ -450,7 +450,7 @@ impl TradeExecutor {
 
             let bundle = vec![signed_tx.clone(), versioned_tip_tx];
 
-            match self.jito_client.send_bundle(bundle).await {
+            match self.send_jito_bundle_with_retry(bundle).await {
                 Ok(bundle_id) => {
                     println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
                     signed_tx.signatures[0].to_string()
@@ -579,7 +579,7 @@ impl TradeExecutor {
 
             let bundle = vec![signed_tx.clone(), VersionedTransaction::from(tip_tx)];
 
-            match self.jito_client.send_bundle(bundle).await {
+            match self.send_jito_bundle_with_retry(bundle).await {
                 Ok(bundle_id) => {
                     println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
                     signed_tx.signatures[0].to_string()
@@ -860,7 +860,7 @@ impl TradeExecutor {
 
             let bundle = vec![signed_tx.clone(), VersionedTransaction::from(tip_tx)];
 
-            match self.jito_client.send_bundle(bundle).await {
+            match self.send_jito_bundle_with_retry(bundle).await {
                 Ok(bundle_id) => {
                     println!("✅ Bundle enviado a Jito. ID: {}", bundle_id);
                     signed_tx.signatures[0].to_string()
@@ -1142,7 +1142,7 @@ impl TradeExecutor {
         bundle.push(VersionedTransaction::from(tip_tx));
 
         // 6. Send Bundle
-        let bundle_id = self.jito_client.send_bundle(bundle).await?;
+        let bundle_id = self.send_jito_bundle_with_retry(bundle).await?;
         println!("✅ Jito Multi-Bundle Enviado: {}", bundle_id);
 
         // 7. Results
@@ -1240,6 +1240,40 @@ impl TradeExecutor {
         }
 
         unreachable!()
+    }
+
+    /// Envía un bundle a Jito manejando el rate limit (429) con backoff iterativo
+    async fn send_jito_bundle_with_retry(
+        &self,
+        bundle: Vec<VersionedTransaction>,
+    ) -> Result<String> {
+        let mut attempt = 1;
+        let max_attempts = 4; // 1 intento + 3 reintentos
+
+        loop {
+            match self.jito_client.send_bundle(bundle.clone()).await {
+                Ok(bundle_id) => {
+                    return Ok(bundle_id);
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if err_msg.contains("429 Too Many Requests") && attempt < max_attempts {
+                        let delay =
+                            std::time::Duration::from_millis(150 * (2u64.pow(attempt as u32 - 1)));
+                        println!(
+                            "⏳ Jito Rate Limit (429). Enfriando conductos {}ms... (Intento {}/{})",
+                            delay.as_millis(),
+                            attempt,
+                            max_attempts
+                        );
+                        tokio::time::sleep(delay).await;
+                        attempt += 1;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
     }
 
     /// Verifica si una transacción fue confirmada
@@ -1438,10 +1472,9 @@ impl TradeExecutor {
 
             // Armar Bundle Encriptado
             let bundle = vec![versioned_swap.clone(), versioned_tip];
-            let jito_client = crate::jito::JitoClient::new();
 
             println!("📡 Enviando Raydium Assault (JITO BUNDLE)...");
-            if let Ok(bundle_id) = jito_client.send_bundle(bundle).await {
+            if let Ok(bundle_id) = self.send_jito_bundle_with_retry(bundle).await {
                 println!(
                     "✅ Swap ejecutado privadamente [JITO BUNDLE ID: {}]: {}",
                     bundle_id, final_signature

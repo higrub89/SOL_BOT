@@ -37,44 +37,44 @@ impl std::error::Error for HftError {}
 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
 pub struct RaydiumAmmV4State {
     // BLOQUE 0-192: 24 campos u64 de configuración
-    pub config: [u64; 24],              // 0..192
+    pub config: [u64; 24], // 0..192
 
     // BLOQUE 192-320: PnL y métricas (16 campos u64)
     // Incluye need_take_pnl_coin (idx 0), need_take_pnl_pc (idx 1), etc.
-    pub pnl_metrics: [u64; 16],         // 192..320
+    pub pnl_metrics: [u64; 16], // 192..320
 
     // BLOQUE 320-752: Pubkeys de cuentas (13 pubkeys de 32 bytes + 16 bytes finales)
-    pub pool_coin_vault: [u8; 32],      // 320..352
-    pub pool_pc_vault: [u8; 32],        // 352..384
-    pub coin_mint: [u8; 32],            // 384..416
-    pub pc_mint: [u8; 32],              // 416..448
-    pub lp_mint: [u8; 32],              // 448..480
-    pub amm_open_orders: [u8; 32],      // 480..512
-    pub serum_market: [u8; 32],         // 512..544
-    pub serum_program_id: [u8; 32],     // 544..576
-    pub amm_target_orders: [u8; 32],    // 576..608
-    pub pool_withdraw_queue: [u8; 32],  // 608..640
-    pub pool_temp_lp: [u8; 32],         // 640..672
-    pub amm_owner: [u8; 32],            // 672..704
-    pub pnl_owner: [u8; 32],            // 704..736
-    pub srm_token_account: [u8; 16],    // 736..752
+    pub pool_coin_vault: [u8; 32],     // 320..352
+    pub pool_pc_vault: [u8; 32],       // 352..384
+    pub coin_mint: [u8; 32],           // 384..416
+    pub pc_mint: [u8; 32],             // 416..448
+    pub lp_mint: [u8; 32],             // 448..480
+    pub amm_open_orders: [u8; 32],     // 480..512
+    pub serum_market: [u8; 32],        // 512..544
+    pub serum_program_id: [u8; 32],    // 544..576
+    pub amm_target_orders: [u8; 32],   // 576..608
+    pub pool_withdraw_queue: [u8; 32], // 608..640
+    pub pool_temp_lp: [u8; 32],        // 640..672
+    pub amm_owner: [u8; 32],           // 672..704
+    pub pnl_owner: [u8; 32],           // 704..736
+    pub srm_token_account: [u8; 16],   // 736..752
 }
 
 impl RaydiumAmmV4State {
     // ═══════════════════════════════════════════════════════════════════════════
     // ÍNDICES DE config[24] — Offsets 0..192
     // ═══════════════════════════════════════════════════════════════════════════
-    const IDX_COIN_DECIMALS: usize = 4;    // 32..40
-    const IDX_PC_DECIMALS: usize = 5;      // 40..48
-    const IDX_SWAP_FEE_NUM: usize = 22;    // 176..184
-    const IDX_SWAP_FEE_DEN: usize = 23;    // 184..192
+    const IDX_COIN_DECIMALS: usize = 4; // 32..40
+    const IDX_PC_DECIMALS: usize = 5; // 40..48
+    const IDX_SWAP_FEE_NUM: usize = 22; // 176..184
+    const IDX_SWAP_FEE_DEN: usize = 23; // 184..192
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ÍNDICES DE pnl_metrics[16] — Offsets 192..320
     // ═══════════════════════════════════════════════════════════════════════════
-    const IDX_NEED_TAKE_PNL_COIN: usize = 0;  // 192..200
-    const IDX_NEED_TAKE_PNL_PC: usize = 1;    // 200..208
-    const IDX_POOL_OPEN_TIME: usize = 4;      // 224..232
+    const IDX_NEED_TAKE_PNL_COIN: usize = 0; // 192..200
+    const IDX_NEED_TAKE_PNL_PC: usize = 1; // 200..208
+    const IDX_POOL_OPEN_TIME: usize = 4; // 224..232
 
     /// O(1) parser usando zero-allocation casting.
     #[inline(always)]

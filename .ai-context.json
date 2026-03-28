@@ -1,0 +1,16 @@
+{
+  "profile": "hft-solana",
+  "mcps": {
+    "add": [],
+    "remove": ["github"]
+  },
+  "skills": {
+    "add": [],
+    "remove": []
+  },
+  "overrides": {
+    "sqlite": {
+      "args": ["mcp-server-sqlite", "--db-path", "/home/ruben/Workspace/bot_trading/operational/data/trading_state.db"]
+    }
+  }
+}

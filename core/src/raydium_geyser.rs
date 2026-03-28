@@ -4,8 +4,8 @@
 //! Este módulo recibe el firehose de eventos y decodifica el estado en memoria
 //! sin realizar heap allocations continuos (bypass del overhead).
 
-use crate::raydium_hft::{RaydiumAmmV4State, RAYDIUM_V4_PROGRAM_ID};
 use crate::price_feed::PriceCache;
+use crate::raydium_hft::{RaydiumAmmV4State, RAYDIUM_V4_PROGRAM_ID};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures_util::{SinkExt, StreamExt};
@@ -88,7 +88,7 @@ impl RaydiumGeyser {
             match msg {
                 Ok(Message::Text(text)) => {
                     let start = Instant::now();
-                    
+
                     if let Ok(notification) = serde_json::from_str::<ProgramNotification>(&text) {
                         if let Some(params) = notification.params {
                             if let Some(result) = params.result {
@@ -96,18 +96,23 @@ impl RaydiumGeyser {
                                     if let Some(account) = value.account {
                                         if !account.data.is_empty() {
                                             let b64_str = &account.data[0];
-                                            
+
                                             // Zero-alloc base64 decode en nuestra arena reservada
-                                            if let Ok(decoded_len) = BASE64.decode_slice(b64_str.as_bytes(), &mut decode_buffer) {
+                                            if let Ok(decoded_len) = BASE64.decode_slice(
+                                                b64_str.as_bytes(),
+                                                &mut decode_buffer,
+                                            ) {
                                                 // HFT Memory map instantáneo (O(1))
-                                                if let Ok(state) = RaydiumAmmV4State::parse(&decode_buffer[..decoded_len]) {
+                                                if let Ok(state) = RaydiumAmmV4State::parse(
+                                                    &decode_buffer[..decoded_len],
+                                                ) {
                                                     let elapsed = start.elapsed();
-                                                    
+
                                                     // TODO: Para calcular precio real, necesitamos leer los vault accounts
                                                     // con getAccountInfo(coin_vault_pubkey) y getAccountInfo(pc_vault_pubkey).
                                                     // El state account NO contiene los balances, solo los pubkeys de los vaults.
                                                     // Por ahora solo logueamos métricas de PnL disponibles en el state.
-                                                    
+
                                                     // HFT Bridge: Cache update deshabilitado hasta implementar vault lookup
                                                     // Los balances reales están en las cuentas vault, no en el state.
                                                     if self.cache.is_some() {
@@ -116,7 +121,7 @@ impl RaydiumGeyser {
                                                         // TODO: Implementar getMultipleAccounts para leer vaults en paralelo
                                                     }
 
-                                                    if update_count % 100 == 0 {
+                                                    if update_count.is_multiple_of(100) {
                                                         println!(
                                                             "⚡ [Pool {}] Parse O(1) en {:?}. Base PnL: {}, Quote PnL: {}",
                                                             &value.pubkey[..8],
@@ -183,7 +188,16 @@ mod tests {
         assert!(parsed.is_ok());
         let notif = parsed.unwrap();
         assert_eq!(
-            notif.params.unwrap().result.unwrap().value.unwrap().account.unwrap().data[0],
+            notif
+                .params
+                .unwrap()
+                .result
+                .unwrap()
+                .value
+                .unwrap()
+                .account
+                .unwrap()
+                .data[0],
             "base64_string_here"
         );
     }

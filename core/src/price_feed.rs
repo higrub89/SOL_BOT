@@ -57,6 +57,17 @@ pub enum FeedCommand {
     Subscribe(MonitoredToken),
 }
 
+/// Señal de arbitraje inyectada si hay discrepancia DexScreener/Jupiter vs Geyser
+#[derive(Debug, Clone)]
+pub struct ArbitrageSignal {
+    pub token_mint: String,
+    pub symbol: String,
+    pub price_geyser: f64,
+    pub price_fallback: f64,
+    pub delta_percent: f64,
+    pub timestamp: Instant,
+}
+
 impl std::fmt::Display for PriceSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -152,9 +163,11 @@ impl PriceFeed {
         mpsc::Receiver<PriceUpdate>,
         PriceCache,
         mpsc::Sender<FeedCommand>,
+        tokio::sync::broadcast::Receiver<ArbitrageSignal>,
     ) {
         let (tx, rx) = mpsc::channel::<PriceUpdate>(512);
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<FeedCommand>(32);
+        let (arb_tx, arb_rx) = tokio::sync::broadcast::channel::<ArbitrageSignal>(64);
         let cache: PriceCache = Arc::new(RwLock::new(HashMap::new()));
         let shared_tokens = Arc::new(RwLock::new(tokens.clone()));
         let sol_price_usd = Arc::new(RwLock::new(0.0));
@@ -200,6 +213,7 @@ impl PriceFeed {
                 let geyser_tokens = Arc::clone(&shared_tokens);
                 let geyser_cache = Arc::clone(&cache);
                 let geyser_sol_price = Arc::clone(&sol_price_usd);
+                let geyser_arb_tx = arb_tx.clone();
 
                 tokio::spawn(async move {
                     Self::geyser_stream_loop(
@@ -209,6 +223,7 @@ impl PriceFeed {
                         token,
                         geyser_cache,
                         geyser_sol_price,
+                        geyser_arb_tx,
                     )
                     .await;
                 });
@@ -248,7 +263,7 @@ impl PriceFeed {
             }
         }
 
-        (rx, cache, cmd_tx)
+        (rx, cache, cmd_tx, arb_rx)
     }
 
     /// Loop de polling a DexScreener (la fuente lenta pero fiable)
@@ -359,6 +374,7 @@ impl PriceFeed {
         api_token: String,
         cache: PriceCache,
         sol_price: Arc<RwLock<f64>>,
+        arb_tx: tokio::sync::broadcast::Sender<ArbitrageSignal>,
     ) {
         use crate::amm_math::{build_vault_tracker, parse_spl_token_account_amount, VaultPair};
 
@@ -583,13 +599,27 @@ impl PriceFeed {
                                                             let price_usd = price_sol * sol_usd;
                                                             let liquidity_usd = liq_sol * sol_usd;
 
-                                                            // Obtener datos adicionales del caché (volume, change)
-                                                            let (volume_24h, price_change_24h) = {
+                                                            let (volume_24h, price_change_24h, fallback_price_usd) = {
                                                                 let c = cache.read().await;
                                                                 c.get(&mint)
-                                                                    .map(|p| (p.volume_24h, p.price_change_24h))
-                                                                    .unwrap_or((0.0, 0.0))
+                                                                    .map(|p| (p.volume_24h, p.price_change_24h, p.price_usd))
+                                                                    .unwrap_or((0.0, 0.0, 0.0))
                                                             };
+
+                                                            // Arbitrage detection
+                                                            if fallback_price_usd > 0.0 {
+                                                                let delta_pct = ((price_usd - fallback_price_usd) / fallback_price_usd).abs() * 100.0;
+                                                                if delta_pct > 1.5 {
+                                                                    let _ = arb_tx.send(ArbitrageSignal {
+                                                                        token_mint: mint.clone(),
+                                                                        symbol: symbol.clone(),
+                                                                        price_geyser: price_usd,
+                                                                        price_fallback: fallback_price_usd,
+                                                                        delta_percent: delta_pct,
+                                                                        timestamp: Instant::now(),
+                                                                    });
+                                                                }
+                                                            }
 
                                                             let geyser_update = PriceUpdate {
                                                                 token_mint: mint.clone(),
