@@ -7146,7 +7146,7 @@ dependencies = [
  "anyhow",
  "arrayvec",
  "async-trait",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bs58",
  "bytemuck",
  "chrono",
