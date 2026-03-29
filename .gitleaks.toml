@@ -1,0 +1,12 @@
+# Gitleaks configuration for The Chassis
+# Ignorar falsos positivos de direcciones de Solana Base58
+
+[allowlist]
+description = "Permitir direcciones de Solana en documentación y ejemplos"
+paths = [
+    "docs/EMERGENCY_SYSTEM.md",
+    "operational/PROTOCOLO_OPERACIONAL.md",
+]
+regexes = [
+    '[a-zA-Z0-9]{32,44}(pump)?', # Direcciones de Solana estándar
+]

@@ -7,6 +7,7 @@ Cargo.lock.bak
 operational/wallets/*.json
 operational/wallets/*.key
 operational/wallets/*.pem
+operational/.rpc_config
 .env
 .env.*
 !.env.example

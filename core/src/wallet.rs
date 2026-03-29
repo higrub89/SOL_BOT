@@ -10,7 +10,9 @@ use std::env;
 use std::process::Command;
 use std::str::FromStr;
 
-const GCP_PROJECT_ID: &str = "project-828d4ae0-6385-40d2-aa6";
+pub fn get_gcp_project_id() -> String {
+    std::env::var("GCP_PROJECT_ID").unwrap_or_else(|_| "serpent-361912".to_string())
+}
 
 pub struct WalletMonitor {
     rpc_url: String,
@@ -83,7 +85,7 @@ pub fn fetch_secret_from_gcp(secret_name: &str) -> Result<String> {
             "access",
             "latest",
             &format!("--secret={}", secret_name),
-            &format!("--project={}", GCP_PROJECT_ID),
+            &format!("--project={}", get_gcp_project_id()),
         ])
         .output()
         .context("Fallo al ejecutar el comando gcloud")?;

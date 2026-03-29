@@ -10,7 +10,7 @@ Por defecto, las instancias GCE usan la cuenta:
 Ejecuta el siguiente comando en tu terminal local para dar permiso de lectura de secretos a esa cuenta:
 
 ```bash
-PROJECT_ID="project-828d4ae0-6385-40d2-aa6"
+PROJECT_ID="serpent-361912"
 # Obtener el número del proyecto automáticamente
 PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
 SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"

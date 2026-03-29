@@ -4,7 +4,7 @@
 # ╚═══════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
-PROJECT_ID="project-828d4ae0-6385-40d2-aa6"
+PROJECT_ID="serpent-361912"
 INSTANCE_NAME="solana-bot-v1"
 ZONE="us-east4-b"
 IMAGE_NAME="bot"
