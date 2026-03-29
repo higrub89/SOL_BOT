@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 
 pub fn get_gcp_project_id() -> String {
-    std::env::var("GCP_PROJECT_ID").unwrap_or_else(|_| "serpent-361912".to_string())
+    std::env::var("GCP_PROJECT_ID").unwrap_or_else(|_| "project-828d4ae0-6385-40d2-aa6".to_string())
 }
 
 pub struct WalletMonitor {
