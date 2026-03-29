@@ -84,5 +84,5 @@ path = "src/bin/test_apis.rs"
 
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
-prost-build = { version = "0.13" }
+prost-build = { version = "0.14" }
 protobuf-src = "2.1"
