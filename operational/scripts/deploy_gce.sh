@@ -93,7 +93,7 @@ docker run -d \
   --ulimit rtprio=99 \
   --env-file \$ENV_FILE \
   ${GCR_PATH} \
-  ./the_chassis_app scan
+  ./the_chassis_app monitor
 
 # Limpiar historial
 history -c && history -w
