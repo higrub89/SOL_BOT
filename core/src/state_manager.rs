@@ -100,9 +100,20 @@ pub struct ConfigSnapshot {
 // STATE MANAGER
 // ============================================================================
 
+pub enum DbOp {
+    UpsertPosition(PositionState),
+    UpdateTpTriggered(String, i64),
+    UpdateTp2Triggered(String, i64),
+    UpdateAmount(String, f64, i64),
+    ClosePosition(String, i64),
+    UpdatePrice(String, f64, i64),
+    UpdateTrailingSl(String, f64, f64, i64),
+}
+
 pub struct StateManager {
     pool: Arc<Pool>,
     active_positions: Arc<DashMap<String, PositionState>>,
+    db_tx: tokio::sync::mpsc::UnboundedSender<DbOp>,
 }
 
 impl StateManager {
@@ -113,9 +124,12 @@ impl StateManager {
             .create_pool(Runtime::Tokio1)
             .context("Failed to create SQLite connection pool")?;
 
+        let (db_tx, mut db_rx) = tokio::sync::mpsc::unbounded_channel::<DbOp>();
+
         let manager = Self {
             pool: Arc::new(pool),
             active_positions: Arc::new(DashMap::new()),
+            db_tx,
         };
 
         // Enable WAL mode
@@ -131,9 +145,105 @@ impl StateManager {
         manager.run_migrations().await?;
         manager.preload_active_positions().await?;
 
+        // Start background DB writer task with Batching
+        let pool_clone = manager.pool.clone();
+        tokio::spawn(async move {
+            let mut batch = Vec::with_capacity(50);
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(50));
+
+            loop {
+                tokio::select! {
+                    Some(op) = db_rx.recv() => {
+                        batch.push(op);
+                        if batch.len() >= 50 {
+                            Self::flush_batch(&pool_clone, &mut batch).await;
+                        }
+                    }
+                    _ = interval.tick() => {
+                        if !batch.is_empty() {
+                            Self::flush_batch(&pool_clone, &mut batch).await;
+                        }
+                    }
+                }
+            }
+        });
+
         println!("✅ State Manager inicializado: {}", db_path);
 
         Ok(manager)
+    }
+
+    /// Procesa un lote de operaciones en una única transacción
+    async fn flush_batch(pool: &Pool, batch: &mut Vec<DbOp>) {
+        if let Ok(conn) = pool.get().await {
+            let ops = std::mem::take(batch);
+            let _ = conn
+                .interact(move |conn| -> Result<()> {
+                    let tx = conn.transaction()?;
+                    for op in ops {
+                        match op {
+                            DbOp::UpsertPosition(pos) => {
+                                tx.execute(
+                                    "INSERT INTO positions (
+                                        token_mint, symbol, entry_price, amount_sol, current_price,
+                                        stop_loss_percent, trailing_enabled, trailing_distance_percent,
+                                        trailing_activation_threshold, trailing_highest_price,
+                                        trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
+                                        tp2_percent, tp2_amount_percent, tp2_triggered,
+                                        active, created_at, updated_at
+                                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                                    ON CONFLICT(token_mint) DO UPDATE SET
+                                        entry_price = excluded.entry_price,
+                                        amount_sol = excluded.amount_sol,
+                                        current_price = excluded.current_price,
+                                        stop_loss_percent = excluded.stop_loss_percent,
+                                        trailing_highest_price = excluded.trailing_highest_price,
+                                        trailing_current_sl = excluded.trailing_current_sl,
+                                        tp_percent = excluded.tp_percent,
+                                        tp_amount_percent = excluded.tp_amount_percent,
+                                        tp_triggered = excluded.tp_triggered,
+                                        tp2_percent = excluded.tp2_percent,
+                                        tp2_amount_percent = excluded.tp2_amount_percent,
+                                        tp2_triggered = excluded.tp2_triggered,
+                                        active = excluded.active,
+                                        updated_at = excluded.updated_at",
+                                    params![
+                                        pos.token_mint, pos.symbol, pos.entry_price, pos.amount_sol, pos.current_price,
+                                        pos.stop_loss_percent, pos.trailing_enabled as i32, pos.trailing_distance_percent,
+                                        pos.trailing_activation_threshold, pos.trailing_highest_price,
+                                        pos.trailing_current_sl, pos.tp_percent, pos.tp_amount_percent, 
+                                        pos.tp_triggered as i32, pos.tp2_percent, pos.tp2_amount_percent, 
+                                        pos.tp2_triggered as i32, pos.active as i32, pos.created_at, pos.updated_at,
+                                    ],
+                                )?;
+                            }
+                            DbOp::UpdateTpTriggered(tm, now) => {
+                                tx.execute("UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
+                            }
+                            DbOp::UpdateTp2Triggered(tm, now) => {
+                                tx.execute("UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
+                            }
+                            DbOp::UpdateAmount(tm, amount, now) => {
+                                tx.execute("UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3", params![amount, now, tm])?;
+                            }
+                            DbOp::ClosePosition(tm, now) => {
+                                tx.execute("UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
+                            }
+                            DbOp::UpdatePrice(tm, price, now) => {
+                                tx.execute("UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3", params![price, now, tm])?;
+                            }
+                            DbOp::UpdateTrailingSl(tm, high, current, now) => {
+                                tx.execute("UPDATE positions SET trailing_highest_price = ?1, trailing_current_sl = ?2, updated_at = ?3 WHERE token_mint = ?4", params![high, current, now, tm])?;
+                            }
+                        }
+                    }
+                    tx.commit()?;
+                    Ok(())
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("DB batch error: {}", e))
+                .unwrap_or(Ok(()));
+        }
     }
 
     /// Crea las tablas necesarias
@@ -332,69 +442,16 @@ impl StateManager {
     // ========================================================================
 
     /// Guarda o actualiza una posición
-    pub async fn upsert_position(&self, position: PositionState) -> Result<()> {
+    pub async fn upsert_position(&self, mut position: PositionState) -> Result<()> {
+        let now = Utc::now().timestamp();
+        position.updated_at = now;
+
         // RAM (O(1))
         self.active_positions
             .insert(position.token_mint.clone(), position.clone());
 
         // Background Disk Write
-        let pool = self.pool.clone();
-        let now = Utc::now().timestamp();
-
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute(
-                        "INSERT INTO positions (
-                            token_mint, symbol, entry_price, amount_sol, current_price,
-                            stop_loss_percent, trailing_enabled, trailing_distance_percent,
-                            trailing_activation_threshold, trailing_highest_price,
-                            trailing_current_sl, tp_percent, tp_amount_percent, tp_triggered,
-                            tp2_percent, tp2_amount_percent, tp2_triggered,
-                            active, created_at, updated_at
-                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
-                        ON CONFLICT(token_mint) DO UPDATE SET
-                            entry_price = excluded.entry_price,
-                            amount_sol = excluded.amount_sol,
-                            current_price = excluded.current_price,
-                            stop_loss_percent = excluded.stop_loss_percent,
-                            trailing_highest_price = excluded.trailing_highest_price,
-                            trailing_current_sl = excluded.trailing_current_sl,
-                            tp_percent = excluded.tp_percent,
-                            tp_amount_percent = excluded.tp_amount_percent,
-                            tp_triggered = excluded.tp_triggered,
-                            tp2_percent = excluded.tp2_percent,
-                            tp2_amount_percent = excluded.tp2_amount_percent,
-                            tp2_triggered = excluded.tp2_triggered,
-                            active = excluded.active,
-                            updated_at = excluded.updated_at",
-                        params![
-                            position.token_mint,
-                            position.symbol,
-                            position.entry_price,
-                            position.amount_sol,
-                            position.current_price,
-                            position.stop_loss_percent,
-                            position.trailing_enabled as i32,
-                            position.trailing_distance_percent,
-                            position.trailing_activation_threshold,
-                            position.trailing_highest_price,
-                            position.trailing_current_sl,
-                            position.tp_percent,
-                            position.tp_amount_percent,
-                            position.tp_triggered as i32,
-                            position.tp2_percent,
-                            position.tp2_amount_percent,
-                            position.tp2_triggered as i32,
-                            position.active as i32,
-                            position.created_at,
-                            now,
-                        ],
-                    )?;
-                    Ok(())
-                }).await;
-            }
-        });
+        let _ = self.db_tx.send(DbOp::UpsertPosition(position));
 
         Ok(())
     }
@@ -433,16 +490,7 @@ impl StateManager {
             p.updated_at = now;
         }
 
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute("UPDATE positions SET tp_triggered = 1, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
-                    Ok(())
-                }).await;
-            }
-        });
-
+        let _ = self.db_tx.send(DbOp::UpdateTpTriggered(tm, now));
         Ok(())
     }
 
@@ -455,16 +503,7 @@ impl StateManager {
             p.updated_at = now;
         }
 
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute("UPDATE positions SET tp2_triggered = 1, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
-                    Ok(())
-                }).await;
-            }
-        });
-
+        let _ = self.db_tx.send(DbOp::UpdateTp2Triggered(tm, now));
         Ok(())
     }
 
@@ -482,16 +521,7 @@ impl StateManager {
             p.updated_at = now;
         }
 
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute("UPDATE positions SET amount_sol = ?1, updated_at = ?2 WHERE token_mint = ?3", params![new_amount_sol, now, tm])?;
-                    Ok(())
-                }).await;
-            }
-        });
-
+        let _ = self.db_tx.send(DbOp::UpdateAmount(tm, new_amount_sol, now));
         Ok(())
     }
 
@@ -504,18 +534,8 @@ impl StateManager {
             p.active = false;
             p.updated_at = now;
         }
-        // Cleanup from cache eventually, but keeping it as active=false in map is fine, or we can remove it. Let's keep it to mirror DB.
 
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute("UPDATE positions SET active = 0, updated_at = ?1 WHERE token_mint = ?2", params![now, tm])?;
-                    Ok(())
-                }).await;
-            }
-        });
-
+        let _ = self.db_tx.send(DbOp::ClosePosition(tm, now));
         Ok(())
     }
 
@@ -529,16 +549,7 @@ impl StateManager {
             p.updated_at = now;
         }
 
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute("UPDATE positions SET current_price = ?1, updated_at = ?2 WHERE token_mint = ?3", params![current_price, now, tm])?;
-                    Ok(())
-                }).await;
-            }
-        });
-
+        let _ = self.db_tx.send(DbOp::UpdatePrice(tm, current_price, now));
         Ok(())
     }
 
@@ -558,16 +569,7 @@ impl StateManager {
             p.updated_at = now;
         }
 
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            if let Ok(conn) = pool.get().await {
-                let _ = conn.interact(move |conn| -> Result<()> {
-                    conn.execute("UPDATE positions SET trailing_highest_price = ?1, trailing_current_sl = ?2, updated_at = ?3 WHERE token_mint = ?4", params![highest_price, current_sl, now, tm])?;
-                    Ok(())
-                }).await;
-            }
-        });
-
+        let _ = self.db_tx.send(DbOp::UpdateTrailingSl(tm, highest_price, current_sl, now));
         Ok(())
     }
 

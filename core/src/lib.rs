@@ -59,6 +59,7 @@ use telegram::commands::CommandHandler;
 use telegram::TelegramNotifier;
 
 use wallet::{load_keypair_secure, WalletMonitor};
+use intelligence_rs::MlBridge;
 
 /// Argumentos de línea de comandos para The Chassis
 #[derive(Parser)]
@@ -273,7 +274,8 @@ async fn run_monitor_mode() -> Result<()> {
     println!("🏦 Balance Inicial: {:.4} SOL", sol_balance);
 
     // 2. DB Asíncrona (Connection Pool)
-    let state_manager = Arc::new(StateManager::new("trading_state.db").await?);
+    let db_path = std::env::var("DB_PATH").unwrap_or_else(|_| "trading_state.db".to_string());
+    let state_manager = Arc::new(StateManager::new(&db_path).await?);
 
     // 3. Emergency System
     let emergency_monitor = Arc::new(Mutex::new(EmergencyMonitor::new(EmergencyConfig {
@@ -525,6 +527,55 @@ async fn run_monitor_mode() -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = raydium_geyser.listen().await {
             eprintln!("⚠️ [HFT Geyser] Error en Firehose: {}", e);
+        }
+    });
+
+    // 9. Intelligence ML Bridge (IPC Local)
+    let socket_path = std::env::var("SIGNAL_SOCKET").unwrap_or_else(|_| "/tmp/chassis_signals.sock".to_string());
+    let (ml_bridge, mut ml_rx) = MlBridge::new(&socket_path);
+    let bridge_cmd_tx = cmd_tx.clone();
+    
+    // Task 1: Listener asíncrono UDS
+    tokio::spawn(async move {
+        if let Err(e) = ml_bridge.run().await {
+            eprintln!("⚠️ [ML-BRIDGE] Error crítico: {}", e);
+        }
+    });
+
+    // Task 2: Signal Translator (ML -> Command Bus)
+    tokio::spawn(async move {
+        println!("📡 [SIGNAL-BUS] Puente de inteligencia ML activo.");
+        while let Ok(signal) = ml_rx.recv().await {
+            use crate::engine::commands::AuditMetadata;
+
+            // Mapear Protobuf Signal a Internal Command
+            let audit = AuditMetadata {
+                signal_id: signal.signal_id.clone(),
+                strategy_name: format!("ML_MODEL_{}", signal.model_version),
+                rationale: format!("Signal from Python ML (Conf: {:.2})", signal.confidence),
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+
+            let cmd = match signal.direction {
+                d if d == intelligence_rs::ml_bridge::pb::Direction::Long as i32 => {
+                    ExecutionCommand::Buy {
+                        mint: signal.base_mint.clone(),
+                        symbol: signal.pair.clone(), // Usamos el par como símbolo para facilitar debug
+                        amount_sol: signal.size_usd / 150.0, // Estimación (Reemplazar por oráculo de precio SOL real)
+                        slippage_bps: 100, // Default 1%
+                        priority_fee: 50_000,
+                        audit,
+                    }
+                },
+                _ => {
+                    // Otros casos (Short, Exit) se implementarán en v2.1
+                    continue;
+                }
+            };
+
+            if let Err(e) = bridge_cmd_tx.send(cmd).await {
+                eprintln!("❌ [SIGNAL-BUS] Error al inyectar comando: {}", e);
+            }
         }
     });
 

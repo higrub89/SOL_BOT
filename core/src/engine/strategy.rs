@@ -159,12 +159,9 @@ impl StrategyEngine {
         {
             self.tp1_attempted.insert(target.token_mint.clone());
             let audit = AuditMetadata {
-                signal_id: format!("TP1_{}_{}", target.symbol, Utc::now().timestamp()),
+                signal_id: "TP1_HFT".to_string(),
                 strategy_name: "TrendFollowing_v2".to_string(),
-                rationale: format!(
-                    "Gain {:.2}% reached TP1 threshold {:.2}%",
-                    current_gain_percent, tp_target
-                ),
+                rationale: "TP1_THRESHOLD_HIT".to_string(),
                 timestamp: Utc::now().timestamp(),
             };
             let _ = cmd_tx
@@ -187,12 +184,9 @@ impl StrategyEngine {
             {
                 self.tp2_attempted.insert(target.token_mint.clone());
                 let audit = AuditMetadata {
-                    signal_id: format!("TP2_{}_{}", target.symbol, Utc::now().timestamp()),
+                    signal_id: "TP2_HFT".to_string(),
                     strategy_name: "TrendFollowing_v2".to_string(),
-                    rationale: format!(
-                        "Gain {:.2}% reached TP2 threshold {:.2}%",
-                        current_gain_percent, tp2_target
-                    ),
+                    rationale: "TP2_THRESHOLD_HIT".to_string(),
                     timestamp: Utc::now().timestamp(),
                 };
                 let _ = cmd_tx
@@ -213,12 +207,9 @@ impl StrategyEngine {
         {
             self.sell_attempted.insert(target.token_mint.clone());
             let audit = AuditMetadata {
-                signal_id: format!("SL_{}_{}", target.symbol, Utc::now().timestamp()),
+                signal_id: "SL_HFT".to_string(),
                 strategy_name: "TrendFollowing_v2".to_string(),
-                rationale: format!(
-                    "Gain {:.2}% hit SL threshold {:.2}%",
-                    current_gain_percent, effective_sl_percent
-                ),
+                rationale: "SL_THRESHOLD_HIT".to_string(),
                 timestamp: Utc::now().timestamp(),
             };
             let _ = cmd_tx

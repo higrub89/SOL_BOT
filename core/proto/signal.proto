@@ -85,3 +85,11 @@ message Heartbeat {
   uint64  timestamp_ms = 3;
   uint32  signals_sent = 4;   // Counter since process start
 }
+// gRPC Service Bridge
+service SignalService {
+  // Stream signals from Python (Client) to Rust (Server)
+  rpc StreamSignals(stream Signal) returns (SignalAck);
+
+  // Unary heartbeat
+  rpc SendHeartbeat(Heartbeat) returns (SignalAck);
+}

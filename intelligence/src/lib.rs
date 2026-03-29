@@ -8,8 +8,10 @@
 //! - ml_bridge: (Futuro) Conexión con modelos Python vía FFI/IPC.
 
 pub mod backtesting;
+pub mod ml_bridge;
 pub mod strategy_engine;
 
 // Re-exportar tipos comunes para facilitar uso
 pub use backtesting::{BacktestResult, MarketSimulator};
+pub use ml_bridge::{MlBridge, Signal};
 pub use strategy_engine::{MarketData, Strategy, TradeAction};

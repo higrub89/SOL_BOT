@@ -137,12 +137,15 @@ jobs:
           docker stop solana_trading_bot 2>/dev/null || true
           docker rm solana_trading_bot 2>/dev/null || true
           echo "⚡ Arrancando contenedor en modo MONITOR..."
+          mkdir -p /mnt/disks/chassis_data
           docker run -d \
           --name solana_trading_bot \
           --restart always \
           --cap-add=SYS_NICE \
           --ulimit rtprio=99 \
           --env-file $ENV_FILE \
+          -e DB_PATH=/app/data/trading_state.db \
+          -v /mnt/disks/chassis_data:/app/data \
           $DOCKER_IMAGE \
           ./the_chassis_app monitor
           echo "🏎️ THE CHASSIS online."

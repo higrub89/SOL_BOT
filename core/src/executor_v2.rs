@@ -165,7 +165,7 @@ impl TradeExecutor {
     /// Actuador asíncrono con control de tracción para slippage dinámico y Jito Tips (Zero-Allocation)
     pub async fn execute_sell_with_retry(
         &self,
-        token_mint: String,
+        token_mint: &str,
         wallet_keypair: Option<&Keypair>,
         amount_percent: u8,
         is_emergency: bool, // True si es Stop-Loss (prioridad absoluta)
@@ -180,7 +180,7 @@ impl TradeExecutor {
             .unwrap_or(100_000);
 
         loop {
-            println!(
+            tracing::info!(
                 "🔄 [Intento {}/{}] Venta de {} | Tracción: {} bps | Tip: {} µL",
                 attempt, max_attempts, token_mint, current_slippage_bps, current_jito_tip
             );
@@ -188,7 +188,7 @@ impl TradeExecutor {
             // ⚡ Llamada directa inyectando la sobrealimentación, sin reconstruir la instancia TCP
             match self
                 .execute_emergency_sell_with_params(
-                    &token_mint,
+                    token_mint,
                     wallet_keypair,
                     amount_percent,
                     Some(current_slippage_bps),
@@ -197,7 +197,7 @@ impl TradeExecutor {
                 .await
             {
                 Ok(result) => {
-                    println!(
+                    tracing::info!(
                         "✅ Maniobra HFT confirmada en red. [Tx: {}]",
                         result.signature
                     );
@@ -207,7 +207,7 @@ impl TradeExecutor {
                     let error_msg = e.to_string().to_lowercase();
 
                     if attempt >= max_attempts {
-                        eprintln!(
+                        tracing::error!(
                             "💥 Motor calado. Abortando salida para {}. Fallo irrecuperable tras {} intentos: {}", 
                             token_mint, max_attempts, e
                         );
@@ -228,8 +228,8 @@ impl TradeExecutor {
                         current_slippage_bps = (current_slippage_bps as f32 * 2.0) as u16;
 
                         if is_emergency && attempt == max_attempts - 1 {
-                            println!("☢️ [EMERGENCIA] Último ciclo para {}. Activando Modo Degen (Slippage MÁXIMO).", token_mint);
-                            current_slippage_bps = 10000; // 100% Slippage
+                            println!("☢️ [EMERGENCIA] Último ciclo para {}. Activando Modo Degen (Slippage MÁXIMO 50%).", token_mint);
+                            current_slippage_bps = 5000; // 50% Slippage max capped
                         } else {
                             println!(
                                 "⚠️ Deslizamiento superado. Ajustando tracción a {} bps.",

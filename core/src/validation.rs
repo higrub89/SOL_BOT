@@ -4,6 +4,7 @@
 //! causadas por APIs que devuelven datos corruptos o inesperados.
 
 use anyhow::{Context, Result};
+use arrayvec::ArrayString;
 
 /// Validador de datos financieros
 pub struct FinancialValidator;
@@ -172,12 +173,16 @@ impl FinancialValidator {
     /// - Caracteres válidos de base58
     /// - No contiene espacios ni caracteres especiales
     /// - No es un mint WSOL (para compras)
-    pub fn validate_mint(mint: &str, context: &str) -> Result<String> {
+    pub fn validate_mint(mint: &str, context: &str) -> Result<ArrayString<44>> {
         Self::validate_mint_internal(mint, context, false)
     }
 
     /// Valida un mint, con la opción de permitir WSOL internamente
-    fn validate_mint_internal(mint: &str, context: &str, allow_wsol: bool) -> Result<String> {
+    fn validate_mint_internal(
+        mint: &str,
+        context: &str,
+        allow_wsol: bool,
+    ) -> Result<ArrayString<44>> {
         let mint = mint.trim();
 
         // Validar que no esté vacío
@@ -222,7 +227,7 @@ impl FinancialValidator {
             );
         }
 
-        Ok(mint.to_string())
+        Ok(ArrayString::from(mint).unwrap_or_else(|_| ArrayString::new()))
     }
 
     /// Valida un par de mints para swaps (input y output no pueden ser iguales)

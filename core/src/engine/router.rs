@@ -73,25 +73,29 @@ impl ExecutionRouter {
             ExecutionCommand::PanicAll => {
                 println!("💥 [RUTEO] PANIC ALL EJECUTADO");
                 if let Ok(positions) = self.state_manager.get_active_positions().await {
+                    let mut futures = Vec::new();
                     for pos in positions {
                         let audit = AuditMetadata {
-                            signal_id: format!("PANIC_{}", Utc::now().timestamp()),
+                            signal_id: "PANIC_ALL_HFT".to_string(),
                             strategy_name: "SYSTEM_PANIC".to_string(),
                             rationale: "Manual Panic All Triggered".to_string(),
                             timestamp: Utc::now().timestamp(),
                         };
-                        self.execute_sell_with_audit(
-                            &pos.token_mint,
-                            &pos.symbol,
-                            pos.amount_sol,
-                            100,
-                            true,
-                            "PANIC_ALL",
-                            CommandType::StopLoss,
-                            audit,
-                        )
-                        .await;
+                        
+                        futures.push(async move {
+                            self.execute_sell_with_audit(
+                                &pos.token_mint,
+                                &pos.symbol,
+                                pos.amount_sol,
+                                100,
+                                true,
+                                "PANIC_ALL",
+                                CommandType::StopLoss,
+                                audit,
+                            ).await;
+                        });
                     }
+                    futures_util::future::join_all(futures).await;
                 }
             }
             ExecutionCommand::StopLoss {
@@ -279,7 +283,7 @@ impl ExecutionRouter {
             let res = self
                 .executor
                 .execute_sell_with_retry(
-                    mint.to_string(),
+                    mint,
                     self.wallet_kp.as_deref(),
                     pct,
                     is_emergency,

@@ -2383,8 +2383,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "futures-util",
+ "prost",
+ "prost-build",
  "rand 0.8.5",
  "serde",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]
@@ -7137,6 +7144,7 @@ name = "the_chassis"
 version = "0.9.0"
 dependencies = [
  "anyhow",
+ "arrayvec",
  "async-trait",
  "base64 0.21.7",
  "bs58",
@@ -7163,6 +7171,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "smallvec",
  "solana-account-decoder",
  "solana-client",
  "solana-program",

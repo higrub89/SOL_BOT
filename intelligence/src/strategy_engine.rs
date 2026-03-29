@@ -6,7 +6,7 @@
 use anyhow::Result;
 
 use std::fmt::Debug;
-use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Razones estandarizadas y libres de heap para una venta
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +75,7 @@ pub trait Strategy: Debug + Send + Sync {
 #[derive(Debug)]
 pub struct SimpleMomentumStrategy {
     symbol: String,
-    last_price: RwLock<Option<f64>>,
+    last_price: AtomicU64,
     momentum_threshold: f64,
 }
 
@@ -83,7 +83,7 @@ impl SimpleMomentumStrategy {
     pub fn new(symbol: String, threshold: f64) -> Self {
         Self {
             symbol,
-            last_price: RwLock::new(None),
+            last_price: AtomicU64::new(f64::NAN.to_bits()),
             momentum_threshold: threshold,
         }
     }
@@ -96,7 +96,7 @@ impl Strategy for SimpleMomentumStrategy {
 
     fn initialize(&self) -> Result<()> {
         println!(
-            "🚀 Estrategia SimpleMomentum inicializada para {}",
+            "🚀 [HFT] SimpleMomentum (Lock-free) inicializada para {}",
             self.symbol
         );
         Ok(())
@@ -105,10 +105,11 @@ impl Strategy for SimpleMomentumStrategy {
     fn on_price_update(&self, data: &MarketData) -> Result<TradeAction> {
         let current_price = data.price;
 
-        let mut last_price_guard = self.last_price.write().unwrap();
+        let last_bits = self.last_price.load(Ordering::Acquire);
+        let last_f64 = f64::from_bits(last_bits);
 
-        let action = if let Some(last) = *last_price_guard {
-            let change_pct = (current_price - last) / last * 100.0;
+        let action = if !last_f64.is_nan() {
+            let change_pct = (current_price - last_f64) / last_f64 * 100.0;
 
             if change_pct > self.momentum_threshold {
                 TradeAction::Buy {
@@ -128,7 +129,7 @@ impl Strategy for SimpleMomentumStrategy {
             TradeAction::Hold
         };
 
-        *last_price_guard = Some(current_price);
+        self.last_price.store(current_price.to_bits(), Ordering::Release);
         Ok(action)
     }
 }
