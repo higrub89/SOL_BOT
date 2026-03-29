@@ -96,8 +96,66 @@ jobs:
           docker build -f operational/deploy/Dockerfile -t $IMAGE_URL .
           docker push $IMAGE_URL
 
-      - name: 🔄 Reset GCE Instance (Triggers Startup Script)
+      - name: 🔄 Update Startup Script & Reset GCE Instance
         run: |
+          IMAGE_URL="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
+
+          cat > /tmp/startup.sh << 'STARTUP_EOF'
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/chassis-startup.log|logger -t startup-script -s 2>/dev/console) 2>&1
+          echo "🚀 THE CHASSIS — Startup Script v3.0"
+          if ! command -v docker &> /dev/null; then
+          apt-get update && apt-get install -y docker.io
+          systemctl start docker && systemctl enable docker
+          fi
+          gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+          PROJECT_ID="__PROJECT_ID__"
+          ENV_FILE="/root/.chassis.env"
+          touch $ENV_FILE && chmod 600 $ENV_FILE
+          fetch_secret() {
+          gcloud secrets versions access latest --secret="$1" --project="$PROJECT_ID" --quiet 2>/dev/null
+          }
+          echo "📥 Recuperando secretos..."
+          H_KEY=$(fetch_secret HELIUS_API_KEY)
+          W_KEY=$(fetch_secret CHASSIS_WALLET_KEY)
+          W_ADDR=$(fetch_secret WALLET_ADDRESS)
+          T_TOKEN=$(fetch_secret TELEGRAM_BOT_TOKEN)
+          T_ID=$(fetch_secret TELEGRAM_CHAT_ID)
+          cat <<ENV_EOF > $ENV_FILE
+          HELIUS_API_KEY=$H_KEY
+          WALLET_PRIVATE_KEY=$W_KEY
+          WALLET_ADDRESS=$W_ADDR
+          TELEGRAM_BOT_TOKEN=$T_TOKEN
+          TELEGRAM_CHAT_ID=$T_ID
+          HUNTER_MODE=devnet
+          RUST_LOG=info
+          ENV_EOF
+          echo "✅ Secretos cargados."
+          DOCKER_IMAGE="__IMAGE_URL__"
+          docker pull $DOCKER_IMAGE
+          docker stop solana_trading_bot 2>/dev/null || true
+          docker rm solana_trading_bot 2>/dev/null || true
+          echo "⚡ Arrancando contenedor en modo MONITOR..."
+          docker run -d \
+          --name solana_trading_bot \
+          --restart always \
+          --cap-add=SYS_NICE \
+          --ulimit rtprio=99 \
+          --env-file $ENV_FILE \
+          $DOCKER_IMAGE \
+          ./the_chassis_app monitor
+          echo "🏎️ THE CHASSIS online."
+          STARTUP_EOF
+
+          sed -i "s|__PROJECT_ID__|${{ env.PROJECT_ID }}|g" /tmp/startup.sh
+          sed -i "s|__IMAGE_URL__|${IMAGE_URL}|g" /tmp/startup.sh
+
+          gcloud compute instances add-metadata ${{ env.INSTANCE_NAME }} \
+            --zone=${{ env.ZONE }} \
+            --project=${{ env.PROJECT_ID }} \
+            --metadata-from-file=startup-script=/tmp/startup.sh
+
           gcloud compute instances reset ${{ env.INSTANCE_NAME }} \
             --zone=${{ env.ZONE }} \
             --project=${{ env.PROJECT_ID }}
