@@ -129,7 +129,8 @@ impl Strategy for SimpleMomentumStrategy {
             TradeAction::Hold
         };
 
-        self.last_price.store(current_price.to_bits(), Ordering::Release);
+        self.last_price
+            .store(current_price.to_bits(), Ordering::Release);
         Ok(action)
     }
 }

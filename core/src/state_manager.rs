@@ -211,8 +211,8 @@ impl StateManager {
                                         pos.token_mint, pos.symbol, pos.entry_price, pos.amount_sol, pos.current_price,
                                         pos.stop_loss_percent, pos.trailing_enabled as i32, pos.trailing_distance_percent,
                                         pos.trailing_activation_threshold, pos.trailing_highest_price,
-                                        pos.trailing_current_sl, pos.tp_percent, pos.tp_amount_percent, 
-                                        pos.tp_triggered as i32, pos.tp2_percent, pos.tp2_amount_percent, 
+                                        pos.trailing_current_sl, pos.tp_percent, pos.tp_amount_percent,
+                                        pos.tp_triggered as i32, pos.tp2_percent, pos.tp2_amount_percent,
                                         pos.tp2_triggered as i32, pos.active as i32, pos.created_at, pos.updated_at,
                                     ],
                                 )?;
@@ -569,7 +569,9 @@ impl StateManager {
             p.updated_at = now;
         }
 
-        let _ = self.db_tx.send(DbOp::UpdateTrailingSl(tm, highest_price, current_sl, now));
+        let _ = self
+            .db_tx
+            .send(DbOp::UpdateTrailingSl(tm, highest_price, current_sl, now));
         Ok(())
     }
 

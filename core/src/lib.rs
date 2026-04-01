@@ -58,8 +58,8 @@ use state_manager::StateManager;
 use telegram::commands::CommandHandler;
 use telegram::TelegramNotifier;
 
-use wallet::{load_keypair_secure, WalletMonitor};
 use intelligence_rs::MlBridge;
+use wallet::{load_keypair_secure, WalletMonitor};
 
 /// Argumentos de línea de comandos para The Chassis
 #[derive(Parser)]
@@ -531,10 +531,11 @@ async fn run_monitor_mode() -> Result<()> {
     });
 
     // 9. Intelligence ML Bridge (IPC Local)
-    let socket_path = std::env::var("SIGNAL_SOCKET").unwrap_or_else(|_| "/tmp/chassis_signals.sock".to_string());
+    let socket_path =
+        std::env::var("SIGNAL_SOCKET").unwrap_or_else(|_| "/tmp/chassis_signals.sock".to_string());
     let (ml_bridge, mut ml_rx) = MlBridge::new(&socket_path);
     let bridge_cmd_tx = cmd_tx.clone();
-    
+
     // Task 1: Listener asíncrono UDS
     tokio::spawn(async move {
         if let Err(e) = ml_bridge.run().await {
@@ -562,11 +563,11 @@ async fn run_monitor_mode() -> Result<()> {
                         mint: signal.base_mint.clone(),
                         symbol: signal.pair.clone(), // Usamos el par como símbolo para facilitar debug
                         amount_sol: signal.size_usd / 150.0, // Estimación (Reemplazar por oráculo de precio SOL real)
-                        slippage_bps: 100, // Default 1%
+                        slippage_bps: 100,                   // Default 1%
                         priority_fee: 50_000,
                         audit,
                     }
-                },
+                }
                 _ => {
                     // Otros casos (Short, Exit) se implementarán en v2.1
                     continue;

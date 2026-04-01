@@ -6,9 +6,9 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 use tokio::net::UnixListener;
+use tokio::sync::broadcast;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
-use tokio::sync::broadcast;
 
 // Protos generados por tonic-build
 pub mod pb {
@@ -56,7 +56,10 @@ impl SignalService for MlSignalHandler {
         request: Request<Heartbeat>,
     ) -> Result<Response<SignalAck>, Status> {
         let hb = request.into_inner();
-        println!("💓 [ML-BRIDGE] Heartbeat v{} from {}", hb.model_version, hb.process_id);
+        println!(
+            "💓 [ML-BRIDGE] Heartbeat v{} from {}",
+            hb.model_version, hb.process_id
+        );
 
         Ok(Response::new(SignalAck {
             signal_id: format!("HB_{}", hb.timestamp_ms),
@@ -97,7 +100,10 @@ impl MlBridge {
             signal_tx: self.signal_tx,
         };
 
-        println!("🧠 [ML-BRIDGE] Servidor gRPC (UDS) Activo: {}", self.socket_path);
+        println!(
+            "🧠 [ML-BRIDGE] Servidor gRPC (UDS) Activo: {}",
+            self.socket_path
+        );
 
         Server::builder()
             .add_service(SignalServiceServer::new(handler))

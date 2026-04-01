@@ -9,12 +9,16 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
+use dashmap::DashMap;
+use tokio::sync::Mutex;
+
 pub struct ExecutionRouter {
     executor: Arc<TradeExecutor>,
     state_manager: Arc<StateManager>,
     telegram: Arc<TelegramNotifier>,
     wallet_kp: Option<Arc<Keypair>>,
     feedback_tx: mpsc::Sender<ExecutionFeedback>,
+    token_locks: Arc<DashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl ExecutionRouter {
@@ -31,6 +35,7 @@ impl ExecutionRouter {
             telegram,
             wallet_kp: wallet_kp.map(Arc::new),
             feedback_tx,
+            token_locks: Arc::new(DashMap::new()),
         }
     }
 
@@ -41,7 +46,26 @@ impl ExecutionRouter {
             let router_clone = Arc::clone(&self);
 
             tokio::spawn(async move {
-                router_clone.process_command(command).await;
+                // Obtener o crear lock para este token para evitar condiciones de carrera
+                let mint = match &command {
+                    ExecutionCommand::Buy { mint, .. } => Some(mint.clone()),
+                    ExecutionCommand::StopLoss { mint, .. } => Some(mint.clone()),
+                    ExecutionCommand::TakeProfit1 { mint, .. } => Some(mint.clone()),
+                    ExecutionCommand::TakeProfit2 { mint, .. } => Some(mint.clone()),
+                    _ => None,
+                };
+
+                if let Some(m) = mint {
+                    let lock = router_clone
+                        .token_locks
+                        .entry(m)
+                        .or_insert_with(|| Arc::new(Mutex::new(())))
+                        .clone();
+                    let _guard = lock.lock().await;
+                    router_clone.process_command(command).await;
+                } else {
+                    router_clone.process_command(command).await;
+                }
             });
         }
     }
@@ -81,7 +105,7 @@ impl ExecutionRouter {
                             rationale: "Manual Panic All Triggered".to_string(),
                             timestamp: Utc::now().timestamp(),
                         };
-                        
+
                         futures.push(async move {
                             self.execute_sell_with_audit(
                                 &pos.token_mint,
@@ -92,7 +116,8 @@ impl ExecutionRouter {
                                 "PANIC_ALL",
                                 CommandType::StopLoss,
                                 audit,
-                            ).await;
+                            )
+                            .await;
                         });
                     }
                     futures_util::future::join_all(futures).await;
@@ -282,12 +307,7 @@ impl ExecutionRouter {
         for attempt in 1..=max_attempts {
             let res = self
                 .executor
-                .execute_sell_with_retry(
-                    mint,
-                    self.wallet_kp.as_deref(),
-                    pct,
-                    is_emergency,
-                )
+                .execute_sell_with_retry(mint, self.wallet_kp.as_deref(), pct, is_emergency)
                 .await;
 
             match res {
@@ -413,7 +433,7 @@ mod tests {
         // 2. Mocking de Dependencias usando endpoints irreales locales para forzar Err inmediato
         let executor_config = ExecutorConfig::new("http://127.0.0.1:0".to_string(), true);
         let executor = Arc::new(TradeExecutor::new(executor_config));
-        let state_manager = Arc::new(StateManager::new("sqlite::memory:").await.unwrap());
+        let state_manager = Arc::new(StateManager::new(":memory:").await.unwrap());
         let telegram =
             Arc::new(TelegramNotifier::new().expect("Failed to initialize mock/test telegram"));
 

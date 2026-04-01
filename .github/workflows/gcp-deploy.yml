@@ -104,24 +104,52 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           exec > >(tee /var/log/chassis-startup.log|logger -t startup-script -s 2>/dev/console) 2>&1
-          echo "🚀 THE CHASSIS — Startup Script v3.0"
+          echo "🚀 THE CHASSIS — Startup Script v3.1 (Persistent Volume Support)"
+          
+          # 1. Setup Docker
           if ! command -v docker &> /dev/null; then
-          apt-get update && apt-get install -y docker.io
-          systemctl start docker && systemctl enable docker
+            apt-get update && apt-get install -y docker.io
+            systemctl start docker && systemctl enable docker
           fi
+          
+          # 2. Setup Persistent Disk (if attached)
+          DATA_DISK="/dev/disk/by-id/google-chassis-data"
+          MOUNT_POINT="/mnt/disks/chassis_data"
+          
+          if [ -b "$DATA_DISK" ]; then
+            echo "💾 Disco persistente detectado ($DATA_DISK). Preparando montaje..."
+            mkdir -p $MOUNT_POINT
+            # Formatear solo si no tiene sistema de archivos
+            if ! blkid "$DATA_DISK" > /dev/null; then
+              mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$DATA_DISK"
+            fi
+            # Montar si no está montado
+            if ! mount | grep -q "$MOUNT_POINT"; then
+              mount -o discard,defaults "$DATA_DISK" $MOUNT_POINT
+            fi
+            echo "✅ Disco persistente montado en $MOUNT_POINT"
+          else
+            echo "⚠️  Disco persistente NO detectado. Usando almacenamiento local (no persistente)."
+            mkdir -p $MOUNT_POINT
+          fi
+
+          # 3. Docker Auth & Pull
           gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
           PROJECT_ID="__PROJECT_ID__"
           ENV_FILE="/root/.chassis.env"
           touch $ENV_FILE && chmod 600 $ENV_FILE
+          
           fetch_secret() {
-          gcloud secrets versions access latest --secret="$1" --project="$PROJECT_ID" --quiet 2>/dev/null
+            gcloud secrets versions access latest --secret="$1" --project="$PROJECT_ID" --quiet 2>/dev/null
           }
+          
           echo "📥 Recuperando secretos..."
           H_KEY=$(fetch_secret HELIUS_API_KEY)
           W_KEY=$(fetch_secret CHASSIS_WALLET_KEY)
           W_ADDR=$(fetch_secret WALLET_ADDRESS)
           T_TOKEN=$(fetch_secret TELEGRAM_BOT_TOKEN)
           T_ID=$(fetch_secret TELEGRAM_CHAT_ID)
+          
           cat <<ENV_EOF > $ENV_FILE
           HELIUS_API_KEY=$H_KEY
           WALLET_PRIVATE_KEY=$W_KEY
@@ -131,23 +159,25 @@ jobs:
           HUNTER_MODE=devnet
           RUST_LOG=info
           ENV_EOF
+          
           echo "✅ Secretos cargados."
           DOCKER_IMAGE="__IMAGE_URL__"
           docker pull $DOCKER_IMAGE
           docker stop solana_trading_bot 2>/dev/null || true
           docker rm solana_trading_bot 2>/dev/null || true
+          
           echo "⚡ Arrancando contenedor en modo MONITOR..."
-          mkdir -p /mnt/disks/chassis_data
           docker run -d \
-          --name solana_trading_bot \
-          --restart always \
-          --cap-add=SYS_NICE \
-          --ulimit rtprio=99 \
-          --env-file $ENV_FILE \
-          -e DB_PATH=/app/data/trading_state.db \
-          -v /mnt/disks/chassis_data:/app/data \
-          $DOCKER_IMAGE \
-          ./the_chassis_app monitor
+            --name solana_trading_bot \
+            --restart always \
+            --cap-add=SYS_NICE \
+            --ulimit rtprio=99 \
+            --env-file $ENV_FILE \
+            -e DB_PATH=/app/data/trading_state.db \
+            -v $MOUNT_POINT:/app/data \
+            $DOCKER_IMAGE \
+            ./the_chassis_app monitor
+          
           echo "🏎️ THE CHASSIS online."
           STARTUP_EOF
 

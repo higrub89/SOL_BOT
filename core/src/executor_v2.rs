@@ -182,7 +182,11 @@ impl TradeExecutor {
         loop {
             tracing::info!(
                 "🔄 [Intento {}/{}] Venta de {} | Tracción: {} bps | Tip: {} µL",
-                attempt, max_attempts, token_mint, current_slippage_bps, current_jito_tip
+                attempt,
+                max_attempts,
+                token_mint,
+                current_slippage_bps,
+                current_jito_tip
             );
 
             // ⚡ Llamada directa inyectando la sobrealimentación, sin reconstruir la instancia TCP
@@ -228,8 +232,8 @@ impl TradeExecutor {
                         current_slippage_bps = (current_slippage_bps as f32 * 2.0) as u16;
 
                         if is_emergency && attempt == max_attempts - 1 {
-                            println!("☢️ [EMERGENCIA] Último ciclo para {}. Activando Modo Degen (Slippage MÁXIMO 50%).", token_mint);
-                            current_slippage_bps = 5000; // 50% Slippage max capped
+                            println!("☢️ [EMERGENCIA] Último ciclo para {}. Activando Modo Degen (Slippage MÁXIMO 40%).", token_mint);
+                            current_slippage_bps = 4000; // 40% Slippage max capped for safety (reduced from 50%)
                         } else {
                             println!(
                                 "⚠️ Deslizamiento superado. Ajustando tracción a {} bps.",
@@ -248,7 +252,8 @@ impl TradeExecutor {
                     }
 
                     // Backoff Exponencial (200ms, 400ms, 800ms...) para respetar ciclos del nodo
-                    let delay = std::time::Duration::from_millis(200 * (2u64.pow(attempt as u32)));
+                    let delay =
+                        tokio::time::Duration::from_millis(200 * (2u64.pow(attempt as u32)));
                     tokio::time::sleep(delay).await;
 
                     attempt += 1;
@@ -319,8 +324,9 @@ impl TradeExecutor {
 
         // 1. Obtener token account y balance
         println!("📊 Verificando balance de tokens...");
-        let (token_account, token_balance) =
-            self.get_token_account_balance(&user_pubkey, &token_mint)?;
+        let (token_account, token_balance) = self
+            .get_token_account_balance(&user_pubkey, &token_mint)
+            .await?;
 
         let amount_to_sell = (token_balance as f64 * (amount_percent as f64 / 100.0)) as u64;
 
@@ -1066,7 +1072,8 @@ impl TradeExecutor {
             println!("🔍 Procesando {}...", &mint[..8]);
 
             // 1. Balance
-            let (_, token_balance) = match self.get_token_account_balance(&user_pubkey, mint) {
+            let (_, token_balance) = match self.get_token_account_balance(&user_pubkey, mint).await
+            {
                 Ok(b) => b,
                 Err(e) => {
                     eprintln!("   ⚠️ Saltar {}: {}", mint, e);
@@ -1167,7 +1174,11 @@ impl TradeExecutor {
     }
 
     /// Obtiene el token account y balance para un mint específico con reintentos para ATA creation
-    fn get_token_account_balance(&self, wallet: &Pubkey, mint: &str) -> Result<(Pubkey, u64)> {
+    async fn get_token_account_balance(
+        &self,
+        wallet: &Pubkey,
+        mint: &str,
+    ) -> Result<(Pubkey, u64)> {
         let mint_pubkey = Pubkey::from_str(mint).context("Token mint inválido")?;
 
         let token_account =
@@ -1191,7 +1202,7 @@ impl TradeExecutor {
                             "⏳ [RETRY] ATA no detectado aún para {}. Esperando 600ms...",
                             &mint[..8]
                         );
-                        std::thread::sleep(std::time::Duration::from_millis(600));
+                        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
                     }
                 }
             }
@@ -1346,6 +1357,7 @@ impl TradeExecutor {
         // 2. Obtener balance PRE-compra
         let pre_balance = self
             .get_token_account_balance(&user_pubkey, &valid_mint)
+            .await
             .map(|(_, bal)| bal)
             .unwrap_or(0);
 
@@ -1504,7 +1516,10 @@ impl TradeExecutor {
         let mut post_balance = pre_balance;
         for i in 0..8 {
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-            if let Ok((_, bal)) = self.get_token_account_balance(&user_pubkey, &valid_mint) {
+            if let Ok((_, bal)) = self
+                .get_token_account_balance(&user_pubkey, &valid_mint)
+                .await
+            {
                 if bal > pre_balance {
                     post_balance = bal;
                     break;

@@ -133,3 +133,43 @@ impl MarketSimulator {
         })
     }
 }
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strategy_engine::SimpleMomentumStrategy;
+
+    #[test]
+    fn backtest_simulation() {
+        // Inicializar estrategia con umbral del 1%
+        let mut strategy = SimpleMomentumStrategy::new("SOL/USDC".to_string(), 1.0);
+        let simulator = MarketSimulator::new(10.0); // 10 SOL de balance inicial
+
+        // Dataset sintético: Subida del 2% (Compra) seguido de bajada (Venta)
+        let data = vec![
+            MarketData { timestamp_ms: 1000, price: 100.0, volume_24h: 1000.0, liquidity: 5000.0 },
+            MarketData { timestamp_ms: 2000, price: 102.0, volume_24h: 1100.0, liquidity: 5000.0 }, // +2% -> BUY
+            MarketData { timestamp_ms: 3000, price: 105.0, volume_24h: 1500.0, liquidity: 5000.0 }, // Sube más
+            MarketData { timestamp_ms: 4000, price: 101.0, volume_24h: 1300.0, liquidity: 5000.0 }, // -3.8% -> SELL
+            MarketData { timestamp_ms: 5000, price: 95.0,  volume_24h: 800.0,  liquidity: 5000.0 }, // Sigue bajando
+        ];
+
+        let result = simulator.run(&mut strategy, &data).expect("Error ejecutando backtest");
+
+        println!("\n📊 RESULTADOS DEL TEST:");
+        println!("   Estrategia: {}", result.strategy_name);
+        println!("   Trades Totales: {}", result.total_trades);
+        println!("   Win Rate: {:.2}%", result.win_rate);
+        println!("   Balance Final: {:.4} SOL", result.final_balance);
+        println!("   Max Drawdown: {:.2}%", result.max_drawdown);
+
+        // Verificaciones de integridad
+        assert!(result.total_trades >= 1, "La estrategia debería haber ejecutado al menos un ciclo");
+        assert!(result.final_balance > 0.0, "El balance no debería ser cero");
+        assert!(result.total_fees_paid > 0.0, "Deberían haberse cobrado fees de simulación");
+    }
+}
