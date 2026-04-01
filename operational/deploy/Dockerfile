@@ -45,8 +45,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get update && apt-get install -y google-cloud-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar el binario compilado
+# Copiar el binario compilado y configuración
 COPY --from=builder /app/target/release/the_chassis_app /app/the_chassis_app
+COPY operational/data/settings.json /app/settings.json
 
 # Configuración de entorno
 ENV RUST_LOG=info
