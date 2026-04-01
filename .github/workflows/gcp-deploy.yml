@@ -160,13 +160,26 @@ jobs:
           RUST_LOG=info
           ENV_EOF
           
-          echo "✅ Secretos cargados."
+          # 4. Generate settings.json (Institutional Default)
+          SETTINGS_FILE="/root/settings.json"
+          cat <<SETTINGS_EOF > $SETTINGS_FILE
+          {
+              "global_settings": {
+                  "min_sol_balance": 0.01,
+                  "jito_tip_lamports": 5000,
+                  "monitor_interval_sec": 10,
+                  "auto_execute": true
+              }
+          }
+          SETTINGS_EOF
+
+          echo "✅ Secretos y configuraciones cargados."
           DOCKER_IMAGE="__IMAGE_URL__"
           docker pull $DOCKER_IMAGE
           docker stop solana_trading_bot 2>/dev/null || true
           docker rm solana_trading_bot 2>/dev/null || true
           
-          echo "⚡ Arrancando contenedor en modo MONITOR..."
+          echo "⚡ Arrancando contenedor con configuración montada..."
           docker run -d \
             --name solana_trading_bot \
             --restart always \
@@ -175,6 +188,7 @@ jobs:
             --env-file $ENV_FILE \
             -e DB_PATH=/app/data/trading_state.db \
             -v $MOUNT_POINT:/app/data \
+            -v $SETTINGS_FILE:/app/settings.json \
             $DOCKER_IMAGE \
             ./the_chassis_app monitor
           
