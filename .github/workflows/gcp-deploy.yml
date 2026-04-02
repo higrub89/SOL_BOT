@@ -3,6 +3,7 @@ name: 🚀 Deploy Bot to GCP
 on:
   push:
     branches: [ master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 env:
