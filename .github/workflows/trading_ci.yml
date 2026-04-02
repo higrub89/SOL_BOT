@@ -11,9 +11,17 @@ env:
 
 jobs:
   aerospace_checks:
-    runs-on: ubuntu-latest
+    env:
+      PROTOC: /usr/bin/protoc
+      PROTOC_INCLUDE: /usr/include
     steps:
     - uses: actions/checkout@v4
+
+    - name: ⚙️ Install system protoc
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y protobuf-compiler libprotobuf-dev
+        /usr/bin/protoc --version
 
     - name: Set up Rust (Nightly for Latency Benchmarks)
       uses: dtolnay/rust-toolchain@nightly

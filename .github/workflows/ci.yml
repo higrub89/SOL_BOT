@@ -10,9 +10,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      PROTOC: /usr/bin/protoc
+      PROTOC_INCLUDE: /usr/include
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: ⚙️ Install system protoc
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y protobuf-compiler libprotobuf-dev
+        /usr/bin/protoc --version
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
