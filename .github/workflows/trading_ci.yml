@@ -11,6 +11,7 @@ env:
 
 jobs:
   aerospace_checks:
+    runs-on: ubuntu-latest
     env:
       PROTOC: /usr/bin/protoc
       PROTOC_INCLUDE: /usr/include
@@ -39,7 +40,7 @@ jobs:
 
     - name: Security Audit
       run: |
-        cargo install cargo-audit
+        cargo install cargo-audit --locked || true
         cargo audit
 
     - name: ExecutionRouter Benchmarks (Latency Regression)
