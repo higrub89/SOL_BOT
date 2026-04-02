@@ -13,6 +13,9 @@ env:
   REGION: europe-west1
   REPOSITORY: the-chassis-repo
   IMAGE_NAME: bot
+  # 🛡️ GLOBAL CI HARDENING
+  PROTOC: /usr/bin/protoc
+  PROTOC_INCLUDE: /usr/include
 
 jobs:
   build-and-deploy:
@@ -25,15 +28,16 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: ⚙️ Install Protobuf (Manual Direct)
+      - name: ⚙️ System Dependencies (Hardened)
         run: |
           sudo apt-get update -y
           sudo apt-get install -y protobuf-compiler libprotobuf-dev
-          PROTOC_PATH=$(which protoc)
-          echo "PROTOC=$PROTOC_PATH" >> $GITHUB_ENV
-          echo "PROTOC_INCLUDE=/usr/include" >> $GITHUB_ENV
-          echo "✅ Protoc installed at: $PROTOC_PATH"
-          $PROTOC_PATH --version
+          if [ ! -f /usr/bin/protoc ]; then
+            echo "::error::Protoc was not found at /usr/bin/protoc even after install!"
+            exit 1
+          fi
+          echo "✅ Protoc verified at $(which protoc)"
+          /usr/bin/protoc --version
 
       - name: 🦀 Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +70,6 @@ jobs:
           GCP_SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}
         run: |
           set -euo pipefail
-
           missing=0
           if [ -z "${WIF_PROVIDER_NAME}" ]; then
             echo "::error::Missing required secret: WIF_PROVIDER_NAME"
@@ -76,9 +79,7 @@ jobs:
             echo "::error::Missing required secret: GCP_SA_EMAIL"
             missing=1
           fi
-
           if [ "${missing}" -ne 0 ]; then
-            echo "::error::Secrets are unavailable in this run context. If this is a fork/Dependabot PR or environment mismatch, GitHub will not expose repository secrets."
             exit 1
           fi
 
@@ -103,7 +104,6 @@ jobs:
       - name: 🔄 Update Startup Script & Reset GCE Instance
         run: |
           IMAGE_URL="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
-
           cat > /tmp/startup.sh << 'STARTUP_EOF'
           #!/bin/bash
           set -euo pipefail
@@ -116,24 +116,18 @@ jobs:
             systemctl start docker && systemctl enable docker
           fi
           
-          # 2. Setup Persistent Disk (if attached)
+          # 2. Setup Persistent Disk
           DATA_DISK="/dev/disk/by-id/google-chassis-data"
           MOUNT_POINT="/mnt/disks/chassis_data"
-          
           if [ -b "$DATA_DISK" ]; then
-            echo "💾 Disco persistente detectado ($DATA_DISK). Preparando montaje..."
             mkdir -p $MOUNT_POINT
-            # Formatear solo si no tiene sistema de archivos
             if ! blkid "$DATA_DISK" > /dev/null; then
               mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$DATA_DISK"
             fi
-            # Montar si no está montado
             if ! mount | grep -q "$MOUNT_POINT"; then
               mount -o discard,defaults "$DATA_DISK" $MOUNT_POINT
             fi
-            echo "✅ Disco persistente montado en $MOUNT_POINT"
           else
-            echo "⚠️  Disco persistente NO detectado. Usando almacenamiento local (no persistente)."
             mkdir -p $MOUNT_POINT
           fi
 
@@ -147,7 +141,6 @@ jobs:
             gcloud secrets versions access latest --secret="$1" --project="$PROJECT_ID" --quiet 2>/dev/null
           }
           
-          echo "📥 Recuperando secretos..."
           H_KEY=$(fetch_secret HELIUS_API_KEY)
           W_KEY=$(fetch_secret CHASSIS_WALLET_KEY)
           W_ADDR=$(fetch_secret WALLET_ADDRESS)
@@ -164,7 +157,7 @@ jobs:
           RUST_LOG=info
           ENV_EOF
           
-          # 4. Generate settings.json (Institutional Default)
+          # 4. Generate settings.json
           SETTINGS_FILE="/root/settings.json"
           cat <<SETTINGS_EOF > $SETTINGS_FILE
           {
@@ -177,13 +170,11 @@ jobs:
           }
           SETTINGS_EOF
 
-          echo "✅ Secretos y configuraciones cargados."
           DOCKER_IMAGE="__IMAGE_URL__"
           docker pull $DOCKER_IMAGE
           docker stop solana_trading_bot 2>/dev/null || true
           docker rm solana_trading_bot 2>/dev/null || true
           
-          echo "⚡ Arrancando contenedor con configuración montada..."
           docker run -d \
             --name solana_trading_bot \
             --restart always \
@@ -195,8 +186,6 @@ jobs:
             -v $SETTINGS_FILE:/app/settings.json \
             $DOCKER_IMAGE \
             ./the_chassis_app monitor
-          
-          echo "🏎️ THE CHASSIS online."
           STARTUP_EOF
 
           sed -i "s|__PROJECT_ID__|${{ env.PROJECT_ID }}|g" /tmp/startup.sh
@@ -230,7 +219,6 @@ jobs:
             -d text="<b>${EMOJI} THE CHASSIS — ${MSG}</b>
           <b>━━━━━━━━━━━━━━━━━━━━━━</b>
           <b>⬡ Commit:</b> <code>${{ github.sha }}</code>
-          <b>⬡ Registry:</b> GCP Artifact Registry
           <b>⬡ Target:</b> ${{ env.INSTANCE_NAME }}
           
-          <i>Motor reiniciado y sincronizado con la última compilación.</i>"
+          <i>Motor reiniciado y sincronizado.</i>"
