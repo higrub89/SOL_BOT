@@ -24,12 +24,10 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: ⚙️ Install system protoc
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev
-          echo "PROTOC=$(which protoc)" >> $GITHUB_ENV
-          protoc --version
+      - name: ⚙️ Install Protobuf Compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🦀 Setup Rust
         uses: dtolnay/rust-toolchain@stable
