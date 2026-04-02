@@ -49,7 +49,17 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
     --role="roles/iam.workloadIdentityUser" \
     --member="principalSet://iam.googleapis.com/projects/$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')/locations/global/workloadIdentityPools/$POOL_NAME/attribute.repository/$REPO"
 
-# 4. Obtener el Provider Name para GitHub Secrets
+# 4. Otorgar permisos adicionales necesarios
+echo "🔑 Añadiendo roles de Secret Manager y Logs..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="roles/secretmanager.secretAccessor"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="roles/logging.logWriter"
+
+# 5. Obtener el Provider Name para GitHub Secrets
 WIF_FULL_NAME=$(gcloud iam workload-identity-pools providers describe "$PROVIDER_NAME" \
     --location="global" --workload-identity-pool="$POOL_NAME" \
     --project="$PROJECT_ID" --format='value(name)')
