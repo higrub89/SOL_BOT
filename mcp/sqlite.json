@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "telemetry-db": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "--db",
+        "/home/ruben/Workspace/defi/bot_trading/trading_state.db"
+      ]
+    }
+  }
+}

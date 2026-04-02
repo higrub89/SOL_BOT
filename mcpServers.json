@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "chassis-solana": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-solana"],
+      "env": {
+        "HELIUS_API_KEY": "1d8b1813-084e-41ed-8e93-87a503c496c6"
+      }
+    },
+    "chassis-telemetry": {
+      "command": "npx",
+      "args": [
+        "-y", 
+        "@modelcontextprotocol/server-sqlite", 
+        "--db", 
+        "/home/ruben/Workspace/defi/bot_trading/trading_state.db"
+      ]
+    },
+    "chassis-files": {
+      "command": "npx",
+      "args": [
+        "-y", 
+        "@modelcontextprotocol/server-filesystem", 
+        "/home/ruben/Workspace/defi/bot_trading"
+      ]
+    },
+    "chassis-git": {
+      "command": "npx",
+      "args": [
+        "-y", 
+        "@modelcontextprotocol/server-git", 
+        "/home/ruben/Workspace/defi/bot_trading"
+      ]
+    }
+  }
+}
