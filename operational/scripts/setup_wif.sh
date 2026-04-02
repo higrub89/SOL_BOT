@@ -59,6 +59,14 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$SA_EMAIL" \
     --role="roles/logging.logWriter"
 
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="roles/compute.instanceAdmin.v1"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="roles/iam.serviceAccountUser"
+
 # 5. Obtener el Provider Name para GitHub Secrets
 WIF_FULL_NAME=$(gcloud iam workload-identity-pools providers describe "$PROVIDER_NAME" \
     --location="global" --workload-identity-pool="$POOL_NAME" \

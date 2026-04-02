@@ -9,4 +9,5 @@ paths = [
 ]
 regexes = [
     '[a-zA-Z0-9]{32,44}(pump)?', # Direcciones de Solana estándar
+    'project-[a-z0-9-]{19}',      # GCP Project IDs
 ]
