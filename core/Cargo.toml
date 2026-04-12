@@ -20,7 +20,7 @@ spl-memo = { version = "6.0.0", default-features = false, features = ["no-entryp
 libc = "0.2"
 
 # Async Runtime
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.51", features = ["full"] }
 async-trait = "0.1"
 tokio-stream = "0.1"
 
